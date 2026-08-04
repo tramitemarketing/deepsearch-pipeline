@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEEPSEARCH — il funnel, e cosa muore a ogni cancello</title>
+<meta name="description" content="Dieci agenti, sette ondate, otto cancelli. Il diagramma dell'attrito: quanto entra, quanto sopravvive, e chi ha il permesso di dirlo.">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="it_IT">
+<meta property="og:title" content="DEEPSEARCH — il funnel, e cosa muore a ogni cancello">
+<meta property="og:description" content="Dieci agenti, sette ondate, otto cancelli. Il diagramma dell'attrito: quanto entra, quanto sopravvive, e chi ha il permesso di dirlo.">
+<meta property="og:url" content="https://tramitemarketing.github.io/deepsearch-pipeline/flusso.html">
+<meta property="og:image" content="https://tramitemarketing.github.io/deepsearch-pipeline/anteprima.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23100f0e'/%3E%3Crect x='5' y='7' width='22' height='4' fill='%238f8b83'/%3E%3Crect x='5' y='14' width='12' height='4' fill='%234a90e2'/%3E%3Crect x='5' y='21' width='6' height='4' fill='%23e2733c'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --nero:#100f0e; --nero-2:#171615; --nero-3:#1f1e1c;
+  --bianco:#f7f5f0; --grigio:#a3a099; --grigio-2:#6e6b65;
+  --linea:#2a2825; --linea-2:#3a3733;
+  --retrieval:#4a90e2; --judgment:#e2733c; --avversario:#22b08a; --generativo:#8f8b83;
+  --morte:#d4574e; --vita:#3fa96b; --attesa:#c99a2e;
+  --display:"Fraunces",Georgia,serif;
+  --testo:"Archivo",-apple-system,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{
+  background:var(--nero); color:var(--bianco); font-family:var(--testo);
+  font-size:15px; line-height:1.6; padding:clamp(1.5rem,4vw,4rem);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 15% -5%, rgba(74,144,226,.09), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 95% 105%, rgba(226,115,60,.07), transparent 60%);
+  background-attachment:fixed;
+}
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:99; opacity:.16;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:overlay;
+}
+.foglio{max-width:1180px; margin:0 auto}
+
+/* ---------- testata ---------- */
+.occhiello{
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--grigio-2); display:flex; gap:1rem; align-items:center; margin-bottom:1.6rem;
+}
+.occhiello::after{content:""; flex:1; height:1px; background:var(--linea)}
+h1{
+  font-family:var(--display); font-weight:600; font-size:clamp(2.4rem,6vw,4.4rem);
+  line-height:.95; letter-spacing:-.03em; font-variation-settings:"SOFT" 0,"WONK" 1;
+  margin-bottom:1.1rem; text-wrap:balance;
+}
+h1 em{font-style:italic; color:var(--grigio)}
+.sommario{
+  font-size:clamp(1rem,1.6vw,1.18rem); color:var(--grigio); max-width:62ch;
+  line-height:1.55; margin-bottom:.9rem;
+}
+.sommario b{color:var(--bianco); font-weight:600}
+.riga-testata{border-bottom:1px solid var(--linea); padding-bottom:2.4rem; margin-bottom:2.8rem}
+
+/* ---------- legenda dei poteri ---------- */
+.poteri{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(224px,1fr)); gap:1px;
+  background:var(--linea); border:1px solid var(--linea); margin-bottom:3.2rem;
+}
+.potere{background:var(--nero-2); padding:1.1rem 1.2rem}
+.potere .nome{
+  font-family:var(--mono); font-size:.7rem; letter-spacing:.13em; text-transform:uppercase;
+  display:flex; align-items:center; gap:.5rem; margin-bottom:.55rem; font-weight:700;
+}
+.punto{width:.55rem; height:.55rem; border-radius:50%; flex:none; box-shadow:0 0 12px currentColor}
+.potere .chi{font-size:.79rem; color:var(--grigio); line-height:1.5; margin-bottom:.7rem;
+  font-family:var(--mono); word-spacing:-.1em}
+.permessi{display:flex; gap:.9rem; font-size:.7rem; font-family:var(--mono); letter-spacing:.03em}
+.permessi span{color:var(--grigio-2)}
+.si{color:var(--vita)} .no{color:var(--morte); font-weight:700}
+
+/* ---------- il funnel ---------- */
+.titoletto{
+  font-family:var(--mono); font-size:.68rem; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--grigio-2); margin-bottom:1.5rem; display:flex; gap:1rem; align-items:center;
+}
+.titoletto::after{content:""; flex:1; height:1px; background:var(--linea)}
+.scala{
+  display:grid; grid-template-columns:3.2rem 1fr; gap:1.4rem; font-family:var(--mono);
+  font-size:.64rem; color:var(--grigio-2); letter-spacing:.08em; margin-bottom:.7rem;
+}
+.scala div:last-child{display:flex; justify-content:space-between}
+
+.ondata{
+  display:grid; grid-template-columns:3.2rem 1fr; gap:1.4rem;
+  padding:1.15rem 0; border-top:1px solid var(--linea); position:relative;
+  opacity:0; animation:entra .55s cubic-bezier(.22,.9,.3,1) forwards;
+}
+@keyframes entra{from{opacity:0; transform:translateY(9px)} to{opacity:1; transform:none}}
+.ondata:last-of-type{border-bottom:1px solid var(--linea)}
+.w{
+  font-family:var(--mono); font-size:.72rem; color:var(--grigio-2); font-weight:700;
+  letter-spacing:.06em; padding-top:.15rem;
+}
+.corpo{min-width:0}
+.intestazione{display:flex; flex-wrap:wrap; align-items:baseline; gap:.55rem .8rem; margin-bottom:.7rem}
+.nome-ondata{font-family:var(--display); font-size:1.32rem; font-weight:600; letter-spacing:-.015em}
+.agenti{display:flex; flex-wrap:wrap; gap:.32rem}
+.chip{
+  font-family:var(--mono); font-size:.63rem; padding:.16rem .48rem; border-radius:2px;
+  border:1px solid currentColor; letter-spacing:.02em; white-space:nowrap; opacity:.92;
+}
+.moltiplica{font-family:var(--mono); font-size:.63rem; color:var(--grigio-2)}
+
+/* barra di attrito — il colore E' la classe di chi lavora in quella ondata,
+   e la zona morta si vede come AREA, non come numero a fondo riga */
+.barra{
+  position:relative; height:2.3rem; margin:.55rem 0 .65rem; border-radius:2px;
+  background:
+    repeating-linear-gradient(115deg,
+      rgba(212,87,78,.15) 0 1px, transparent 1px 7px),
+    var(--nero-3);
+  box-shadow:inset 0 0 0 1px var(--linea);
+}
+.riempi{
+  position:absolute; inset:0 auto 0 0; width:0; border-radius:2px 0 0 2px;
+  background:var(--c); box-shadow:0 0 22px -6px var(--c);
+  animation:cresci 1.05s cubic-bezier(.22,.9,.3,1) forwards; animation-delay:inherit;
+}
+@keyframes cresci{to{width:var(--w)}}
+.cifra{
+  position:absolute; top:50%; transform:translateY(-50%); left:.75rem; z-index:2;
+  font-family:var(--mono); font-size:1.05rem; font-weight:700; letter-spacing:-.02em;
+  color:#0d0c0b; mix-blend-mode:normal;
+}
+.cifra small{font-size:.61rem; font-weight:400; opacity:.72; margin-left:.42rem; letter-spacing:.05em}
+.perdita{
+  position:absolute; top:50%; left:var(--w); transform:translateY(-50%);
+  margin-left:.8rem; z-index:2; white-space:nowrap;
+  font-family:var(--mono); font-size:.76rem; font-weight:700; color:var(--morte);
+  letter-spacing:.03em;
+}
+.perdita span{font-weight:400; color:#8a4a45; margin-left:.35rem; letter-spacing:.06em}
+.nessun-taglio{
+  position:absolute; top:50%; left:var(--w); transform:translateY(-50%); margin-left:.8rem;
+  font-family:var(--mono); font-size:.68rem; color:var(--grigio-2); letter-spacing:.05em;
+}
+.cancello{display:flex; flex-wrap:wrap; gap:.5rem .9rem; align-items:baseline; font-size:.79rem; color:var(--grigio)}
+.g{
+  font-family:var(--mono); font-size:.66rem; font-weight:700; letter-spacing:.06em;
+  color:var(--bianco); background:var(--nero-3); border:1px solid var(--linea-2);
+  padding:.13rem .45rem; border-radius:2px; white-space:nowrap;
+}
+.rami{font-family:var(--mono); font-size:.66rem; color:var(--grigio-2)}
+.codici{font-family:var(--mono); font-size:.66rem; color:var(--morte); letter-spacing:.05em}
+
+/* ---------- il vero ---------- */
+.vero{
+  margin-top:3.2rem; border:1px solid var(--linea-2); background:var(--nero-2);
+  padding:clamp(1.3rem,2.6vw,2rem); position:relative; overflow:hidden;
+}
+.vero::before{
+  content:""; position:absolute; inset:0 auto 0 0; width:3px;
+  background:linear-gradient(180deg,var(--morte),transparent);
+}
+.vero h2{
+  font-family:var(--display); font-size:1.5rem; font-weight:600; letter-spacing:-.02em;
+  margin-bottom:.7rem;
+}
+.vero p{color:var(--grigio); max-width:64ch; font-size:.92rem; margin-bottom:1.1rem}
+.vero p b{color:var(--bianco); font-weight:600}
+.reale{display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.9rem}
+.tappa{
+  border:1px solid var(--linea-2); padding:.34rem .6rem; border-radius:2px;
+  background:var(--nero-3); font-weight:700; letter-spacing:-.01em;
+}
+.tappa small{display:block; font-size:.6rem; font-weight:400; color:var(--grigio-2); letter-spacing:.06em; margin-top:.1rem}
+.tappa.fine{border-color:var(--morte); color:var(--morte)}
+.fre{color:var(--grigio-2)}
+
+/* ---------- piede ---------- */
+.piede{
+  margin-top:3rem; padding-top:1.4rem; border-top:1px solid var(--linea);
+  display:flex; flex-wrap:wrap; gap:1.2rem; justify-content:space-between; align-items:baseline;
+  font-family:var(--mono); font-size:.68rem; color:var(--grigio-2); letter-spacing:.04em;
+}
+.piede a{color:var(--grigio); text-decoration:none; border-bottom:1px solid var(--linea-2)}
+.piede a:hover{color:var(--bianco)}
+
+@media (prefers-reduced-motion:reduce){
+  .ondata{opacity:1; animation:none}
+  .riempi{width:var(--w); animation:none}
+}
+@media (max-width:680px){
+  .ondata,.scala{grid-template-columns:2.3rem 1fr; gap:.8rem}
+  .perdita{display:none}
+}
+</style>
+</head>
+<body>
+<div class="foglio">
+
+<div class="riga-testata">
+  <div class="occhiello">DEEPSEARCH · diagramma dell'attrito · profilo DEEP</div>
+  <h1>Ottanta problemi entrano.<br><em>Quattro, al massimo, escono.</em></h1>
+  <p class="sommario">Un diagramma di pipeline mostra di solito il lavoro che <b>scorre</b>. Questo mostra
+  il lavoro che <b>muore</b>: a ogni cancello cade quasi tutto, ed è il comportamento voluto.</p>
+  <p class="sommario">La seconda cosa che si vede a colpo d'occhio è chi ha il permesso di parlare.
+  <b>Chi cerca non conclude, chi conclude non cerca</b> — e non perché gli sia vietato, ma perché
+  gli strumenti per farlo non gli vengono dati.</p>
+</div>
+
+<div class="poteri">
+  <div class="potere">
+    <div class="nome" style="color:var(--retrieval)"><span class="punto"></span>retrieval</div>
+    <div class="chi">evidence-researcher · competitor-analyst · trigger-finder · tam-analyst · source-verifier</div>
+    <div class="permessi"><span>cerca <b class="si">sì</b></span><span>conclude <b class="no">no</b></span></div>
+  </div>
+  <div class="potere">
+    <div class="nome" style="color:var(--judgment)"><span class="punto"></span>judgment</div>
+    <div class="chi">bootstrap-filter · venture-architect · ranking-agent</div>
+    <div class="permessi"><span>cerca <b class="no">no</b></span><span>conclude <b class="si">sì</b></span></div>
+  </div>
+  <div class="potere">
+    <div class="nome" style="color:var(--avversario)"><span class="punto"></span>avversario</div>
+    <div class="chi">red-team ×3 lenti cieche fra loro</div>
+    <div class="permessi"><span>cerca <b class="si">sì</b></span><span>solo per falsificare</span></div>
+  </div>
+  <div class="potere">
+    <div class="nome" style="color:var(--generativo)"><span class="punto"></span>generativo</div>
+    <div class="chi">pain-finder ×8 shard ciechi fra loro</div>
+    <div class="permessi"><span>cerca <b class="si">sì</b></span><span>propone, non valida</span></div>
+  </div>
+</div>
+
+<div class="titoletto">il funnel, cancello per cancello</div>
+<div class="scala"><div></div><div><span>0</span><span>pieno = sopravvive · tratteggiato = caduto qui · il colore è la classe di chi lavora</span><span>80</span></div></div>
+
+<div class="ondata" style="animation-delay:.05s">
+  <div class="w">W1</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Generazione dei pain</span>
+      <span class="agenti"><span class="chip" style="color:var(--generativo)">pain-finder</span></span>
+      <span class="moltiplica">× 8 shard · coppie (settore, angolo) diverse</span>
+    </div>
+    <div class="barra" style="--w:100%"><div class="riempi" style="--w:100%;--c:var(--generativo); animation-delay:.15s"></div>
+      <span class="cifra">80 <small>candidati</small></span></div>
+    <div class="cancello"><span class="g">GATE 1</span>
+      <span>ordina per spesa · comportamento · perdita · ricorrenza, e taglia</span>
+      <span class="codici">G2</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.12s">
+  <div class="w">W2</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Evidenze</span>
+      <span class="agenti"><span class="chip" style="color:var(--retrieval)">evidence-researcher</span></span>
+      <span class="moltiplica">× 5 canali ciechi, per ogni pain</span>
+    </div>
+    <div class="barra" style="--w:54.8%"><div class="riempi" style="--w:54.8%;--c:var(--retrieval); animation-delay:.25s"></div>
+      <span class="cifra">24</span><span class="perdita">− 56 <span>caduti qui</span></span></div>
+    <div class="cancello"><span class="g">GATE 2</span><span class="rami">6 rami</span>
+      <span>esiste il problema, e qualcuno ci spende?</span>
+      <span class="codici">G1 · G3</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.19s">
+  <div class="w">W3</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Competitor · Trigger · Mercato</span>
+      <span class="agenti">
+        <span class="chip" style="color:var(--retrieval)">competitor-analyst</span>
+        <span class="chip" style="color:var(--retrieval)">trigger-finder</span>
+        <span class="chip" style="color:var(--retrieval)">tam-analyst</span>
+        <span class="chip" style="color:var(--avversario)">red-team</span>
+      </span>
+      <span class="moltiplica">in parallelo, con interruzione al primo kill</span>
+    </div>
+    <div class="barra" style="--w:38.7%"><div class="riempi" style="--w:38.7%;--c:var(--retrieval); animation-delay:.35s"></div>
+      <span class="cifra">12</span><span class="perdita">− 12 <span>caduti qui</span></span></div>
+    <div class="cancello"><span class="g">GATE 3</span><span class="rami">10 rami</span>
+      <span class="g">GATE 4</span><span class="rami">6 rami</span>
+      <span class="g">GATE 5</span><span class="rami">4 rami</span>
+      <span class="codici">K1–K5 · G7 · G4 · G8 · G9</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.26s">
+  <div class="w">W4</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Filtro bootstrap</span>
+      <span class="agenti"><span class="chip" style="color:var(--judgment)">bootstrap-filter</span></span>
+      <span class="moltiplica">13 vincoli · 3 persone, 90 giorni, 50k</span>
+    </div>
+    <div class="barra" style="--w:27.4%"><div class="riempi" style="--w:27.4%;--c:var(--judgment); animation-delay:.45s"></div>
+      <span class="cifra">6</span><span class="perdita">− 6 <span>caduti qui</span></span></div>
+    <div class="cancello"><span class="g">GATE 6</span><span>fattibile senza capitali esterni?</span>
+      <span class="codici">G5 · G6</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.33s">
+  <div class="w">W5</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Progettazione</span>
+      <span class="agenti"><span class="chip" style="color:var(--judgment)">venture-architect</span></span>
+      <span class="moltiplica">l'unico agente che produce invece di valutare</span>
+    </div>
+    <div class="barra" style="--w:27.4%"><div class="riempi" style="--w:27.4%;--c:var(--judgment); animation-delay:.55s"></div>
+      <span class="cifra">6</span><span class="nessun-taglio">nessun taglio: qui si progetta</span></div>
+    <div class="cancello"><span class="g">GATE 6-bis</span>
+      <span>ora i canali esistono: qui un dato ignoto <b>blocca</b></span>
+      <span class="codici">G6</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.40s">
+  <div class="w">W6</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Avversario e integrità</span>
+      <span class="agenti">
+        <span class="chip" style="color:var(--avversario)">red-team ×3</span>
+        <span class="chip" style="color:var(--retrieval)">source-verifier</span>
+      </span>
+      <span class="moltiplica">il verificatore non vede mai il dossier</span>
+    </div>
+    <div class="barra" style="--w:22.4%"><div class="riempi" style="--w:22.4%;--c:var(--avversario); animation-delay:.65s"></div>
+      <span class="cifra">4</span><span class="perdita">− 2 <span>caduti qui</span></span></div>
+    <div class="cancello"><span class="g">GATE 7</span><span class="rami">voto 2 su 3</span>
+      <span class="g">GATE 7-bis</span><span>fonte fabbricata → cade tutto l'agente</span></div>
+  </div>
+</div>
+
+<div class="ondata" style="animation-delay:.47s">
+  <div class="w">W7</div>
+  <div class="corpo">
+    <div class="intestazione">
+      <span class="nome-ondata">Classifica</span>
+      <span class="agenti"><span class="chip" style="color:var(--judgment)">ranking-agent</span></span>
+      <span class="moltiplica">conta, non giudica</span>
+    </div>
+    <div class="barra" style="--w:22.4%"><div class="riempi" style="--w:22.4%;--c:var(--judgment); animation-delay:.75s"></div>
+      <span class="cifra">4 <small>massimo pubblicabile</small></span></div>
+    <div class="cancello"><span class="g">GATE 8</span><span class="rami">5 rami</span>
+      <span>≥ 6,5 · confidenza ≥ 0,70 · 4 domande su 5 fontate</span></div>
+  </div>
+</div>
+
+<div class="vero">
+  <h2>E nella realtà?</h2>
+  <p>Il funnel qui sopra è il progetto. Questo è l'ultimo run vero, in profilo ridotto — e non è un
+  guasto: <b>è il sistema che funziona.</b> Un rapporto con zero idee e una spiegazione onesta vale
+  più di quattro idee mediocri, ed è la regola scritta nel file che ogni agente legge.</p>
+  <div class="reale">
+    <span class="tappa">14<small>generati</small></span><span class="fre">→</span>
+    <span class="tappa">2<small>evidenziati</small></span><span class="fre">→</span>
+    <span class="tappa">1<small>competitor</small></span><span class="fre">→</span>
+    <span class="tappa fine">0<small>pubblicati</small></span>
+  </div>
+  <p style="margin-top:1.2rem; margin-bottom:0">Ciò che è cambiato non è la severità, ma cosa il
+  sistema consegna quando si svuota: oggi dichiara <b>dove</b> si è fermato, se a dire no è stato il
+  mercato o lo strumento, e <b>quanto costa ripartire</b>.</p>
+</div>
+
+<div class="piede">
+  <span>10 agenti · 7 ondate · 8 cancelli · 27 controlli di specifica · 61 mutazioni di autotest</span>
+  <span><a href="./">documento di riferimento</a> · <a href="https://github.com/tramitemarketing/deepsearch-pipeline">codice</a></span>
+</div>
+
+</div>
+</body>
+</html>

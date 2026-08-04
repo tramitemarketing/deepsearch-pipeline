@@ -15,3 +15,8 @@ runs/
 # vuoti perche' fanno parte della struttura. L'orchestratore li ricrea al primo run.
 state/query-ledger.jsonl
 state/source-ledger.jsonl
+
+# artefatti di verifica del rendering
+.playwright-mcp/
+flusso-v*.png
+flusso-check.png
