@@ -908,7 +908,7 @@ nessuno verifica si stacca da sola dai file che dovrebbe governare</em>.</p>
 <table>
 <thead><tr><th>Strumento</th><th>Cosa fa</th></tr></thead>
 <tbody>
-<tr><td><code>spec_check.py</code></td><td><strong>Il verificatore di specifica: 27 controlli</strong> che confrontano configurazione, schemi, prompt degli agenti, orchestratore e regole globali <em>fra loro</em>, e segnalano dove si contraddicono. È il primo comando di ogni run: se esce con un errore, <strong>il run non parte</strong>.</td></tr>
+<tr><td><code>spec_check.py</code></td><td><strong>Il verificatore di specifica: 29 controlli</strong> che confrontano configurazione, schemi, prompt degli agenti, orchestratore e regole globali <em>fra loro</em>, e segnalano dove si contraddicono. È il primo comando di ogni run: se esce con un errore, <strong>il run non parte</strong>.</td></tr>
 <tr><td><code>spec_check_selftest.py</code></td><td>Dimostra che il verificatore non è cieco: rimette dentro, su una copia usa-e-getta, i difetti realmente accaduti nella storia del progetto e pretende che vengano ripresi. Sei corpus separati — 61 difetti, 61 ripresi — perché i difetti inventati dall'autore dei controlli passano per costruzione e non dimostrano niente.</td></tr>
 <tr><td><code>run_close.py</code></td><td>Chiude un run e ne dichiara la validità confrontando i numeri del rapporto con i registri. Due fasi: una prima del rapporto, una dopo — ed è solo la seconda ad autorizzare la scrittura in memoria.</td></tr>
 <tr><td><code>reconcile_run.py</code></td><td>Separa il guasto amministrativo dalla fabbricazione: una fonte raccolta ma mai registrata è riparabile senza rifare una ricerca; una citazione che nessuno ha mai incontrato no.</td></tr>

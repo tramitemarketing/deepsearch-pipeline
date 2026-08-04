@@ -822,7 +822,7 @@ producono da soli il numero che decide.
 
 Red team esterno condotto sui file **e sui tre run archiviati** (`20260801`, `20260802-1759`,
 `20260803-1204`). Il verbale completo è in `docs/RED-TEAM-v2.14.1.md`. `spec_check` sulla v2.14.1
-usciva **0 errori su 24 controlli**: tutto ciò che segue passava pulito.
+usciva **0 errori su 25 controlli**: tutto ciò che segue passava pulito.
 
 ### La tesi, che nessuna delle 8 lenti aveva formulato
 

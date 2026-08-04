@@ -570,6 +570,15 @@ QUINTO_RUN = [
                              for k in d["competitor_thresholds"]["CALIBRATED"]["kill_if_any"]
                              if k.get("id") == "K5"])),
 
+    ("SC-28",
+     "il numero di controlli dichiarato nella pagina pubblica diverge dal registro. E' la tesi "
+     "dell'intero progetto applicata al verificatore stesso, ed e' successa davvero: tre documenti "
+     "e due immagini dicevano '27 controlli' mentre il registro ne conteneva 28 — l'errore nasce "
+     "sommando i nuovi a una base contata male (SC-01..SC-24 invece di SC-00..SC-24). Nessun "
+     "controllo poteva vederlo, perche' le pagine HTML erano fuori perimetro: erano l'unico "
+     "artefatto pubblico che nessuno confrontava.",
+     patch_ovunque("index.html", "29 controlli", "27 controlli")),
+
     ("SC-27",
      "la deroga resta in config e l'agente non ha lo slot per dichiararla: E_IL_SISTEMA_DI_RECORD "
      "tolto dall'enum severity_reason di competitor-report.schema.json. E' la sesta forma della "

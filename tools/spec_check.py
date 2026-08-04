@@ -92,7 +92,7 @@ def tutti_gli_schemi():
 # loro mestiere. Lintarli contro il config di oggi produce solo rumore, e un verificatore rumoroso
 # viene ignorato, che e' il modo in cui un verificatore muore. Restano fuori dai controlli che
 # confrontano numeri e riferimenti; entrano solo dove il passato non puo' mentire.
-STORICI = ("COLLAUDO-", "RIPENSAMENTO-", "MIGLIORIE.md", "CHANGELOG")
+STORICI = ("COLLAUDO-", "RIPENSAMENTO-", "MIGLIORIE.md", "CHANGELOG", "RED-TEAM-")
 
 # Via d'uscita esplicita, per riga. Un esempio didattico ("unclassified_ratio = 0.66 -> PARK") e un
 # valore osservato in una narrazione sono legittimi e indistinguibili da una soglia per qualunque
@@ -109,6 +109,7 @@ def file_di_prosa(solo_normativi=False):
     # sopravvissuto per due versioni il vocabolario inglese (PUBLISHED) che il config dichiarava
     # eliminato. Un file normativo fuori dal perimetro e' un file che nessuno confronta.
     f += [os.path.join(ROOT, "state", "README.md")]
+
     out = [(os.path.relpath(p, ROOT), leggi(p)) for p in f if os.path.exists(p)]
     if solo_normativi:
         out = [(n, t) for n, t in out if not e_storico(n)]
@@ -122,6 +123,16 @@ def e_storico(nome):
 
 def normativi(prosa):
     return [(n, t) for n, t in prosa if not e_storico(n)]
+
+
+def pagine_pubblicate():
+    """Le pagine HTML servite da Pages: descrivono il sistema di OGGI a chi non lo conosce.
+
+    Non entrano nel perimetro generale — SC-06 leggerebbe l'etichetta di ondata "W7" come un
+    criterio competitor mai dichiarato, e un controllo che spara a vuoto viene disattivato molto
+    prima di uno che tace. Le legge solo chi ha una ragione precisa per farlo."""
+    return [(os.path.relpath(x, ROOT), leggi(x))
+            for x in sorted(glob.glob(os.path.join(ROOT, "*.html")))]
 
 
 def cammina(o, prefisso=""):
@@ -1615,6 +1626,40 @@ def sc27_kill_automatici_hanno_una_severity(cfg, prosa, schemi):
                     ".claude/agents/")
 
 
+def sc28_quanti_controlli_dice_di_avere(prosa):
+    """
+    Il verificatore verifica tutti tranne il numero che lo descrive.
+
+    E' la stessa forma di SC-09 — "N rami dichiarati contro le righe elencate" — applicata a
+    questo strumento. Un numero scritto a mano in prosa diverge dal file che dovrebbe contare, e
+    nessuno se ne accorge perche' ogni file preso da solo e' coerente: e' la tesi dell'intero
+    progetto, e valeva anche qui.
+
+    Trovato pubblicando la pagina di riferimento: tre documenti e due immagini dichiaravano
+    "27 controlli" mentre il registro ne conteneva 28. L'errore nasce sommando i nuovi a una
+    base contata male (SC-01..SC-24 invece di SC-00..SC-24) — cioe' esattamente il modo in cui
+    un'enumerazione che parte da zero viene contata da chi la legge invece che da chi la esegue.
+
+    I documenti storici sono gia' fuori perimetro (normativi() li esclude), quindi qui il
+    numero deve COINCIDERE. La prima stesura ammetteva qualunque valore piu' basso come
+    "storico": con quella lettura una pagina pubblica ferma a una versione vecchia sarebbe
+    passata per sempre, ed e' il difetto che questo controllo esiste per impedire.
+    """
+    reali = len(CONTROLLI)
+    for nome, t_ in (prosa or []):
+        for m in re.finditer(r"\b(\d{1,3})\s+controlli\b", t_ or ""):
+            n = int(m.group(1))
+            riga = t_[:m.start()].count("\n") + 1
+            linea = t_.splitlines()[riga - 1] if riga <= len(t_.splitlines()) else ""
+            if IGNORA in linea:
+                continue
+            if n != reali:
+                err("SC-28", f"dichiara «{m.group(0)}» e il registro ne contiene {reali}. "
+                             "I file storici sono gia' esclusi da normativi(): qui il numero "
+                             "descrive il sistema di oggi e deve coincidere",
+                    f"{nome}:{riga}")
+
+
 CONTROLLI = {
     "SC-00": ("integrita' del contratto di verifica", lambda c, s, p: sc00_integrita_del_contratto(c)),
     "SC-01": ("riferimenti a config esistenti", lambda c, s, p: sc01_riferimenti_config(c, normativi(p))),
@@ -1644,6 +1689,7 @@ CONTROLLI = {
     "SC-25": ("tetti di budget contro budget per istanza", lambda c, s, p: sc25_tetti_contro_budget(c)),
     "SC-26": ("emettibilita' dei KILL: calcolata, non asserita", lambda c, s, p: sc26_emettibilita_dei_kill(c, normativi(p), s)),
     "SC-27": ("nessun kill automatico senza severity", lambda c, s, p: sc27_kill_automatici_hanno_una_severity(c, normativi(p), s)),
+    "SC-28": ("quanti controlli dice di avere", lambda c, s, p: sc28_quanti_controlli_dice_di_avere(normativi(p) + pagine_pubblicate())),
 }
 
 

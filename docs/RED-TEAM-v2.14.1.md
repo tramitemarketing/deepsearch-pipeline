@@ -8,7 +8,7 @@
 
 > Analisi avversariale condotta sui file della specifica **e sui tre run reali archiviati**
 > (`20260801`, `20260802-1759`, `20260803-1204`), recuperati dalle copie di versione in `Downloads/`.
-> `spec_check.py` su questa versione esce **0 errori, 11 avvisi, 24 controlli**: tutto ciò che segue
+> `spec_check.py` su questa versione esce **0 errori, 11 avvisi, 25 controlli**: tutto ciò che segue
 > passa pulito oggi.
 >
 > Questo documento **non ripete** `RIPENSAMENTO-8-LENTI.md`. Quel documento ha diagnosticato che il
