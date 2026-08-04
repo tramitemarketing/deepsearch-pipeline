@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEEPSEARCH — come funziona</title>
+<style>
+:root{
+  color-scheme: light;
+  --surface-0:#f6f6f4; --surface-1:#fcfcfb; --surface-2:#efefec;
+  --ink-1:#0b0b0b; --ink-2:#52514e; --ink-3:#807e78;
+  --linea:#dedcd6; --linea-forte:#c4c1b8;
+  --c1:#2a78d6;  /* retrieval */
+  --c2:#eb6834;  /* judgment  */
+  --c3:#1baf7a;  /* avversariale */
+  --c4:#807e78;  /* generativo — neutro: il quarto slot non supera i floor CVD */
+  --pass:#008300; --kill:#c0322f; --park:#a06a00;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --surface-0:#141413; --surface-1:#1a1a19; --surface-2:#242422;
+    --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#918f85;
+    --linea:#33322f; --linea-forte:#4a4945;
+    --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#918f85;
+    --pass:#3fa93f; --kill:#e66767; --park:#c98500;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --surface-0:#141413; --surface-1:#1a1a19; --surface-2:#242422;
+  --ink-1:#ffffff; --ink-2:#c3c2b7; --ink-3:#918f85;
+  --linea:#33322f; --linea-forte:#4a4945;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#918f85;
+  --pass:#3fa93f; --kill:#e66767; --park:#c98500;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth; scroll-padding-top:1.5rem}
+body{
+  margin:0; background:var(--surface-0); color:var(--ink-1);
+  font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.guscio{display:grid; grid-template-columns:16.5rem minmax(0,1fr); gap:0; max-width:96rem; margin:0 auto}
+nav{
+  position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+  padding:2rem 1rem 3rem 1.5rem; border-right:1px solid var(--linea); font-size:.82rem;
+}
+nav .marchio{font-weight:700; font-size:1rem; letter-spacing:-.02em; margin-bottom:.15rem}
+nav .sotto{color:var(--ink-3); font-size:.72rem; margin-bottom:1.4rem}
+nav ol{list-style:none; margin:0; padding:0}
+nav li{margin:.1rem 0}
+nav a{display:block; color:var(--ink-2); text-decoration:none; padding:.28rem .5rem; border-radius:5px; border-left:2px solid transparent}
+nav a:hover{background:var(--surface-2); color:var(--ink-1)}
+nav a.on{color:var(--ink-1); font-weight:600; border-left-color:var(--c1); background:var(--surface-2)}
+nav .livello{margin:1.1rem 0 .3rem .5rem; font-size:.65rem; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3); font-weight:700}
+main{padding:2.5rem 3rem 8rem; min-width:0}
+section{margin-bottom:3.5rem; scroll-margin-top:1.5rem}
+h1{font-size:2.4rem; line-height:1.12; letter-spacing:-.03em; margin:0 0 .5rem}
+h2{font-size:1.55rem; letter-spacing:-.02em; margin:0 0 1rem; padding-bottom:.5rem; border-bottom:1px solid var(--linea)}
+h3{font-size:1.08rem; margin:2rem 0 .6rem; letter-spacing:-.01em}
+h4{font-size:.95rem; margin:1.4rem 0 .4rem; color:var(--ink-2)}
+p{margin:0 0 1rem; max-width:64ch}
+ul,ol.testo{max-width:64ch; padding-left:1.2rem}
+li{margin:.35rem 0}
+code{font-family:var(--mono); font-size:.855em; background:var(--surface-2); padding:.1em .35em; border-radius:3px}
+a{color:var(--c1)}
+.occhiello{font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); font-weight:700; margin-bottom:.6rem}
+.guida{font-size:1.12rem; color:var(--ink-2); max-width:62ch; margin-bottom:2rem}
+.nota{
+  border-left:3px solid var(--linea-forte); background:var(--surface-1);
+  padding:.9rem 1.1rem; margin:1.3rem 0; max-width:64ch; font-size:.93rem; border-radius:0 6px 6px 0;
+}
+.nota strong:first-child{color:var(--ink-1)}
+.nota.perno{border-left-color:var(--c1)}
+.nota.attenzione{border-left-color:var(--park)}
+table{border-collapse:collapse; width:100%; font-size:.855rem; margin:1rem 0 1.5rem; background:var(--surface-1)}
+th,td{text-align:left; padding:.5rem .65rem; border-bottom:1px solid var(--linea); vertical-align:top}
+th{font-size:.7rem; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-3); font-weight:700; background:var(--surface-2); position:sticky; top:0}
+tbody tr:hover{background:var(--surface-2)}
+td.num{font-family:var(--mono); font-variant-numeric:tabular-nums; white-space:nowrap}
+.avvolgi{overflow-x:auto; margin:1rem 0 1.5rem; border:1px solid var(--linea); border-radius:8px}
+.avvolgi table{margin:0; border:0}
+.pastiglia{
+  display:inline-flex; align-items:center; gap:.35rem; font-size:.68rem; font-weight:700;
+  padding:.15rem .5rem; border-radius:99px; white-space:nowrap; letter-spacing:.02em;
+  border:1px solid currentColor;
+}
+.pastiglia::before{content:""; width:.5rem; height:.5rem; border-radius:50%; background:currentColor; flex:none}
+.p1{color:var(--c1)} .p2{color:var(--c2)} .p3{color:var(--c3)} .p4{color:var(--c4)}
+.esito{font-family:var(--mono); font-size:.72rem; font-weight:700; padding:.1rem .4rem; border-radius:3px; white-space:nowrap}
+.e-pass{color:var(--pass); background:color-mix(in srgb, var(--pass) 12%, transparent)}
+.e-kill{color:var(--kill); background:color-mix(in srgb, var(--kill) 12%, transparent)}
+.e-park{color:var(--park); background:color-mix(in srgb, var(--park) 14%, transparent)}
+.tessere{display:grid; grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr)); gap:.75rem; margin:1.2rem 0 1.6rem}
+.tessera{background:var(--surface-1); border:1px solid var(--linea); border-radius:8px; padding:.85rem .95rem}
+.tessera .n{font-family:var(--mono); font-size:1.7rem; font-weight:700; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums}
+.tessera .et{font-size:.72rem; color:var(--ink-3); margin-top:.35rem; line-height:1.35}
+.flusso{display:flex; flex-direction:column; gap:.4rem; margin:1.5rem 0 2rem}
+.riga-flusso{display:grid; grid-template-columns:2.6rem 1fr 8.5rem; gap:.75rem; align-items:center;
+  background:var(--surface-1); border:1px solid var(--linea); border-radius:8px; padding:.6rem .8rem}
+.riga-flusso .w{font-family:var(--mono); font-size:.7rem; font-weight:700; color:var(--ink-3); text-align:center}
+.riga-flusso .t{font-size:.9rem}
+.riga-flusso .t b{display:block; font-size:.94rem}
+.riga-flusso .t span{color:var(--ink-3); font-size:.79rem}
+.riga-flusso .g{font-size:.72rem; text-align:right; color:var(--ink-2); font-family:var(--mono)}
+.freccia{text-align:center; color:var(--ink-3); font-size:.85rem; line-height:1; margin:-.15rem 0}
+.rami{font-family:var(--mono); font-size:.78rem; background:var(--surface-1); border:1px solid var(--linea);
+  border-radius:8px; padding:.85rem 1rem; overflow-x:auto; margin:.8rem 0 1.4rem; line-height:1.75}
+.rami .r{display:grid; grid-template-columns:1.6rem minmax(0,1fr) 8.5rem; gap:.5rem; align-items:baseline}
+.rami .r>span:first-child{color:var(--ink-3)}
+.rami .r>span:nth-child(2){min-width:0; overflow-wrap:anywhere}
+.rami .r>span:last-child{text-align:right}
+.rami .r .esito{white-space:normal; display:inline-block; text-align:center}
+.due{display:grid; grid-template-columns:repeat(auto-fit,minmax(17rem,1fr)); gap:1rem; margin:1.2rem 0}
+.scheda{background:var(--surface-1); border:1px solid var(--linea); border-radius:8px; padding:1rem 1.1rem}
+.scheda h4{margin:0 0 .4rem; font-size:.88rem; color:var(--ink-1)}
+.scheda p{font-size:.86rem; margin:0; color:var(--ink-2); max-width:none}
+.tema{position:fixed; top:1rem; right:1rem; z-index:20; background:var(--surface-1); color:var(--ink-2);
+  border:1px solid var(--linea); border-radius:99px; padding:.4rem .8rem; font-size:.72rem; cursor:pointer; font-family:inherit}
+.tema:hover{color:var(--ink-1); border-color:var(--linea-forte)}
+.piede{border-top:1px solid var(--linea); padding-top:1.2rem; color:var(--ink-3); font-size:.8rem; max-width:64ch}
+@media (max-width:900px){
+  .guscio{grid-template-columns:1fr}
+  nav{position:static; height:auto; border-right:0; border-bottom:1px solid var(--linea); padding:1.2rem}
+  nav ol{columns:2; column-gap:1rem}
+  main{padding:1.5rem 1.1rem 5rem}
+  h1{font-size:1.85rem}
+  .riga-flusso{grid-template-columns:2.2rem 1fr; }
+  .riga-flusso .g{grid-column:2; text-align:left}
+}
+@media print{ nav,.tema{display:none} .guscio{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<button class="tema" id="tema">tema</button>
+<div class="guscio">
+<nav>
+  <div class="marchio">DEEPSEARCH</div>
+  <div class="sotto">documento di riferimento · v2.15.0</div>
+  <ol>
+    <div class="livello">Livello 0 · da zero</div>
+    <li><a href="#cose">Cos'è, in una pagina</a></li>
+    <li><a href="#problema">Il problema che risolve</a></li>
+    <li><a href="#difficile">Perché è difficile</a></li>
+    <div class="livello">Livello 1 · le idee portanti</div>
+    <li><a href="#poteri">Separazione dei poteri</a></li>
+    <li><a href="#stati">Quattro stati</a></li>
+    <li><a href="#soldi">Follow the money</a></li>
+    <li><a href="#vuoto">Zero è un risultato</a></li>
+    <div class="livello">Livello 2 · come funziona</div>
+    <li><a href="#percorso">Il percorso di un'idea</a></li>
+    <li><a href="#funnel">Il funnel e i numeri</a></li>
+    <li><a href="#agenti">I dieci agenti</a></li>
+    <div class="livello">Livello 3 · riferimento</div>
+    <li><a href="#gate">I gate, ramo per ramo</a></li>
+    <li><a href="#criteri">I criteri K W M G FP</a></li>
+    <li><a href="#invarianti">Gli invarianti IC-1..4</a></li>
+    <li><a href="#fonti">Tier e tipi di prova</a></li>
+    <li><a href="#soglie">Le soglie</a></li>
+    <li><a href="#strumenti">Gli strumenti</a></li>
+    <li><a href="#memoria">La memoria fra run</a></li>
+    <div class="livello">Livello 4 · pratica</div>
+    <li><a href="#eseguire">Come si esegue</a></li>
+    <li><a href="#limiti">Cosa NON fa</a></li>
+  </ol>
+</nav>
+<main>
+
+<header>
+  <div class="occhiello">Documento di riferimento</div>
+  <h1>DEEPSEARCH</h1>
+  <p class="guida">Una pipeline che cerca opportunità di micro-SaaS B2B fra le PMI italiane ed
+  europee, e che è costruita quasi interamente per <em>impedire a se stessa</em> di trovarne di
+  finte. Questo documento parte da zero: le prime tre sezioni si leggono senza sapere niente né del
+  progetto né di software.</p>
+</header>
+
+<!-- ============================== LIVELLO 0 ============================== -->
+
+<section id="cose">
+<h2>Cos'è, in una pagina</h2>
+
+<p>DEEPSEARCH è un programma che risponde a una domanda sola: <strong>esiste un problema per cui
+delle piccole imprese stanno già perdendo soldi ogni settimana, che nessuno ha ancora risolto con
+un software decente, e che tre persone senza finanziamenti potrebbero risolvere?</strong></p>
+
+<p>Non è un motore di ricerca e non è un chatbot. È una <em>catena di montaggio</em>: dieci
+lavoratori specializzati che si passano il lavoro in sequenza, ciascuno con un mestiere stretto,
+e otto <strong>cancelli</strong> fra loro. A ogni cancello un'idea può passare, essere uccisa, o
+essere messa in attesa. Alla fine esce un rapporto con al massimo quattro idee — oppure con
+nessuna, che è un esito altrettanto legittimo.</p>
+
+<p>La parte insolita è la seconda metà della frase iniziale. La maggior parte del sistema non serve
+a <em>trovare</em> idee: serve a <strong>non farsele raccontare</strong>. È un sistema costruito
+attorno alla sfiducia verso se stesso.</p>
+
+<div class="tessere">
+  <div class="tessera"><div class="n">10</div><div class="et">agenti specializzati</div></div>
+  <div class="tessera"><div class="n">7</div><div class="et">ondate di lavoro</div></div>
+  <div class="tessera"><div class="n">8+2</div><div class="et">cancelli di decisione</div></div>
+  <div class="tessera"><div class="n">4</div><div class="et">idee al massimo in uscita</div></div>
+  <div class="tessera"><div class="n">0</div><div class="et">idee: esito valido</div></div>
+</div>
+</section>
+
+<section id="problema">
+<h2>Il problema che risolve</h2>
+
+<p>Chiunque abbia provato a chiedere a un'intelligenza artificiale «dammi dieci idee di business»
+conosce il risultato: dieci idee plausibili, scritte bene, e quasi tutte inutili. Suonano vere
+perché sono <em>verosimili</em>, non perché siano vere. Il modello non ha mentito di proposito: ha
+prodotto la cosa che assomiglia di più a una buona risposta.</p>
+
+<p>Il danno non è l'idea sbagliata in sé. È che per scoprire che era sbagliata bisogna
+costruirla — sei mesi, dei soldi, e un prodotto che nessuno compra. DEEPSEARCH esiste per spostare
+quella scoperta <strong>prima</strong> della costruzione, e per farlo con un metodo che non dipenda
+dall'onestà di chi cerca.</p>
+
+<div class="nota perno">
+<strong>La regola d'oro:</strong> qualità sopra quantità. Un rapporto con zero idee e una
+spiegazione onesta è un run <strong>riuscito</strong>. Un rapporto con quattro idee mediocri è un
+run <strong>fallito</strong>, anche se sembra più ricco. Questa frase non è un incoraggiamento: è
+scritta nel file di regole che ogni agente legge, e diversi meccanismi del sistema esistono solo
+per renderla vera in pratica.
+</div>
+</section>
+
+<section id="difficile">
+<h2>Perché è difficile: il recupero motivato</h2>
+
+<p>C'è un modo specifico in cui una ricerca fatta da un'intelligenza artificiale va storta, e ha un
+nome: <strong>retrieval motivato</strong>. Se lo stesso soggetto che vuole produrre un'idea
+brillante è anche quello che decide quali prove bastano, le prove basteranno sempre. Non serve
+malafede. Basta smettere di cercare quando si è trovato abbastanza per confermare.</p>
+
+<p>E il canale principale con cui un giudizio si intrufola in un rapporto di soli fatti non sono
+gli aggettivi — è la <strong>selezione</strong>. <em>Cinque fatti veri scelti tutti a favore sono
+già una conclusione, con zero aggettivi.</em> Per questo il sistema non si difende con un elenco di
+parole vietate: quella difesa si aggira per sbaglio, scrivendo «richiede tempo significativo».</p>
+
+<p>La difesa vera è <strong>strutturale</strong> e la vedremo fra poco: chi raccoglie i fatti non
+scrive frasi libere. Compila caselle — <em>soggetto, cosa si osserva, quantità, periodo,
+geografia</em> — e nella casella «quantità» o c'è un numero o c'è <code>UNKNOWN</code>. Non esiste
+un posto dove scrivere «significativo».</p>
+</section>
+
+<!-- ============================== LIVELLO 1 ============================== -->
+
+<section id="poteri">
+<h2>Idea portante 1 — chi cerca non conclude, chi conclude non cerca</h2>
+
+<p>È la scelta architetturale più importante del sistema. I dieci agenti sono divisi in classi, e
+la classe determina cosa un agente <strong>può</strong> fare — non per disciplina, ma perché gli
+strumenti gli vengono dati o negati.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Classe</th><th>Chi</th><th>Può cercare</th><th>Può concludere</th></tr></thead>
+<tbody>
+<tr><td><span class="pastiglia p1">retrieval-only</span></td>
+    <td><code>evidence-researcher</code>, <code>competitor-analyst</code>, <code>trigger-finder</code>, <code>tam-analyst</code>, <code>source-verifier</code></td>
+    <td>sì</td><td><strong>no</strong></td></tr>
+<tr><td><span class="pastiglia p2">judgment-only</span></td>
+    <td><code>bootstrap-filter</code>, <code>venture-architect</code>, <code>ranking-agent</code></td>
+    <td><strong>no</strong></td><td>sì</td></tr>
+<tr><td><span class="pastiglia p3">avversariale</span></td>
+    <td><code>red-team</code></td>
+    <td>sì</td><td>solo verso la falsificazione</td></tr>
+<tr><td><span class="pastiglia p4">generativo vincolato</span></td>
+    <td><code>pain-finder</code></td>
+    <td>sì</td><td>solo candidati, mai validazioni</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Le conseguenze pratiche sono nette. Un agente <em>retrieval-only</em> che scrive «questa è una
+buona opportunità» <strong>ha fallito il proprio compito</strong>, anche se tutti i fatti che ha
+raccolto sono corretti. Un agente <em>judgment-only</em> che cita una fonte non registrata ha
+<strong>fabbricato una prova</strong>: è il fallimento più grave possibile in questa pipeline, e
+non può nemmeno accadere per distrazione, perché quegli agenti non hanno strumenti di ricerca. Se
+manca un dato devono scrivere <code>UNKNOWN</code> e chiedere un supplemento.</p>
+
+<div class="nota">
+<strong>Il red team non migliora mai l'idea.</strong> Se trova una soluzione a un problema che ha
+individuato, se la tiene: il suo unico mandato è produrre motivi per scartare. Un avversario che
+aiuta smette di essere un avversario.
+</div>
+
+<p>C'è una seconda cecità, più sottile e altrettanto importante: <strong>gli agenti paralleli non
+si leggono fra loro</strong>. Le cinque istanze che cercano prove su cinque canali diversi non
+sanno cosa hanno trovato le altre. Se un canale ricevesse i risultati di un altro potrebbe
+dichiarare di aver esaurito la ricerca per merito altrui, e la cecità da cui il sistema deriva la
+validità del voto finale svanirebbe. Una difesa che si annulla da sola in un'altra sezione dello
+stesso documento non è una difesa.</p>
+</section>
+
+<section id="stati">
+<h2>Idea portante 2 — quattro stati, nessuna sfumatura</h2>
+
+<p>Ogni affermazione prodotta dal sistema ha esattamente uno di quattro stati. Non ce n'è un quinto
+intermedio, e non esiste «probabile».</p>
+
+<div class="due">
+<div class="scheda"><h4>VERIFIED</h4><p>Sostenuta da fonti che superano le regole di promozione (le <code>FP</code>, più avanti). È l'unico stato che «conta» ai cancelli.</p></div>
+<div class="scheda"><h4>ESTIMATED</h4><p>Una stima dichiarata, con la formula in chiaro e gli input tracciabili. Si scrive in un formato obbligatorio che comincia con <em>«Stima non verificata:»</em>, così non può mai essere confusa con un dato.</p></div>
+<div class="scheda"><h4>HYPOTHESIS</h4><p>Plausibile ma non sostenuta. È anche lo stato in cui finisce d'ufficio ogni <code>VERIFIED</code> che non supera il controllo di citazione.</p></div>
+<div class="scheda"><h4>UNKNOWN</h4><p>Non è stato possibile determinarlo.</p></div>
+</div>
+
+<div class="nota perno">
+<code>UNKNOWN</code> e <code>HYPOTHESIS</code> sono valori di <strong>prima classe</strong>.
+Scriverli non è una debolezza: sono l'output corretto quando il dato non c'è o non regge.
+Sostituire un <code>UNKNOWN</code> con una plausibilità non dichiarata è la violazione più comune e
+più costosa che questo sistema conosca.
+</div>
+</section>
+
+<section id="soldi">
+<h2>Idea portante 3 — segui i soldi, e non confondere due domande</h2>
+
+<p>Il sistema preferisce sempre problemi per cui le aziende <strong>spendono già oggi</strong>
+soldi, tempo o personale — perché quella spesa è la prova che il budget esiste. Un problema di cui
+tutti si lamentano ma su cui nessuno spende non è un mercato.</p>
+
+<p>Da qui discende una distinzione che il sistema tiene rigidamente separata su
+<strong>due assi</strong>, perché fonderli è un errore che si paga caro:</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Asse</th><th>Domanda a cui risponde</th><th>Come si misura</th></tr></thead>
+<tbody>
+<tr><td><strong>tier della fonte</strong></td><td>«questa affermazione è sostenuta?»</td><td>T1 (fonte ufficiale) → T5 (il vendor che parla di sé)</td></tr>
+<tr><td><strong>tipo di prova</strong></td><td>«qualcuno ci spende sopra?»</td><td>PUBBLICAZIONE · COMPORTAMENTO · ARTEFATTO</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Se si fondono i due assi, il sistema finisce per ottimizzare per la <strong>copertura
+mediatica</strong> — e un problema di cui si parla molto è esattamente un problema su cui c'è già
+concorrenza. Cioè il contrario di quello che si sta cercando.</p>
+
+<p>L'esempio che chiarisce tutto: <strong>un annuncio di lavoro</strong>. Come pubblicazione è una
+fonte debole (T3). Come comportamento è una prova fortissima: è una decisione di spesa con uno
+stipendio attaccato. Qualcuno sta pagando una persona per fare a mano il lavoro che un software
+dovrebbe fare.</p>
+</section>
+
+<section id="vuoto">
+<h2>Idea portante 4 — un run vuoto è un run riuscito</h2>
+
+<p>Se il funnel si svuota, il rapporto finale dice <em>«nessuna opportunità ha superato i criteri
+in questo run»</em>, elenca cosa è stato esaminato, perché è caduto, e quali verifiche mancanti
+verranno riprese nel run successivo. Questo è <strong>il comportamento desiderato</strong>, non un
+errore da correggere.</p>
+
+<p>Non è retorica: ci sono meccanismi concreti che lo sostengono. Lo stato
+<strong>PARKED</strong> — «non ho abbastanza informazioni per decidere» — è distinto da KILL, e
+un'idea parcheggiata rientra nel run successivo con una lista puntuale di verifiche da fare. Senza
+quello stato il sistema sarebbe costretto a scegliere fra assumere che vada bene e buttare via.</p>
+
+<div class="nota perno">
+<strong>Ma «vuoto» non vuol più dire «niente», ed è la correzione della v2.15.</strong> Fino ad
+allora un run senza pubblicazioni consegnava cinque righe di conteggio e buttava tutto il resto: le
+prove raccolte, i concorrenti mappati, i cancelli attraversati, le verifiche mancanti scritte con
+precisione. Su tre run reali le idee arrivate alla classifica sono state <strong>zero</strong>,
+quindi quattro etichette di esito su cinque non erano mai state emesse e il formato della scheda era
+stato esercitato solo nel suo ramo vuoto. Oggi il rapporto si apre <em>sempre</em> con un
+<strong>portafoglio</strong>: le migliori cinque cose trovate, ordinate per <em>profondità di
+sopravvivenza</em> — quanto lontano sono arrivate — ciascuna con dove è morta, perché, e
+<strong>l'azione più economica che la sbloccherebbe</strong>, con il suo prezzo in ricerche. Nessuna
+soglia è stata abbassata e la frase «nessuna opportunità ha superato i criteri» resta obbligatoria:
+cambia solo che il lavoro fatto smette di essere buttato.
+</div>
+
+<div class="nota attenzione">
+<strong>E se cinque run di fila non trovano niente?</strong> La regola scritta nel sistema non è
+«spegnilo». È: dopo cinque run consecutivi validi senza nessuna idea pubblicata né mandata a
+validazione sul campo, si <strong>riprogetta la ricerca</strong> — i settori, gli angoli, le
+soglie. I run degradati non contano nel conteggio, perché un run rotto non è un'informazione sul
+mercato.
+</div>
+</section>
+
+<!-- ============================== LIVELLO 2 ============================== -->
+
+<section id="percorso">
+<h2>Il percorso di un'idea</h2>
+
+<p>Un'idea attraversa sette ondate di lavoro. Fra un'ondata e l'altra c'è un cancello che decide
+se prosegue. <strong>Il passaggio di stato è deciso solo dall'orchestratore</strong>, mai da un
+agente: un agente produce un verdetto con le sue motivazioni, l'orchestratore applica la regola.</p>
+
+<div class="flusso">
+  <div class="riga-flusso"><div class="w">§0</div><div class="t"><b>Setup</b><span>il primo comando del run è il verificatore di specifica: se fallisce, il run non parte</span></div><div class="g">—</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W1</div><div class="t"><b>Generazione dei pain</b><span>4–8 istanze parallele, ognuna su una coppia (settore, angolo) diversa</span></div><div class="g">gate 1</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W2</div><div class="t"><b>Evidenze</b><span>5 canali ciechi fra loro: normativa · statistica ufficiale · community · pricing · trend</span></div><div class="g">gate 2</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W3</div><div class="t"><b>Competitor · Trigger · Mercato</b><span>4 agenti in parallelo, con interruzione anticipata se uno uccide</span></div><div class="g">gate 3 · 4 · 5</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W4</div><div class="t"><b>Filtro bootstrap</b><span>13 dimensioni: 3 fondatori, 90 giorni, 50k, nessun finanziamento…</span></div><div class="g">gate 6</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W5</div><div class="t"><b>Progettazione</b><span>MVP, prezzo, canali — poi il filtro bootstrap torna sui conti veri</span></div><div class="g">gate 6-bis</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W6</div><div class="t"><b>Red team + verifica fonti</b><span>3 lenti avversariali cieche + un revisore che non vede il dossier</span></div><div class="g">gate 7 · 7-bis</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">W7</div><div class="t"><b>Classifica</b><span>una sola istanza, su tutte le idee insieme: conta, non giudica</span></div><div class="g">gate 8</div></div>
+  <div class="freccia">↓</div>
+  <div class="riga-flusso"><div class="w">§9</div><div class="t"><b>Rapporto</b><span>l'unico artefatto in prosa di tutto il sistema, scritto solo dall'orchestratore</span></div><div class="g">—</div></div>
+</div>
+
+<h3>Gli stati che un'idea attraversa</h3>
+<p><code>CANDIDATE → SCREENED → EVIDENCED → COMPETITIVE_CLEAR → TRIGGERED → SIZED →
+BOOTSTRAPPABLE → ARCHITECTED → SURVIVED_REDTEAM → RANKED</code>, più due stati che chiudono o
+sospendono: <strong>KILLED</strong> (con motivo, stage e l'identificativo del fatto che l'ha
+uccisa) e <strong>PARKED</strong> (con i dati mancanti e la data di ripresa).</p>
+
+<h3>Le cinque domande anti-allucinazione</h3>
+<p>Cinque domande scomode sono distribuite fra agenti diversi, e <strong>nessun agente pone e
+risponde alla stessa domanda</strong>. Servono almeno 4 risposte su 5 ancorate a una fonte valida
+perché un'idea sia pubblicabile.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>#</th><th>Domanda</th><th>Chi risponde</th></tr></thead>
+<tbody>
+<tr><td class="num">Q1</td><td>Perché compra entro 30 giorni?</td><td><code>trigger-finder</code></td></tr>
+<tr><td class="num">Q2</td><td>Perché non usa già un'altra soluzione?</td><td><code>competitor-analyst</code></td></tr>
+<tr><td class="num">Q3</td><td>Perché 3 persone in bootstrap possono competere?</td><td><code>bootstrap-filter</code></td></tr>
+<tr><td class="num">Q4</td><td>Qual è l'evidenza che il problema esista?</td><td><code>evidence-researcher</code></td></tr>
+<tr><td class="num">Q5</td><td>Cosa dimostrerebbe che l'idea è sbagliata?</td><td><code>red-team</code></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="funnel">
+<h2>Il funnel e i numeri</h2>
+
+<p>Il sistema gira in tre profili di intensità. Cambiano quante ricerche si fanno e quanto stretto
+è l'imbuto, <strong>non</strong> le regole: i cancelli e le soglie sono identici in tutti e tre.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Fase</th><th>LIGHT</th><th>BALANCED</th><th>DEEP</th><th>cosa significa</th></tr></thead>
+<tbody>
+<tr><td>istanze di generazione</td><td class="num">4</td><td class="num">6</td><td class="num">8</td><td>coppie (settore, angolo) esplorate in parallelo</td></tr>
+<tr><td>pain generati</td><td class="num">20</td><td class="num">40</td><td class="num">80</td><td>candidati grezzi</td></tr>
+<tr><td>→ passano a evidenze</td><td class="num">6</td><td class="num">12</td><td class="num">24</td><td>primo taglio</td></tr>
+<tr><td>→ passano a competitor</td><td class="num">3</td><td class="num">6</td><td class="num">12</td><td>secondo taglio</td></tr>
+<tr><td>→ arrivano al progetto</td><td class="num">2</td><td class="num">4</td><td class="num">6</td><td>terzo taglio</td></tr>
+<tr><td>tetto ricerche del run</td><td class="num">550</td><td class="num">1100</td><td class="num">2050</td><td>budget complessivo</td></tr>
+<tr><td>tetto pagine aperte</td><td class="num">1000</td><td class="num">1950</td><td class="num">3700</td><td>budget complessivo</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Il primo taglio — da 20/40/80 a 6/12/24 — non è arbitrario. Ordina i pain con una formula
+dichiarata: <strong>30%</strong> l'evidenza che si stia già spendendo, <strong>30%</strong> le
+tracce di <em>comportamento</em> da attori distinti, <strong>25%</strong> la perdita economica
+quantificata, <strong>15%</strong> la ricorrenza.</p>
+
+<div class="nota attenzione">
+<strong>È il filtro più letale del sistema, e per undici versioni era tarato sull'asse sbagliato.</strong>
+Questo taglio elimina più pain di tutti i cancelli messi insieme — 8 su 14 in un run reale, 12 su 15
+in un altro — e nessun cancello lo vede. Fino alla v2.15 pesava <strong>45%</strong> su
+<code>VERIFIED &gt; ESTIMATED &gt; UNKNOWN</code>, cioè su una scala di pura
+<em>documentabilità</em>: esattamente l'asse che il sistema aveva dichiarato sbagliato introducendo
+i tipi di prova. La correzione era entrata nei cancelli 2 e 3 e nelle regole di promozione, e non
+qui — mentre la configurazione stessa scriveva, due righe sopra, che <em>«il cancello non taglia il
+funnel, l'ordinamento sì»</em>.
+</div>
+
+<h3>Budget e condizioni di arresto</h3>
+<p>Ogni agente ha un tetto di ricerche. Al raggiungimento <strong>si ferma e restituisce quello che
+ha</strong>, dichiarando <code>BUDGET_EXHAUSTED</code>. Non è ammesso sforare «perché mancava
+poco». Ci si ferma anche quando: il verdetto è già determinato (trovato un motivo di scarto certo,
+inutile continuare a mappare); tre ricerche consecutive non portano nessuna fonte nuova; oppure
+l'orchestratore manda un segnale di interruzione perché un cancello parallelo ha già ucciso
+l'idea.</p>
+
+<div class="nota">
+<strong>Una regola che protegge dall'auto-inganno:</strong> se un agente esaurisce il budget
+<em>mentre le ultime ricerche stavano ancora dando frutti</em>, il verdetto non può essere migliore
+di PARK. Un'idea non viene promossa perché ci siamo fermati al momento giusto.
+</div>
+</section>
+
+<section id="agenti">
+<h2>I dieci agenti</h2>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Agente</th><th>Classe</th><th>Ondata</th><th>Cosa fa</th><th>Q</th></tr></thead>
+<tbody>
+<tr><td><code>pain-finder</code></td><td><span class="pastiglia p4">generativo</span></td><td class="num">1</td>
+    <td>Genera fino a 12 problemi candidati per settore/angolo, ciascuno con il meccanismo di perdita economica e i semi di ricerca per chi verrà dopo. È l'unico stadio <strong>creativo</strong>: tutto il resto è filtro.</td><td>—</td></tr>
+<tr><td><code>evidence-researcher</code></td><td><span class="pastiglia p1">retrieval</span></td><td class="num">2</td>
+    <td>Cinque istanze cieche fra loro, una per canale, che riempiono caselle di fatti atomici. Ognuna dichiara anche le <em>contro-evidenze</em> che ha trovato.</td><td>Q4</td></tr>
+<tr><td><code>competitor-analyst</code></td><td><span class="pastiglia p1">retrieval</span></td><td class="num">3</td>
+    <td>Mappa 5–12 concorrenti e li classifica uno per uno su 11 criteri. La decisione più delicata dell'intero sistema è la prima: <em>diretto</em>, <em>adiacente</em>, o <em>sostituto non-software</em>.</td><td>Q2</td></tr>
+<tr><td><code>trigger-finder</code></td><td><span class="pastiglia p1">retrieval</span></td><td class="num">3</td>
+    <td>Cerca il motivo per cui qualcuno comprerebbe <em>adesso</em>: una scadenza con data, un perimetro di chi è obbligato, e una conseguenza se non lo fa.</td><td>Q1</td></tr>
+<tr><td><code>tam-analyst</code></td><td><span class="pastiglia p1">retrieval</span></td><td class="num">3</td>
+    <td>Conta la popolazione di aziende target e ricalcola il mercato con una formula in chiaro, verificabile riga per riga.</td><td>—</td></tr>
+<tr><td><code>bootstrap-filter</code></td><td><span class="pastiglia p2">judgment</span></td><td class="num">4 e 5</td>
+    <td>Applica 13 vincoli di fattibilità (3 fondatori, 90 giorni, 50k, niente hardware, niente vendita enterprise…). Gira due volte: prima del progetto sui vincoli indipendenti dal prodotto, dopo sui conti veri.</td><td>Q3</td></tr>
+<tr><td><code>venture-architect</code></td><td><span class="pastiglia p2">judgment</span></td><td class="num">5</td>
+    <td>L'unico agente che <em>produce</em> invece di valutare: MVP, prezzo, canali, roadmap con una metrica di fallimento per orizzonte. Non ha strumenti di ricerca, quindi il suo rischio non è inventare — è essere banale.</td><td>—</td></tr>
+<tr><td><code>red-team</code></td><td><span class="pastiglia p3">avversariale</span></td><td class="num">3 e 6</td>
+    <td>Tre lenti indipendenti che cercano solo motivi per scartare: concorrenti nascosti, fallimenti storici di idee simili, economia e distribuzione. Ogni finding deve dire <em>come si potrebbe smentire</em>.</td><td>Q5</td></tr>
+<tr><td><code>source-verifier</code></td><td><span class="pastiglia p1">retrieval</span></td><td class="num">6</td>
+    <td>Il revisore cieco. Riceve <strong>solo</strong> coppie (affermazione, fonte) e <strong>mai</strong> il dossier: non sa cosa stia verificando né perché. Apre le pagine e controlla se dicono davvero quello che è stato dichiarato.</td><td>—</td></tr>
+<tr><td><code>ranking-agent</code></td><td><span class="pastiglia p2">judgment</span></td><td class="num">7</td>
+    <td>Assegna 7 punteggi con pesi presi dalla configurazione e li moltiplica per un coefficiente di confidenza. Gli è <strong>vietato modificare qualunque cosa</strong>: si limita a contare.</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="nota">
+<strong>Perché il revisore è cieco.</strong> Se sapesse che sta verificando l'idea migliore del
+run, avrebbe una ragione per essere indulgente. Ricevendo solo coppie sconnesse, non ha nulla da
+proteggere. Nel primo collaudo del sistema questo agente trovò 2 affermazioni su 10 con il
+perimetro slittato — e una di quelle aveva già inquinato il calcolo di mercato che aveva prodotto
+un'uccisione.
+</div>
+</section>
+
+<!-- ============================== LIVELLO 3 ============================== -->
+
+<section id="gate">
+<h2>I gate, ramo per ramo</h2>
+
+<p>Ogni cancello è un elenco ordinato di rami: <strong>il primo che si attiva decide</strong>.
+L'ordine è sostanza, non stile. Un principio vale ovunque: <em>un'enumerazione deve coprire tutto
+il proprio spazio</em> — deve esistere sempre un ramo terminale che cattura «tutto il resto»,
+altrimenti un caso reale non trova nessuna regola e il sistema decide per caso.</p>
+
+<h3>Gate 1 — Pain</h3>
+<p>Deduplica per chiave, scarta i pain che si sono auto-segnalati come occasionali o senza spesa
+associata, ordina con la formula composita 30/30/25/15 e tiene i primi. Gli altri finiscono in memoria come
+<code>NOT_SELECTED</code>, senza penalità: non sono stati bocciati, solo non scelti.</p>
+
+<h3>Gate 2 — Evidenze</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>nessuna prova di spesa e nessuna traccia di comportamento su alcun canale</span><span class="esito e-kill">KILL G1</span></div>
+<div class="r"><span>2.</span><span>il target non ha parole per il problema su nessun canale → serve educare il mercato</span><span class="esito e-kill">KILL G3</span></div>
+<div class="r"><span>3.</span><span>≥ 2 fatti VERIFIED per pubblicazione + almeno una prova di spesa</span><span class="esito e-pass">PASS-A</span></div>
+<div class="r"><span>4.</span><span>via documentale <em>esaurita</em> + ≥ 3 tracce di comportamento convergenti da ≥ 2 classi di attori</span><span class="esito e-pass">CAMPO</span></div>
+<div class="r"><span>5.</span><span>≥ 2 tracce di comportamento convergenti da attori indipendenti, anche con zero fatti VERIFIED</span><span class="esito e-pass">PASS-B</span></div>
+<div class="r"><span>6.</span><span>tutto il resto</span><span class="esito e-park">PARK</span></div>
+</div>
+<p>Il ramo 4 è la scorciatoia più interessante del sistema: quando la ricerca documentale è
+<em>finita</em> — non solo incompleta — ma il comportamento del mercato parla chiaro, l'idea esce
+subito verso la <strong>validazione sul campo</strong> senza attraversare i cancelli successivi.
+Se anche un solo canale si è fermato per budget esaurito, il ramo 4 non è disponibile: «esaurito»
+e «interrotto» non sono la stessa cosa.</p>
+
+<h3>Gate 3 — Competitor</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>concorrente DIRETTO con un criterio di scarto certo</span><span class="esito e-kill">KILL</span></div>
+<div class="r"><span>2.</span><span>criterio di scarto debole + un secondo criterio confermato</span><span class="esito e-kill">KILL</span></div>
+<div class="r"><span>3.</span><span>criterio di scarto debole non confermato</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>4.</span><span>≥ 1 diretto e oltre il 40% dei concorrenti non classificabili</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>5.</span><span>nessun diretto e nessun sostituto</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>6.</span><span>nessun diretto, ≥ 1 sostituto <em>con spesa documentata</em> → rotta ASSENZA</span><span class="esito e-pass">PASS</span></div>
+<div class="r"><span>7.</span><span>nessun diretto, ≥ 1 sostituto senza spesa documentata</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>8.</span><span>almeno un diretto battibile</span><span class="esito e-pass">PASS</span></div>
+<div class="r"><span>9.</span><span>≥ 1 diretto, nessuno battibile, ma ≥ 2 criteri di disallineamento → rotta DISALLINEAMENTO</span><span class="esito e-pass">PASS</span></div>
+<div class="r"><span>10.</span><span>≥ 1 diretto, nessuno battibile, nessun disallineamento</span><span class="esito e-kill">KILL G7</span></div>
+</div>
+
+<div class="nota perno">
+<strong>I rami 6 e 7 sono la prima metà della missione, e per undici versioni non esistevano.</strong>
+La missione cerca un segmento dove <em>(a) non esiste soluzione software</em> <strong>oppure</strong>
+<em>(b) la soluzione esiste ed è ininfluente</em>. Il ramo (b) aveva la sua rotta da tempo. Il ramo
+(a) non aveva nulla: con <strong>zero concorrenti diretti</strong> nessun ramo si applicava tranne
+l'ultimo, che uccideva con G7 — «già risolto da software moderno» — su una premessa il cui
+contrario era vero. Il cancello uccideva in silenzio <em>esattamente il bersaglio primario della
+propria missione</em>.
+</div>
+
+<p>La distinzione fra il ramo 6 e il 7 è «segui i soldi» applicato all'assenza: nessun software
+<em>e</em> qualcuno che spende comunque per risolvere il problema a mano è il caso migliore
+possibile; nessun software e nessuna spesa è probabilmente un problema che non interessa a
+nessuno.</p>
+
+<h3>Gate 4 — Trigger</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>nessun trigger d'acquisto</span><span class="esito e-kill">KILL G8</span></div>
+<div class="r"><span>2.</span><span>tutti i trigger smontati dalle contro-evidenze</span><span class="esito e-kill">KILL G8</span></div>
+<div class="r"><span>3.</span><span>unico motore = moda passeggera senza base normativa o strutturale</span><span class="esito e-kill">KILL G4</span></div>
+<div class="r"><span>4.</span><span>solo trigger stimati, o privi di scadenza e perimetro</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>5.</span><span>trigger verificato completo ma l'acquisto non è entro 30 giorni</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>6.</span><span>almeno un trigger verificato con acquisto entro 30 giorni</span><span class="esito e-pass">PASS</span></div>
+</div>
+<p>Il ramo 5 non butta via l'idea: la parcheggia con una data di ripresa calcolata come
+<em>scadenza meno 60 giorni</em>. L'idea era giusta, era presto.</p>
+
+<h3>Gate 5 — Mercato</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>mercato raggiungibile a 24 mesi sotto 600.000 €/anno, <em>con</em> la penetrazione ancorata a un benchmark citato</span><span class="esito e-kill">KILL G9</span></div>
+<div class="r"><span>2.</span><span>sotto soglia ma penetrazione non ancorata a nessun benchmark</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>3.</span><span>popolazione UNKNOWN dopo il tentativo</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>4.</span><span>sopra soglia con formula ricalcolabile</span><span class="esito e-pass">PASS</span></div>
+</div>
+<p>La condizione del ramo 1 è la difesa contro l'uccisione più facile e più stupida: bocciare
+un'idea perché un numero inventato è piccolo. Se la percentuale di penetrazione se l'è inventata
+l'agente, il verdetto scende automaticamente a PARK.</p>
+
+<h3>Gate 6 e 6-bis — Fattibilità in bootstrap</h3>
+<p>Il gate 6 recepisce il verdetto sulle 13 dimensioni. Se mancano dati su una dimensione
+bloccante, e c'è ancora budget, parte <strong>un solo</strong> supplemento istruttorio: una
+istanza di ricerca con budget ridotto a 3 ricerche e mandato sulla singola domanda mancante.</p>
+<div class="rami">
+<div class="r"><span>1.</span><span>costo di acquisizione cliente &gt; 3× il ricavo annuo per cliente</span><span class="esito e-kill">KILL G6</span></div>
+<div class="r"><span>2.</span><span>ciclo di vendita oltre 90 giorni</span><span class="esito e-kill">KILL G6</span></div>
+<div class="r"><span>3.</span><span>costo di acquisizione ancora sconosciuto</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>4.</span><span>altrimenti</span><span class="esito e-pass">PASS</span></div>
+</div>
+<p>Il 6-bis gira <em>dopo</em> la progettazione, perché prima del prezzo e dei canali quei conti
+non esistono. Qui un <code>UNKNOWN</code> blocca: non si pubblica un'idea di cui non si sa se
+l'acquisizione clienti la ripaga.</p>
+
+<h3>Gate 7 e 7-bis — Avversario e integrità</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>maggioranza di voti per l'uccisione fra le lenti, oppure anche un solo finding fatale <em>e verificato</em></span><span class="esito e-kill">KILL</span></div>
+<div class="r"><span>2.</span><span>altrimenti — i finding non fatali restano e finiscono nel rapporto</span><span class="esito e-pass">PASS</span></div>
+</div>
+<p>Il 7-bis è il cancello che agisce sui <em>risultati del revisore cieco</em>, ed è il più severo
+del sistema:</p>
+<div class="rami">
+<div class="r"><span>1.</span><span>fonti fabbricate → invalida <strong>tutti</strong> i fatti di quell'agente su quell'idea e ricalcola i cancelli a monte</span><span class="esito e-kill">KILL se non regge</span></div>
+<div class="r"><span>2.</span><span>meno del 60% delle verifiche supera il controllo, su un campione ≥ 5</span><span class="esito e-park">PARK</span></div>
+<div class="r"><span>3.</span><span>altrimenti</span><span class="esito e-pass">PASS</span></div>
+</div>
+<p>Il ramo 1 non punisce l'affermazione sbagliata: punisce <strong>l'agente</strong>. Se un
+raccoglitore ha inventato una fonte, tutto quello che ha prodotto su quell'idea diventa
+inutilizzabile, e i cancelli precedenti vengono ricalcolati senza. Un incidente del genere viene
+registrato in un file a parte.</p>
+
+<h3>Gate 8 — Pubblicazione</h3>
+<div class="rami">
+<div class="r"><span>1.</span><span>punteggio ≥ 6,5 · confidenza ≥ 0,70 · ≥ 4 domande su 5 fontate · nessun KILL</span><span class="esito e-pass">PUBBLICATA</span></div>
+<div class="r"><span>2.</span><span>punteggio ≥ 6,5 · meno di 4 domande fontate · rotta COMPORTAMENTO o DISALLINEAMENTO</span><span class="esito e-pass">CAMPO</span></div>
+<div class="r"><span>3.</span><span>punteggio ≥ 6,5 ma confidenza bassa o poche domande fontate</span><span class="esito e-park">PARKED</span></div>
+<div class="r"><span>4.</span><span>punteggio fra 5,0 e 6,5</span><span class="esito e-park">MENZIONE</span></div>
+<div class="r"><span>5.</span><span>punteggio sotto 5,0</span><span class="esito e-kill">KILLED</span></div>
+</div>
+<p>La soglia si applica alla <strong>somma pesata</strong>, e la confidenza entra come condizione
+separata in <em>and</em> — non moltiplicando. Se moltiplicasse, un'idea con prove deboli potrebbe
+compensare con punteggi alti, che è precisamente lo scambio che non si vuole permettere.</p>
+</section>
+
+<section id="criteri">
+<h2>I criteri: K, W, M, G, FP</h2>
+
+<h3>K — quando un concorrente diretto uccide l'idea</h3>
+<p>Si applicano <strong>solo ai concorrenti diretti</strong>, mai agli adiacenti. Nel profilo
+calibrato:</p>
+<div class="avvolgi">
+<table>
+<thead><tr><th>ID</th><th>Criterio</th><th>Soglia</th></tr></thead>
+<tbody>
+<tr><td class="num">K1</td><td>fatturato attribuibile alla linea di prodotto</td><td class="num">&gt; 10 M€</td></tr>
+<tr><td class="num">K2</td><td>finanziamenti tracciabili negli ultimi 36 mesi</td><td class="num">≥ 3 M€</td></tr>
+<tr><td class="num">K3</td><td>dipendenti sull'unità di prodotto</td><td class="num">&gt; 50</td></tr>
+<tr><td class="num">K4</td><td>funzionalità di AI generativa <em>sul lavoro centrale</em></td><td>esiste</td></tr>
+<tr><td class="num">K5</td><td>integrazione nativa mantenuta col sistema di record dominante</td><td>esiste</td></tr>
+</tbody>
+</table>
+</div>
+<p>K1 ha una raffinatezza che vale la pena notare: guarda il fatturato <em>della linea di
+prodotto</em>, non dell'azienda. Un colosso con un modulo trascurato non è un concorrente forte su
+quel modulo. E se il fatturato della linea non è scorporabile, il criterio scatta in forma
+<em>debole</em> e ha bisogno di una seconda conferma — invece di uccidere sulla base di un numero
+che non si può isolare.</p>
+
+<h3>W — quando un concorrente è battibile</h3>
+<p>Ne servono almeno <strong>2</strong>. W1 ultimo restyling dell'interfaccia da 5+ anni · W2 zero
+menzioni di AI o automazione nel marketing di prodotto · W3 valutazione media sotto 4,0 su almeno
+20 recensioni · W4 almeno 3 recensioni che citano il prezzo come motivo di insoddisfazione · W5
+nessun aggiornamento pubblico da 12+ mesi · W6 nessuna API pubblica documentata.</p>
+
+<h3>M — disallineamento: la seconda metà della missione</h3>
+<p>Servono almeno <strong>2</strong> criteri M perché un mercato pieno di concorrenti forti torni
+a essere interessante. Sono i segni che il software esiste ma <em>non fa il lavoro che serve
+davvero</em>:</p>
+<div class="avvolgi">
+<table>
+<thead><tr><th>ID</th><th>Segno</th><th>Prova richiesta</th></tr></thead>
+<tbody>
+<tr><td class="num">M1</td><td>si assume gente per il compito che il software dovrebbe eliminare</td><td>≥ 2 annunci in 12 mesi col compito manuale nel mansionario</td></tr>
+<tr><td class="num">M2</td><td>domande ricorrenti senza risposta nativa nell'assistenza del software dominante</td><td>≥ 3 thread in cui la risposta è «esporta in Excel» o «non si può fare»</td></tr>
+<tr><td class="num">M3</td><td>il lavoro che il vendor dichiara di fare è diverso dal lavoro del problema</td><td>confronto testuale con citazione</td></tr>
+<tr><td class="num">M4</td><td>esistono servizi <em>umani a pagamento</em> che fanno ciò che il software dovrebbe fare</td><td>≥ 1 offerta con tariffa nello stesso segmento</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>G — i nove motivi di scarto globali</h3>
+<div class="avvolgi">
+<table>
+<thead><tr><th>ID</th><th>Motivo</th><th>Stage</th></tr></thead>
+<tbody>
+<tr><td class="num">G1</td><td>nessuna prova fontata che il cliente spenda già denaro, tempo o personale sul problema</td><td>evidenze</td></tr>
+<tr><td class="num">G2</td><td>il problema è occasionale: non ha cadenza prevedibile e non entra nel calendario di lavoro</td><td>pain</td></tr>
+<tr><td class="num">G3</td><td>richiede di educare il mercato — il target non ha un nome per il problema</td><td>evidenze</td></tr>
+<tr><td class="num">G4</td><td>dipende da una moda passeggera senza driver strutturale o normativo</td><td>trigger</td></tr>
+<tr><td class="num">G5</td><td>servono capitali esterni per arrivare al primo cliente pagante</td><td>bootstrap</td></tr>
+<tr><td class="num">G6</td><td>acquisizione &gt; 3× ricavo annuo, o vendita enterprise (oltre 90 giorni, più di 2 decisori)</td><td>bootstrap</td></tr>
+<tr><td class="num">G7</td><td>già risolto da software moderno ed economico che non rientra nei criteri W</td><td>competitor</td></tr>
+<tr><td class="num">G8</td><td>nessun motivo d'acquisto entro 30 giorni con almeno una fonte</td><td>trigger</td></tr>
+<tr><td class="num">G9</td><td>mercato raggiungibile a 24 mesi sotto 600.000 €/anno, con penetrazione ancorata a un benchmark</td><td>mercato</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>FP — quando un fatto diventa VERIFIED</h3>
+<div class="avvolgi">
+<table>
+<thead><tr><th>ID</th><th>Regola</th></tr></thead>
+<tbody>
+<tr><td class="num">FP1</td><td>almeno 1 fonte T1 (ufficiale)</td></tr>
+<tr><td class="num">FP2</td><td>almeno 1 fonte T2 (istituzionale o di ricerca)</td></tr>
+<tr><td class="num">FP3</td><td>almeno 2 fonti T3 <em>indipendenti</em></td></tr>
+<tr><td class="num">FP4</td><td>almeno 4 fonti T4 indipendenti sullo stesso fenomeno concreto — non su un'opinione</td></tr>
+<tr><td class="num">FP5</td><td>1 fonte T5 <strong>solo</strong> per fatti auto-descrittivi di cui il vendor è fonte primaria: il proprio listino, le proprie funzionalità</td></tr>
+<tr><td class="num">FP0</td><td><strong>nessuna delle precedenti — ramo terminale.</strong> Il fatto non viene promosso e resta ESTIMATED, HYPOTHESIS o UNKNOWN</td></tr>
+</tbody>
+</table>
+</div>
+<p>«Indipendenti» ha una definizione precisa che cambia con il tipo di prova: per una pubblicazione
+è l'<em>editore</em>; per un comportamento è <em>l'attore che ha speso</em>; per un artefatto è
+l'ente che l'ha prodotto. E un aggregatore — un portale di annunci, un marketplace — non è
+l'editore: dieci annunci sullo stesso portale non sono dieci fonti indipendenti.</p>
+
+<div class="nota attenzione">
+<strong>Perché FP0 esiste.</strong> Per diverse versioni le regole si fermavano a FP5, senza dire
+cosa succede quando nessuna si applica. Gli agenti, non trovando la regola, se ne inventavano i
+nomi — e <strong>9 pacchetti di prove su 10 fallivano la validazione</strong>. Un'enumerazione
+senza ramo terminale non è incompleta in modo innocuo: costringe chi la usa a improvvisare.
+</div>
+</section>
+
+<section id="invarianti">
+<h2>Gli invarianti: le quattro regole che nessuno può violare</h2>
+
+<p>Le fonti non si citano «in prosa». Ogni fonte incontrata viene registrata in un
+<strong>registro</strong> con un identificativo, e da quel momento si cita solo per
+identificativo. Su quel registro poggiano quattro invarianti.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>ID</th><th>Nome</th><th>Regola</th></tr></thead>
+<tbody>
+<tr><td class="num">IC-1</td><td>citazione</td><td>Ogni fatto <code>VERIFIED</code> deve avere almeno una fonte risolvibile nel registro. Chi non ce l'ha viene declassato d'ufficio a <code>HYPOTHESIS</code> — <strong>l'agente non può opporsi</strong>. È verificato meccanicamente, non a giudizio.</td></tr>
+<tr><td class="num">IC-2</td><td>data</td><td>Ogni fonte deve avere una data. Se è ignota, la fonte non può sostenere numeri di mercato o di prezzo: solo contesto. Oltre 18 mesi è marcata come datata; oltre 36 non serve più per dimensionare.</td></tr>
+<tr><td class="num">IC-3</td><td>uno snippet per coppia</td><td>La citazione testuale appartiene alla <strong>coppia</strong> (fatto, fonte), non alla fonte: una fonte che sostiene tre fatti porta tre citazioni diverse. E ognuna dichiara se è stata letta nei risultati di ricerca o sulla pagina aperta.</td></tr>
+<tr><td class="num">IC-4</td><td>accessibilità</td><td>Ogni fonte che si voleva consultare e non si è potuta raggiungere va comunque dichiarata, con il motivo, e finisce nella sezione «fonti non accessibili» del rapporto. <strong>Non esiste l'omissione silenziosa.</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>IC-3 merita una precisazione, perché è il punto in cui il sistema è onesto sui propri limiti.
+Riusare lo stesso passaggio per fatti diversi soddisfa la regola alla lettera e la tradisce nella
+sostanza — e succede continuamente. Inoltre lo snippet blocca l'URL inventato di sana pianta, ma
+<strong>non</strong> blocca la citazione vera ma decontestualizzata. La difesa contro
+<em>quella</em> patologia non è l'invariante: è il revisore cieco. Lo snippet serve a rendere il
+suo controllo meccanico ed economico — un confronto di stringhe invece di un giudizio.</p>
+
+<div class="nota">
+<strong>Le due metà di IC-4, e come si contraddicevano.</strong> Per undici versioni la
+dichiarazione di una fonte irraggiungibile non aveva un identificativo, mentre IC-1 pretendeva che
+ogni citazione ne avesse uno risolvibile. Risultato: dichiarare una fonte irraggiungibile — cioè
+fare la cosa giusta — faceva chiudere il run come <em>degradato</em>. Un sistema che punisce
+l'unico comportamento onesto disponibile insegna a tacere. Oggi la dichiarazione porta il suo
+identificativo, con una distinzione: se qualcuno ha bussato e la porta era chiusa la fonte esiste e
+va registrata; se nessuno ha bussato — budget finito — non c'è nessuna fonte, è una lacuna
+dichiarata del run. E il contrappeso: una fonte mai letta <strong>non può sostenere da sola un
+fatto verificato</strong>, perché non esiste la citazione testuale che IC-3 pretende.
+</div>
+
+<h3>Il registro delle ricerche</h3>
+<p>Esiste un secondo registro, quello delle ricerche. Prima di cercare, ogni agente normalizza la
+query e controlla se è già stata fatta in questo run: se sì, riusa il risultato invece di
+rieseguirla. Serve a tre cose: non sprecare budget, rendere il run <strong>ricostruibile</strong>
+(si può sapere esattamente cosa è stato cercato), e permettere di verificare il vincolo «almeno 5
+ricerche davvero diverse per ogni idea pubblicata» contando query realmente distinte, non
+riformulazioni della stessa.</p>
+<p>Attenzione a una distinzione fine: riusare un <em>documento</em> già scaricato è lecito e non
+rivela niente a nessuno. Passare a un'istanza i <em>risultati di ricerca</em> ottenuti da un'altra
+istanza parallela è <strong>vietato</strong>, perché è il modo in cui la cecità si annulla.</p>
+</section>
+
+<section id="fonti">
+<h2>Tier delle fonti e tipi di prova</h2>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Tier</th><th>Peso</th><th>Cos'è</th><th>Esempi</th></tr></thead>
+<tbody>
+<tr><td class="num">T1</td><td class="num">1,00</td><td>ufficiale</td><td>Gazzetta Ufficiale, EUR-Lex, ISTAT, Eurostat, Registro Imprese, bilanci depositati, Banca d'Italia, Agenzia delle Entrate</td></tr>
+<tr><td class="num">T2</td><td class="num">0,85</td><td>istituzionale o di ricerca</td><td>Osservatori PoliMi, Confindustria, Confartigianato, CNA, Unioncamere, Cerved, Gartner, stampa economica con redazione</td></tr>
+<tr><td class="num">T3</td><td class="num">0,70</td><td>mercato e piattaforme</td><td>G2, Capterra, Crunchbase, Wayback Machine, listini pubblici, <strong>annunci di lavoro</strong>, capitolati e bandi</td></tr>
+<tr><td class="num">T4</td><td class="num">0,45</td><td>community e segnali deboli</td><td>Reddit, LinkedIn, forum di settore, gruppi Facebook professionali, Trustpilot</td></tr>
+<tr><td class="num">T5</td><td class="num">0,20</td><td>autoreferenziale</td><td>blog e marketing del vendor, comunicati stampa, case study auto-pubblicati</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Per un editore non elencato la regola è: si classifica per <strong>natura, non per
+notorietà</strong>. Una redazione che risponde di ciò che pubblica è T2; una piattaforma che espone
+dati altrui è T3; contenuto scritto dagli utenti è T4; l'oggetto che parla di sé è T5.</p>
+
+<h3>I tre tipi di prova</h3>
+<div class="due">
+<div class="scheda"><h4>PUBBLICAZIONE</h4><p>Qualcuno ha <em>scritto</em> che accade. Promozione secondo i tier normali.</p></div>
+<div class="scheda"><h4>COMPORTAMENTO</h4><p>Qualcuno ha <em>speso</em> perché accada: un annuncio di lavoro, un capitolato che lo impone, il listino di chi vende il rimedio, un bando dedicato. Promozione con 2 tracce convergenti da attori diversi e indipendenti.</p></div>
+<div class="scheda"><h4>ARTEFATTO</h4><p>Esiste un <em>oggetto</em> che presuppone il problema: un modulo, un portale, la FAQ di un ente, un corso su quel compito. Promozione con 1 artefatto + 1 traccia d'uso.</p></div>
+</div>
+</section>
+
+<section id="soglie">
+<h2>Le soglie principali</h2>
+
+<h3>Punteggio finale</h3>
+<p>Sette dimensioni con pesi fissi, sommate e poi moltiplicate per un coefficiente di confidenza
+compreso fra 0,55 e 1,0.</p>
+<div class="avvolgi">
+<table>
+<thead><tr><th>Dimensione</th><th>Peso</th><th>Dimensione</th><th>Peso</th></tr></thead>
+<tbody>
+<tr><td>dolore economico</td><td class="num">0,20</td><td>distribuzione</td><td class="num">0,15</td></tr>
+<tr><td>urgenza</td><td class="num">0,15</td><td>spazio competitivo</td><td class="num">0,10</td></tr>
+<tr><td>adattezza al bootstrap</td><td class="num">0,15</td><td>velocità dell'MVP</td><td class="num">0,10</td></tr>
+<tr><td>forza dell'evidenza</td><td class="num">0,15</td><td></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<p>La confidenza si calcola così: <code>0,55 + 0,15×(domande fontate/5) + 0,15×(quota di fatti
+verificati) + 0,15×(quota di verifiche superate)</code>. Anche nel caso peggiore vale 0,55, non
+zero: il sistema non azzera un'idea per confidenza bassa, la declassa.</p>
+
+<h3>Le altre</h3>
+<div class="avvolgi">
+<table>
+<thead><tr><th>Cosa</th><th>Valore</th></tr></thead>
+<tbody>
+<tr><td>soglia di pubblicazione (somma pesata)</td><td class="num">6,5</td></tr>
+<tr><td>soglia di menzione onesta</td><td class="num">5,0</td></tr>
+<tr><td>confidenza minima per pubblicare</td><td class="num">0,70</td></tr>
+<tr><td>domande anti-allucinazione fontate</td><td class="num">4 su 5</td></tr>
+<tr><td>criteri W perché un concorrente sia battibile</td><td class="num">2</td></tr>
+<tr><td>criteri M perché valga il disallineamento</td><td class="num">2</td></tr>
+<tr><td>concorrenti da mappare</td><td class="num">da 5 a 12</td></tr>
+<tr><td>quota di non classificabili che manda in attesa</td><td class="num">40%</td></tr>
+<tr><td>fondatori · giorni all'MVP · capitale</td><td class="num">3 · 90 · 50.000 €</td></tr>
+<tr><td>acquisizione cliente su ricavo annuo</td><td class="num">max 3×</td></tr>
+<tr><td>ciclo di vendita · decisori</td><td class="num">max 90 giorni · max 2</td></tr>
+<tr><td>obiettivo di ricavo ricorrente mensile</td><td class="num">50.000 € in 36 mesi</td></tr>
+<tr><td>ricerche distinte minime per idea pubblicata</td><td class="num">5</td></tr>
+<tr><td>attesa prima di riproporre un'idea uccisa · parcheggiata · pubblicata</td><td class="num">90 · 14 · 365 giorni</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Su quali aziende</h3>
+<p>PMI con <strong>5–249 addetti</strong> e fatturato fino a 50 M€, primariamente in Italia, con
+sei paesi europei come mercato secondario. I settori ruotano fra dodici — logistica e trasporti,
+edilizia e impiantistica, agroalimentare, meccanica di precisione, sanità privata, studi
+professionali, retail alimentare, energia, automotive aftermarket, turismo extra-alberghiero,
+servizi ambientali, distribuzione B2B — sei per run, scegliendo sempre i <strong>meno esplorati di
+recente</strong>.</p>
+</section>
+
+<section id="strumenti">
+<h2>Gli strumenti</h2>
+
+<p>Attorno alla pipeline ci sono otto programmi che non cercano niente: controllano che il sistema
+sia coerente con se stesso. Sono la risposta a una lezione imparata più volte — <em>una regola che
+nessuno verifica si stacca da sola dai file che dovrebbe governare</em>.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Strumento</th><th>Cosa fa</th></tr></thead>
+<tbody>
+<tr><td><code>spec_check.py</code></td><td><strong>Il verificatore di specifica: 27 controlli</strong> che confrontano configurazione, schemi, prompt degli agenti, orchestratore e regole globali <em>fra loro</em>, e segnalano dove si contraddicono. È il primo comando di ogni run: se esce con un errore, <strong>il run non parte</strong>.</td></tr>
+<tr><td><code>spec_check_selftest.py</code></td><td>Dimostra che il verificatore non è cieco: rimette dentro, su una copia usa-e-getta, i difetti realmente accaduti nella storia del progetto e pretende che vengano ripresi. Sei corpus separati — 61 difetti, 61 ripresi — perché i difetti inventati dall'autore dei controlli passano per costruzione e non dimostrano niente.</td></tr>
+<tr><td><code>run_close.py</code></td><td>Chiude un run e ne dichiara la validità confrontando i numeri del rapporto con i registri. Due fasi: una prima del rapporto, una dopo — ed è solo la seconda ad autorizzare la scrittura in memoria.</td></tr>
+<tr><td><code>reconcile_run.py</code></td><td>Separa il guasto amministrativo dalla fabbricazione: una fonte raccolta ma mai registrata è riparabile senza rifare una ricerca; una citazione che nessuno ha mai incontrato no.</td></tr>
+<tr><td><code>ds_call.py</code></td><td>Ponte verso un provider esterno per gli stage di sola raccolta, con quattro rifiuti meccanici — fra cui: <em>qualunque URL non già presente nel prompt fa rifiutare l'intera risposta</em>.</td></tr>
+<tr><td><code>provider_switch.py</code></td><td>Sposta uno stage su un provider esterno. Valida la propria modifica col verificatore e <strong>la annulla se fallisce</strong>. Rifiuta gli agenti non delegabili, senza scorciatoie.</td></tr>
+<tr><td><code>setup.py</code></td><td>Configurazione guidata, da eseguire una volta sola. Stesso schema: si valida da sé e torna indietro se ha rotto qualcosa.</td></tr>
+<tr><td><code>_chiavi.py</code></td><td>L'unico posto che sa dove sta una chiave d'accesso. Esiste perché tre strumenti la cercavano in tre modi diversi e uno diceva «chiave assente» su una chiave presente.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="nota perno">
+<strong>Perché un verificatore di specifica.</strong> Il difetto più frequente nella storia di
+questo progetto non è mai stato un errore di ragionamento: è una soglia scritta a mano in un
+prompt che diverge dal file di configurazione, o una regola nominata in un posto e mai definita in
+un altro. Nessuno se ne accorge, perché ogni file preso da solo è coerente — si contraddicono solo
+<em>fra loro</em>. Come dice il commento in testa allo strumento: <em>«il tasso non scende
+scrivendo prosa migliore. Scende quando qualcosa confronta i file al posto di chi li scrive.»</em>
+</div>
+</section>
+
+<section id="memoria">
+<h2>La memoria fra un run e l'altro</h2>
+
+<p>Il sistema ricorda. Cinque file di memoria, che vengono scritti <strong>solo</strong> dopo che
+un run è stato dichiarato valido — perché un run rotto che aggiorna la memoria propaga il guasto a
+tutti quelli dopo.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>File</th><th>Cosa ricorda</th><th>A cosa serve</th></tr></thead>
+<tbody>
+<tr><td><code>seen-pains</code></td><td>ogni problema toccato, con l'esito e lo stage in cui è caduto</td><td>non riproporre subito ciò che è stato scartato; riprendere i parcheggiati quando scade l'attesa</td></tr>
+<tr><td><code>query-ledger</code></td><td>ogni ricerca eseguita, normalizzata</td><td>non ripetere ricerche, rendere il run ricostruibile</td></tr>
+<tr><td><code>source-ledger</code></td><td>ogni fonte incontrata, con tier, data e stato di accesso</td><td>riusare le fonti fra run; risolvere le citazioni</td></tr>
+<tr><td><code>sector-history</code></td><td>quali settori sono stati esplorati e con che resa</td><td>far ruotare i settori partendo dai meno visitati</td></tr>
+<tr><td><code>shadow-portfolio</code></td><td>ogni idea arrivata almeno al terzo cancello e poi uccisa</td><td>ricontrollarla dopo 6 mesi e vedere se il mercato le ha dato ragione</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="nota perno">
+<strong>Il portafoglio ombra è il pezzo più importante e il meno appariscente.</strong> Senza,
+il tasso di <em>falsi KILL</em> resta ignoto per sempre: un sistema che scarta può sembrare
+rigoroso mentre sta solo buttando via le cose giuste, e non c'è nessun modo di accorgersene
+dall'interno. Registrare le idee uccise e tornarci sopra dopo sei mesi è l'unica misura di verità
+che questo sistema può ottenere su se stesso.
+</div>
+</section>
+
+<!-- ============================== LIVELLO 4 ============================== -->
+
+<section id="eseguire">
+<h2>Come si esegue</h2>
+
+<p>La pipeline si avvia come comando all'interno di una sessione di Claude Code. Il resto sono
+programmi Python della cartella <code>tools/</code>. Su Windows si usa <code>python</code>
+(<code>python3</code> non esiste); la console va messa in UTF-8 o alcuni caratteri fanno
+crashare l'output.</p>
+
+<div class="avvolgi">
+<table>
+<thead><tr><th>Quando</th><th>Comando</th></tr></thead>
+<tbody>
+<tr><td>una volta sola, all'inizio</td><td><code>python tools/setup.py</code></td></tr>
+<tr><td><strong>prima di ogni run</strong> — se esce in errore, non avviare</td><td><code>python tools/spec_check.py</code></td></tr>
+<tr><td>avvio del run</td><td><code>/deepsearch</code> (profilo LIGHT · BALANCED · DEEP)</td></tr>
+<tr><td>a fine run, prima del rapporto</td><td><code>python tools/run_close.py runs/&lt;run_id&gt; --fase pre</code></td></tr>
+<tr><td>se restano citazioni orfane</td><td><code>python tools/reconcile_run.py runs/&lt;run_id&gt; --consolida</code></td></tr>
+<tr><td>chiusura definitiva — sblocca la memoria</td><td><code>python tools/run_close.py runs/&lt;run_id&gt; --fase finale</code></td></tr>
+<tr><td>vedere dove gira ogni agente</td><td><code>python tools/provider_switch.py --stato</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Il rapporto finale esce in <code>runs/&lt;run_id&gt;/REPORT.md</code>, con al massimo quattro
+idee da 400 parole, la sezione degli scarti motivati, le fonti non accessibili, e — quando è il
+caso — la frase che il sistema è progettato per poter scrivere senza vergogna: <em>nessuna
+opportunità ha superato i criteri in questo run</em>.</p>
+</section>
+
+<section id="limiti">
+<h2>Cosa NON fa, e cosa resta aperto</h2>
+
+<p>Un documento che elenca solo i pregi non serve a chi deve fidarsi. Questi limiti sono
+dichiarati dal sistema stesso.</p>
+
+<ul>
+<li><strong>Non decide se costruire.</strong> Produce un dossier con le prove e il loro stato. La
+decisione di investire sei mesi resta a un essere umano, e il sistema è progettato per rendere
+quella decisione informata, non per prenderla.</li>
+<li><strong>Non intercetta la citazione vera ma decontestualizzata</strong> con gli invarianti:
+per quella serve il revisore cieco, che gira su un campione — completo solo nel profilo più
+intenso.</li>
+<li><strong>Non ha una dimensione temporale nell'evidenza.</strong> Sa distinguere una fonte
+vecchia da una recente, ma non sa dire se un problema stia <em>emergendo</em> o sia lì da un
+decennio.</li>
+<li><strong>Non mette nessun avversario sulle uccisioni.</strong> Il red team attacca le idee che
+sopravvivono; nessuno difende quelle che cadono. Dalla v2.15 ogni verdetto negativo dichiara almeno
+<em>come è stato prodotto</em> — se è stata trovata la prova che uccide o se non è stata trovata la
+prova che salva, e se a dire no è stato il <strong>mercato</strong> o lo <strong>strumento</strong>
+(un agente fermato dal budget mentre stava ancora trovando). Sono campi calcolati
+dall'orchestratore, mai dichiarati dall'agente, e la chiusura del run ne stampa la distribuzione. È
+una misura, non ancora una difesa: il portafoglio ombra resta il rimedio vero, e funziona solo col
+tempo.</li>
+<li><strong>La sua parte più debole è la raccolta, non la specifica.</strong> È una valutazione
+del progetto su se stesso: la qualità dell'ingegneria delle regole ha ormai superato quella del
+recupero delle informazioni che quelle regole governano. È lì che il prossimo miglioramento vale
+di più.</li>
+</ul>
+
+<div class="nota">
+<strong>Una nota sul metodo, per chi erediterà il sistema.</strong> Prima di ricalibrare qualsiasi
+soglia servono <strong>due run sulla stessa identica configurazione</strong>. Finora ogni
+esecuzione è girata su una versione diversa: non esiste ancora una misura di varianza, solo una
+sequenza di aneddoti su impianti diversi. Ricalibrare su un aneddoto è il modo più rapido per
+peggiorare un sistema credendo di migliorarlo.
+</div>
+</section>
+
+<div class="piede">
+Documento generato dal contenuto verificato del repository <code>DEEPSEARCH</code>, versione
+2.15.0 — configurazione, schemi, prompt dei dieci agenti, orchestratore e regole globali. Le
+soglie e i rami riportati sono copiati dai file, non parafrasati a memoria.
+</div>
+
+</main>
+</div>
+<script>
+(function(){
+  var b=document.getElementById('tema');
+  b.addEventListener('click',function(){
+    var r=document.documentElement;
+    var ora=r.getAttribute('data-theme');
+    if(!ora){ ora = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light'; }
+    r.setAttribute('data-theme', ora==='dark'?'light':'dark');
+  });
+  var voci=[].slice.call(document.querySelectorAll('nav a'));
+  var mappa={};
+  voci.forEach(function(a){ var s=document.querySelector(a.getAttribute('href')); if(s) mappa[s.id]=a; });
+  var oss=new IntersectionObserver(function(e){
+    e.forEach(function(x){
+      if(x.isIntersecting){
+        voci.forEach(function(a){a.classList.remove('on');});
+        if(mappa[x.target.id]) mappa[x.target.id].classList.add('on');
+      }
+    });
+  },{rootMargin:'-10% 0px -75% 0px'});
+  [].slice.call(document.querySelectorAll('section')).forEach(function(s){oss.observe(s);});
+})();
+</script>
+</body>
+</html>
