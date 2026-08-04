@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "seen-pain.schema.json",
+  "title": "Record di memoria fra run — una riga di state/seen-pains.jsonl",
+  "description": "Undici schemi coprivano gli artefatti EFFIMERI di un run e nessuno copriva l'unico che deve sopravvivergli. Da questo record dipendono il cooldown dei KILLED (90 giorni), il retry dei PARKED (14), l'esclusione dei pubblicati (365), la riesumazione allo stage corretto e le missing_to_decide come input prioritario del run successivo: cioe' tutta la miglioria A3. Fino alla v2.14.1 era definito solo come esempio JSON dentro §10 dell'orchestratore — un esempio non e' un contratto, e infatti il vocabolario degli outcome era gia' divergito una volta (PUBLISHED contro PUBBLICATA, trovato da SC-05 e ancora vivo in state/README.md).",
+  "type": "object",
+  "required": [
+    "dedup_key",
+    "pain_id",
+    "run_id",
+    "outcome",
+    "stage",
+    "timestamp"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "dedup_key": {
+      "type": "string",
+      "pattern": "^[^|]+\\|(5-9|10-49|50-249)\\|[a-z ]{3,60}$",
+      "description": "<settore>|<fascia>|<job>. Il settore e' una stringa esatta di config.scope.sectors_rotation; la fascia e' una delle tre; il job e' verbo all'infinito + oggetto diretto, minuscolo, 2-4 parole, senza articoli ne' aggettivi. E' l'unico identificatore da cui dipende la memoria: due formulazioni della stessa cosa producono due chiavi, e la memoria scrive senza ricordare."
+    },
+    "pain_id": {
+      "type": "string",
+      "pattern": "^P-[0-9]{3}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{4}$"
+    },
+    "outcome": {
+      "enum": [
+        "PUBBLICATA",
+        "VALIDAZIONE-SUL-CAMPO",
+        "MENZIONE-ONESTA",
+        "PARKED",
+        "KILLED",
+        "NOT_SELECTED"
+      ],
+      "description": "Deve coincidere ESATTAMENTE con config.memory.pain_outcomes. NOT_SELECTED non e' un esito di idea ma di pain: generato e mai promosso allo stage successivo, nessun cooldown."
+    },
+    "stage": {
+      "enum": [
+        "pain",
+        "evidence",
+        "competitor",
+        "trigger",
+        "tam",
+        "bootstrap",
+        "venture",
+        "redteam",
+        "verify",
+        "ranking"
+      ]
+    },
+    "profondita_raggiunta": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 8,
+      "description": "Gate massimo superato. Ordina il portafoglio, ed e' l'unica grandezza di questo sistema confrontabile fra run senza rinormalizzazione."
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "kill_analysis": {
+      "$ref": "core.schema.json#/$defs/KillAnalysis",
+      "description": "Obbligatorio di fatto per outcome KILLED e PARKED. E' cio' che alimenta la distribuzione di kill_attribution su cui config.run.condizione_di_riprogettazione promette di decidere se il difetto sia nella pipeline o nel bersaglio — promessa oggi non calcolabile da nessun programma."
+    },
+    "missing_to_decide": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "park_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Quante volte questo dedup_key e' gia' andato in PARK. Al SECONDO park sulla stessa missing_to_decide il pain esce dal funnel di scrivania: senza questo contatore il ciclo parcheggio -> 14 giorni -> stessa ricerca -> stesso parcheggio e' possibile e strutturalmente invisibile, e produce un report normale ogni due settimane."
+    },
+    "park_reason_history": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "I reason_code dei park precedenti, in ordine. Se si ripetono, il retry sta ripagando lo stesso fallimento."
+    },
+    "killed_at": {
+      "type": "string"
+    },
+    "parked_at": {
+      "type": "string"
+    },
+    "retry_after": {
+      "type": "string"
+    },
+    "revival_reason": {
+      "type": "string",
+      "description": "Obbligatorio per far rientrare un pain prima del cooldown: deve citare una fonte che documenta un cambiamento che invalida il motivo dello scarto. Mai una soglia abbassata."
+    },
+    "timestamp": {
+      "type": "string"
+    }
+  }
+}

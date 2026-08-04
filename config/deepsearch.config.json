@@ -1,0 +1,1224 @@
+{
+  "$schema": "./deepsearch.config.schema.json",
+  "version": "2.15.0",
+  "_commento": "Unico punto di configurazione della pipeline. Nessun agente puo' hardcodare soglie: deve leggerle da qui. Modificare questo file cambia il comportamento dell'intera pipeline senza toccare i prompt.",
+  "run": {
+    "profile": "DEEP",
+    "_profile_options": [
+      "LIGHT",
+      "BALANCED",
+      "DEEP"
+    ],
+    "threshold_profile": "CALIBRATED",
+    "_threshold_profile_options": [
+      "STRICT",
+      "CALIBRATED"
+    ],
+    "auto_fallback_strict_to_calibrated": false,
+    "_auto_fallback_nota": "Se true e il profilo STRICT svuota il funnel prima dello stage 5, l'orchestratore rilancia gli stage 3-4 in CALIBRATED marcando le idee come 'sopravvissute solo in CALIBRATED'. Tenere false per non falsare la statistica dei run.",
+    "language": "it",
+    "output_max_ideas": 4,
+    "output_max_words_per_idea": 400,
+    "min_publish_score": 6.5,
+    "allow_empty_output": true,
+    "_allow_empty_output_nota": "REGOLA D'ORO. Se nessuna idea supera min_publish_score, il report deve dichiararlo esplicitamente. Zero idee e' un output valido e non e' un fallimento della pipeline.",
+    "outcomes": [
+      "PUBBLICATA",
+      "VALIDAZIONE-SUL-CAMPO",
+      "MENZIONE-ONESTA",
+      "PARKED",
+      "KILLED"
+    ],
+    "_validazione_sul_campo": "Esito di pari dignita' rispetto a PUBBLICATA. Si attiva quando il pain ha evidenza di COMPORTAMENTO forte e documentazione debole: e' il caso della nicchia reale ma non coperta, cioe' proprio quella che interessa. Produce un kit di validazione (chi chiamare, dove trovarlo, le cinque domande, la soglia di risposta che promuove o uccide al run successivo) invece di un blueprint. La pipeline da scrivania non puo' decidere quei casi: puo' solo prepararli.",
+    "condizione_di_riprogettazione": {
+      "predicato": "5 run consecutivi VALIDI senza alcun esito PUBBLICATA ne' VALIDAZIONE-SUL-CAMPO",
+      "esclusioni": "i run DEGRADATI o chiusi per budget esaurito NON contano nel conteggio: uno zero non interpretabile non e' un'informazione sul mercato",
+      "azione": "non si spegne: si riprogetta. Si legge prima la distribuzione di kill_attribution sui 5 run — se prevale STRUMENTO il difetto e' nella pipeline, se prevale MONDO il difetto e' nella definizione del bersaglio o nella scelta dei settori",
+      "_nota": "Dichiarato in anticipo perche' e' la stessa cosa che la pipeline chiede a ogni idea: cosa dimostrerebbe che e' sbagliata. Senza l'esclusione dei run degradati il predicato si attiverebbe subito e per il motivo sbagliato, dato che il run del 20260801 era degradato e nessuno se ne era accorto."
+    },
+    "cadenza": {
+      "modo": "SENTINELLA_PIU_INDAGINE",
+      "_modi": [
+        "SETTIMANALE_FISSO",
+        "SENTINELLA_PIU_INDAGINE",
+        "SOLO_SU_RICHIESTA"
+      ],
+      "sentinella": {
+        "quando": "settimanale",
+        "profilo": "LIGHT",
+        "cosa_fa": "non cerca idee nuove: controlla i trigger normativi in scadenza, i pain parcheggiati diventati maturi, e i semi inseriti a mano durante la settimana. Se non trova niente da svegliare, non apre un'indagine e costa quasi nulla.",
+        "costo_stimato": "20-40 chiamate"
+      },
+      "indagine": {
+        "quando": "solo quando la sentinella trova qualcosa, o quando la lanci tu",
+        "profilo": "BALANCED o DEEP",
+        "cosa_fa": "il funnel completo su un numero ristretto di pain",
+        "costo_stimato": "110-200 chiamate"
+      },
+      "_nota": "Il venerdi' fisso non era una scelta di progetto: e' stato adottato per abitudine. Con i limiti di Claude Code, un DEEP settimanale consuma una quota importante dell'allowance e compete con il lavoro vero, ogni settimana, anche quando non c'e' niente da esaminare. La sentinella separa il COSTO DI VIGILANZA dal COSTO DI INDAGINE: il primo deve essere quasi nullo, il secondo si paga solo quando serve."
+    }
+  },
+  "scope": {
+    "geo_primary": [
+      "IT"
+    ],
+    "geo_secondary": [
+      "ES",
+      "FR",
+      "DE",
+      "PT",
+      "GR",
+      "PL"
+    ],
+    "company_size_target": {
+      "addetti_min": 5,
+      "addetti_max": 249,
+      "_nota": "Espresso in ADDETTI, non dipendenti: e' l'unita' di ISTAT ed Eurostat, e la conversione non esiste. La soglia 249 allinea alla definizione UE di PMI.",
+      "revenue_max_eur": 50000000
+    },
+    "sectors_rotation": [
+      "logistica e trasporti conto terzi",
+      "edilizia e impiantistica",
+      "agroalimentare e filiera corta",
+      "manifattura meccanica di precisione",
+      "sanita' privata e poliambulatori",
+      "studi professionali (commercialisti, consulenti del lavoro)",
+      "GDO locale e retail alimentare",
+      "energia, ESCo e comunita' energetiche",
+      "automotive aftermarket e officine",
+      "turismo ricettivo extra-alberghiero",
+      "servizi ambientali e gestione rifiuti",
+      "wholesale e distribuzione B2B"
+    ],
+    "sectors_per_run": 6,
+    "_sectors_per_run_e_un_TETTO": "Il numero di settori realmente esplorati e' min(sectors_per_run, funnel[profile].shards), perche' ogni shard riceve UNA sola coppia (settore, angolo). In LIGHT gli shard sono 4, quindi i settori sono 4 e non 6. Rilevato dall'orchestratore DURANTE il run 20260803-1204 e scritto nelle sue Note di esecuzione — 'sectors_per_run vale 6 ma LIGHT ha 4 shard' — e mai riportato qui: un difetto trovato eseguendo, dichiarato nel verbale del run e non nella specifica, torna al run successivo. L'orchestratore scrive nel manifesto il numero EFFETTIVO, non questo.",
+    "sector_rotation_strategy": "least_recently_explored",
+    "_sector_rotation_nota": "Ad ogni run l'orchestratore sceglie i settori meno esplorati di recente leggendo state/sector-history.jsonl, in numero pari a min(sectors_per_run, shards). Evita che ogni venerdi' la pipeline ritorni sugli stessi settori."
+  },
+  "funnel": {
+    "_nota_budget": "max_searches_total e' un TETTO, non un obiettivo, e va tenuto SOPRA la somma teorica dei budget per istanza. Se lo si abbassa sotto, la pipeline si interrompe a meta' e produce un report vuoto che sembra un esito legittimo: e' il guasto piu' insidioso possibile. Nella pratica i gate potano il funnel e il consumo reale e' il 40-60% del tetto.",
+    "_nota_budget_v2_15": "Il tetto non basta che stia sopra la somma teorica: deve stare sopra somma/warn_at_budget_pct. Il freno all'80% smette di aprire nuove idee al gate 3, quindi il budget realmente disponibile per percorrere il funnel dichiarato e' 0.8 x tetto, non il tetto. Con tetto == somma il freno scatta A META' WAVE 3 e il funnel non arriva mai in fondo, per costruzione e su ogni run. Regola: tetto >= ceil(somma_teorica / warn_at_budget_pct). SC-25 la verifica su entrambe le unita'.",
+    "_riapertura_di_S5": "Difetto S5 (MIGLIORIE.md, dichiarato chiuso in v2.1) riaperto dalla v2.14 e trovato dal red team della v2.14.1. Portare evidence_searches_per_channel a 8 ha aggiunto 960 ricerche e 1920 fetch al solo stage evidenze in DEEP; e' stato alzato il tetto di ricerche del solo DEEP, e nessun tetto di fetch. Stato prima della riparazione: ricerche LIGHT 438 su un tetto di 300, BALANCED 860 su 700, DEEP 1624 su 1600; fetch LIGHT 798 su 500, BALANCED 1556 su 1000, DEEP 2932 su 1800. Sette violazioni su sei tetti, e SC-11 ('aritmetica di funnel') passava pulito perche' non confrontava i tetti con i budget per istanza. LIGHT e' il profilo della sentinella settimanale: il guasto che questa stessa nota chiama il piu' insidioso possibile era attivo proprio dove il sistema gira piu' spesso.",
+    "LIGHT": {
+      "shards": 4,
+      "pains_generated": 20,
+      "pains_to_evidence": 6,
+      "pains_to_competitor": 3,
+      "ideas_to_architect": 2,
+      "evidence_searches_per_channel": 8,
+      "max_searches_total": 550,
+      "max_fetches_total": 1000,
+      "pain_ids_per_shard": 12
+    },
+    "BALANCED": {
+      "shards": 6,
+      "pains_generated": 40,
+      "pains_to_evidence": 12,
+      "pains_to_competitor": 6,
+      "ideas_to_architect": 4,
+      "evidence_searches_per_channel": 8,
+      "max_searches_total": 1100,
+      "max_fetches_total": 1950,
+      "pain_ids_per_shard": 12
+    },
+    "DEEP": {
+      "shards": 8,
+      "pains_generated": 80,
+      "pains_to_evidence": 24,
+      "pains_to_competitor": 12,
+      "ideas_to_architect": 6,
+      "evidence_searches_per_channel": 8,
+      "max_searches_total": 2050,
+      "max_fetches_total": 3700,
+      "pain_ids_per_shard": 12
+    },
+    "_nota_wave1": "pains_generated ora e' raggiungibile: shards x pain_ids_per_shard e' il tetto strutturale (LIGHT 48, BALANCED 72, DEEP 96) e sta sopra l'obiettivo in tutti e tre i profili. Prima DEEP dichiarava 80 con un tetto di 64 e un budget da 48.",
+    "ordinamento_dei_tagli": "I tre tagli del funnel ordinano per SCORE COMPOSITO, mai per una dimensione sola. wave1->2: 0.30 evidenza di spesa attuale (already_spending.is_spending = true con almeno una fonte) + 0.30 tracce di COMPORTAMENTO da attori distinti (conteggio plafonato a 3, normalizzato n/3) + 0.25 perdita economica quantificata (VERIFIED 1.0 · ESTIMATED 0.7 · UNKNOWN 0) + 0.15 ricorrenza. La ricorrenza pesa MENO della perdita, e questa era gia' la correzione della v2.14: nel run 20260802-1759 P-102 (MUD annuale, sanzione 2.600-15.500 EUR, perdita VERIFIED) e' finito sedicesimo su venti perche' l'ordinamento metteva la ricorrenza sopra la perdita quantificata, quindi ogni adempimento annuale cadeva sotto qualunque compito giornaliero anche essendo l'unico con una perdita fontata.",
+    "_ordinamento_correzione_v2_15": "Il termine su evidence_kind non c'era, e questa e' la correzione che conta. Il taglio wave1->2 e' il canale di perdita DOMINANTE della pipeline — 8 pain su 14 nel run 20260803-1204, 12 su 15 nel 20260801, cinque volte i morti di qualunque gate — e ordinava su 0.45 di 'perdita documentata VERIFIED > ESTIMATED > UNKNOWN', che e' una scala di DOCUMENTABILITA' pura. E' esattamente l'asse che la v2.1 ha dichiarato sbagliato introducendo evidence_kind: 'fondere le due domande faceva ottimizzare il funnel per la copertura mediatica, che e' precisamente cio' che rende una nicchia gia' presidiata'. Quella correzione e' entrata nel gate 2 (PASS-B), nel gate 3 (ASSENZA, DISALLINEAMENTO) e nelle regole di promozione, e NON e' entrata nell'ordinamento — mentre il config stesso scriveva, due righe sopra, che 'il gate non taglia il funnel mentre l'ordinamento si''. Il sistema ha riparato cinque volte i filtri che uccidono poco e ha lasciato intatto quello che uccide molto.",
+    "_ordinamento_perche_ESTIMATED_vale_0_7": "Non e' un allentamento: e' il rifiuto di applicare una scala di verifica dove non c'e' ancora stata verifica. Il taglio wave1->2 si applica PRIMA che qualsiasi evidence-researcher abbia girato: una 'perdita VERIFIED' alla wave 1 significa che il pain-finder e' inciampato in una cifra dentro 8 ricerche, cioe' misura in buona parte la fortuna dello shard. Punire un ESTIMATED con formula dichiarata al 30% del valore di un VERIFIED fortuito ordina i candidati per quanto e' stato facile trovarli, non per quanto valgono. La verifica vera arriva alla wave 2, ed e' li' che la distinzione pesa.",
+    "_nota_gate2": "evidence_searches_per_channel portato da 3-4 a 8 in tutti i profili. Motivo MISURATO nel run 20260803: dieci pack su dieci hanno chiuso BUDGET_EXHAUSTED e nessuno ha mai raggiunto la saturazione, quindi la regola del troncamento plafonava ogni verdetto a PARK — G1 e G3 non potevano uccidere e l'uscita VALIDAZIONE-SUL-CAMPO, che pretende tutti e cinque i canali COMPLETED o ZERO_YIELD, era irraggiungibile per costruzione. Il config DICHIARAVA gia' il vincolo (budget_minimo_perche_un_kill_sia_emettibile = 3x la finestra zero_yield = 6) e nessuno lo verificava: 3 e 4 sono sotto 6 in tutti e tre i profili. Perche' 8 e non 6: a 6 il vincolo e' soddisfatto sulla carta ma la saturazione richiederebbe che siano proprio le ULTIME due ricerche a rendere zero, quindi in pratica il kill resterebbe non emesso e avremmo un ramo raggiungibile-ma-mai-raggiunto, che e' il difetto che continuiamo a trovare. Con 8 restano due ricerche di margine. COSTO, e la v2.14 ne aveva pagato meno di meta': 24 pain x 5 canali x 8 = 960 ricerche e 1920 fetch nel solo stage evidenze in DEEP. E' stato alzato il solo tetto di ricerche del solo DEEP, e i sei tetti sono finiti sotto la somma dei budget per istanza — riaprendo S5. Tetti ricalcolati nella v2.15 su entrambe le unita' e su tutti e tre i profili; SC-25 li sorveglia."
+  },
+  "parallelism": {
+    "_pain_finder_shards_nota": "Il numero di shard viene da funnel[profile].shards. Ogni shard riceve una coppia (settore, angolo di ricerca) diversa e non vede gli output degli altri: massimizza la diversita' dei candidati.",
+    "evidence_channels_parallel": 5,
+    "competitor_agents_parallel": 4,
+    "redteam_lenses_parallel": 3,
+    "max_concurrent_subagents": 8,
+    "max_supplement_rounds": 1,
+    "_max_supplement_rounds_nota": "Massimo numero di supplementi istruttori per idea al gate 6. Senza questo limite un dato non reperibile fa ciclare all'infinito bootstrap-filter <-> agente retrieval, bruciando l'intero budget su una sola idea. Esaurito il round, l'idea va in PARK d'ufficio.",
+    "parallel_gate_execution": true,
+    "_parallel_gate_execution_nota": "true = Competitor Analyst, Trigger Finder e TAM Analyst girano in parallelo sullo stesso pain (non hanno dipendenze di dati fra loro), con early-abort se uno dei tre produce un KILL. Costa piu' token ma dimezza il wall-clock. false = esecuzione stretta in cascata, piu' economica. In profilo DEEP tenere true."
+  },
+  "sources": {
+    "tiers": {
+      "T1_ufficiale": {
+        "peso": 1.0,
+        "esempi": [
+          "EUR-Lex",
+          "Gazzetta Ufficiale",
+          "ISTAT",
+          "Eurostat",
+          "Registro Imprese / Infocamere",
+          "bilanci depositati",
+          "Garante Privacy",
+          "ENISA",
+          "AgID",
+          "Banca d'Italia",
+          "Agenzia delle Entrate",
+          "INAIL",
+          "ACCREDIA"
+        ]
+      },
+      "T2_istituzionale_ricerca": {
+        "peso": 0.85,
+        "esempi": [
+          "Osservatori Digital Innovation PoliMi",
+          "Confindustria",
+          "Confartigianato",
+          "CNA",
+          "Unioncamere",
+          "Cerved",
+          "Gartner/IDC/Forrester (se accessibile)",
+          "stampa economica specializzata (Il Sole 24 Ore, Milano Finanza, Handelsblatt)",
+          "enti bilaterali e Casse Edili (CNCE, Cassa Edile)",
+          "ANCE e federazioni nazionali di categoria",
+          "stampa tecnica specializzata con redazione (PuntoSicuro, Ediltecnico, Legislazione Tecnica, Il Sole 24 Ore Norme e Tributi)"
+        ]
+      },
+      "T3_mercato_piattaforme": {
+        "peso": 0.7,
+        "esempi": [
+          "G2",
+          "Capterra",
+          "Crunchbase",
+          "Wayback Machine",
+          "listini pubblici vendor",
+          "annunci di lavoro",
+          "SimilarWeb",
+          "BuiltWith",
+          "app store B2B",
+          "marketplace di gestionali",
+          "riproduzioni non ufficiali di testi normativi",
+          "portali e banche dati di settore ad accesso libero",
+          "capitolati e documenti di gara pubblicati"
+        ]
+      },
+      "T4_community_segnali_deboli": {
+        "peso": 0.45,
+        "esempi": [
+          "Reddit",
+          "LinkedIn post e commenti",
+          "forum di settore",
+          "gruppi Facebook professionali",
+          "commenti YouTube",
+          "Trustpilot",
+          "Indeed reviews"
+        ]
+      },
+      "T5_autoreferenziale": {
+        "peso": 0.2,
+        "esempi": [
+          "blog e marketing del vendor",
+          "comunicati stampa aziendali",
+          "case study self-published",
+          "pagine 'chi siamo'"
+        ]
+      }
+    },
+    "fact_promotion_rules": {
+      "regola": "Uno statement puo' essere marcato VERIFIED solo se soddisfa una delle condizioni FP1-FP5. Ogni claim dichiara in 'promoted_by' il codice che lo ha promosso, oppure FP0 se nessuno lo ha fatto.",
+      "condizioni": [
+        {
+          "id": "FP1",
+          "regola": "almeno 1 fonte T1"
+        },
+        {
+          "id": "FP2",
+          "regola": "almeno 1 fonte T2"
+        },
+        {
+          "id": "FP3",
+          "regola": "almeno 2 fonti T3 indipendenti (vedi indipendenza_per_asse)"
+        },
+        {
+          "id": "FP4",
+          "regola": "almeno 4 fonti T4 indipendenti sullo stesso fenomeno concreto, non su un'opinione"
+        },
+        {
+          "id": "FP5",
+          "regola": "1 fonte T5 SOLO per fatti auto-descrittivi di cui il vendor e' fonte primaria: proprio pricing, proprie funzionalita', proprio changelog"
+        },
+        {
+          "id": "FP0",
+          "regola": "NESSUNA delle precedenti — ramo TERMINALE. Lo statement NON e' promosso e resta ESTIMATED, HYPOTHESIS o UNKNOWN. Non e' un fallimento dell'agente: e' l'esito corretto per la maggioranza dell'evidenza raccolta."
+        }
+      ],
+      "eccezione_T5": "Una fonte T5 puo' da sola sostenere solo fatti auto-descrittivi di cui il vendor e' fonte primaria: pricing di listino pubblicato, elenco delle integrazioni dichiarate, data di annuncio di una feature. Mai per dimensioni di mercato, quote, fatturato o efficacia.",
+      "indipendenza": "Due fonti NON sono indipendenti se una cita l'altra, se hanno lo stesso publisher, o se derivano dallo stesso comunicato stampa. In caso di dubbio contano come una sola.",
+      "indipendenza_per_asse": "L'asse di indipendenza DIPENDE dall'evidence_kind e le due regole si contraddicevano. PUBBLICAZIONE: l'asse e' il PUBLISHER (due articoli dello stesso giornale sono una fonte sola). COMPORTAMENTO: l'asse e' l'ATTORE CHE HA SPESO, non il publisher — tre annunci di tre datori di lavoro diversi sono tre decisioni di spesa indipendenti anche se stanno tutti su Indeed, perche' cio' che si misura e' la spesa, non il racconto. ARTEFATTO: l'asse e' l'ENTE che ha prodotto l'artefatto. Vincolo comune: gli attori devono essere entita' giuridiche distinte e verificabili per nome, non profili anonimi. Trovato nel run 20260802-1759, dove due shard ciechi hanno segnalato che sotto una lettura gli stessi claim erano VERIFIED e sotto l'altra HYPOTHESIS — e la rotta PASS-B del gate 2 poggia interamente su questa distinzione.",
+      "aggregatore_non_e_publisher": "Un aggregatore (Indeed, portali di bandi, marketplace) non e' il publisher del contenuto che ospita: il publisher e' l'attore che ha pubblicato l'annuncio. Contarlo come publisher unico riduceva a uno l'intero corpus H1 italiano, tanto piu' che InfoJobs Italia ha chiuso — verificato sul campo dallo shard 6.",
+      "_ramo_terminale": "FP0 e' il ramo che mancava, ed e' la TERZA volta che questo repo trova lo stesso difetto: un'enumerazione senza uscita per esclusione. La prima fu la classificazione dei competitor (STRONG non era terminale, e i DIRETTI restavano senza classe); la seconda il gate 3 ('tutti STRONG' lasciava scoperto un caso e nessun ramo scattava); questa e' la terza. Nel run 20260803 gli agenti hanno coniato da soli '1xT3', '1xT4', '2xT5-indipendenti' — non per sciatteria, ma perche' dovevano dichiarare PERCHE' un claim non era promosso e non esisteva un'etichetta legittima per dirlo. Nove pack su dieci fallivano la validazione: e' l'aspetto che ha, visto da fuori, un'enumerazione a cui manca il ramo negativo.",
+      "_codici": [
+        "FP0",
+        "FP1",
+        "FP2",
+        "FP3",
+        "FP4",
+        "FP5"
+      ]
+    },
+    "staleness": {
+      "warn_after_months": 18,
+      "unusable_for_sizing_after_months": 36,
+      "unusable_for_pricing_after_months": 24,
+      "_nota": "Oltre unusable_for_sizing la fonte resta citabile solo per contesto strutturale (es. 'il settore e' storicamente frammentato'), mai per numeri.",
+      "_misurata_su": "data_year, cioe' l'anno del DATO, non published_date. Un annuario 2024 con dati 2022 e' vecchio di 4 anni ai fini di un dimensionamento. Se data_year e' assente si ripiega su published_date dichiarandolo."
+    },
+    "verifier_sampling_rate": {
+      "LIGHT": 0.25,
+      "BALANCED": 0.35,
+      "DEEP": 1.0
+    },
+    "_verifier_sampling_rate_nota": "Quota di claim VERIFIED che il Source Verifier ricontrolla in modo indipendente, per profilo. L'orchestratore legge il valore da qui: nessuna soglia va hardcodata nei prompt.",
+    "verifier_priority_order": [
+      "claim che sostiene una risposta anti-allucinazione",
+      "numero pubblicato nel report",
+      "criterio competitor MET",
+      "trigger VERIFIED",
+      "altri claim VERIFIED"
+    ],
+    "verifier_max_pairs_per_instance": 10,
+    "_verifier_scaling_nota": "Il budget del verificatore non e' fisso: l'orchestratore calcola il numero di coppie da controllare e lancia ceil(coppie / verifier_max_pairs_per_instance) istanze in parallelo, ciascuna con budget = numero di coppie ricevute. Un budget fisso produrrebbe un pass_rate calcolato su un campione troncato e arbitrario, che poi pesa 0.15 nel moltiplicatore di confidenza.",
+    "_regola_publisher_non_elencato": "Un publisher non presente negli esempi si classifica per NATURA, non per notorieta': ha una redazione e risponde di cio' che pubblica (T2); e' una piattaforma o una banca dati che espone dati altrui (T3); e' contenuto generato da utenti (T4); e' l'oggetto stesso che parla di se' (T5). Nel collaudo 20260801 sei agenti hanno classificato a intuito per assenza di questa regola.",
+    "evidence_kinds": {
+      "_perche": "I tier misurano se un'affermazione e' sostenuta. Non misurano se un problema esiste ed e' pagato. Fondere le due domande faceva ottimizzare il funnel per la copertura mediatica, che e' esattamente cio' che rende una nicchia gia' presidiata: si scartavano sistematicamente le opportunita' migliori perche' poco documentate.",
+      "PUBBLICAZIONE": {
+        "cos_e": "qualcuno ha scritto che accade",
+        "promozione": "regole di tier standard"
+      },
+      "COMPORTAMENTO": {
+        "cos_e": "qualcuno ha SPESO per farlo accadere",
+        "esempi": [
+          "annuncio di lavoro per quel compito",
+          "capitolato o codice di condotta fornitori che lo impone",
+          "listino di chi vende il rimedio",
+          "bando o incentivo dedicato",
+          "offerta di servizio in outsourcing su quel processo"
+        ],
+        "promozione": "2 tracce convergenti da attori diversi e indipendenti",
+        "_indipendenza": "Vedi fact_promotion_rules.indipendenza_per_asse: qui l'asse e' l'attore che ha speso.",
+        "_limite_ICP": "Una traccia di COMPORTAMENTO documenta il COMPITO, non la TAGLIA di chi lo paga: un annuncio di lavoro raramente dichiara gli addetti dell'azienda. Nel run 20260802-1759 fra le tracce comparivano Edison ed EcoEridania, fuori dalla fascia 5-249. Regola: un claim promosso per COMPORTAMENTO puo' sostenere l'esistenza del compito, MAI l'appartenenza del pain alla fascia dimensionale. Quella resta UNKNOWN e va verificata al telefono — che e' precisamente cio' per cui esiste VALIDAZIONE-SUL-CAMPO."
+      },
+      "ARTEFATTO": {
+        "cos_e": "esiste un oggetto che presuppone il problema",
+        "esempi": [
+          "modulo o template ufficiale",
+          "portale dedicato",
+          "FAQ di un ente su quel processo",
+          "corso di formazione su quel compito"
+        ],
+        "promozione": "1 artefatto + 1 traccia di uso"
+      }
+    }
+  },
+  "competitor_thresholds": {
+    "definizione_competitor_diretto": {
+      "regola": "Un vendor conta come competitor DIRETTO solo se soddisfa TUTTE e tre le condizioni. Altrimenti e' ADIACENTE e non attiva i criteri di scarto.",
+      "condizioni": [
+        "stesso ICP (stessa fascia dimensionale e stesso ruolo acquirente)",
+        "stesso job-to-be-done principale (risolve lo stesso processo, non un processo limitrofo)",
+        "va a mercato nella stessa geografia/lingua del target (sito, supporto o rete commerciale locale)"
+      ],
+      "_nota_v2": "Questa qualificazione NON esisteva nel prompt monolitico ed e' la causa principale dei falsi KILL: senza di essa qualsiasi suite generalista globale uccideva ogni nicchia."
+    },
+    "STRICT": {
+      "_descrizione": "Soglie letterali del prompt originale. Massima fedelta', alta probabilita' di output vuoto.",
+      "kill_if_any": [
+        {
+          "id": "K1",
+          "criterio": "fatturato_annuo_eur",
+          "operatore": ">",
+          "valore": 10000000,
+          "scope": "azienda_intera"
+        },
+        {
+          "id": "K2",
+          "criterio": "funding_vc_pe_tracciabile",
+          "operatore": "esiste",
+          "valore": true,
+          "scope": "qualsiasi_epoca"
+        },
+        {
+          "id": "K3",
+          "criterio": "dipendenti",
+          "operatore": ">",
+          "valore": 50,
+          "scope": "azienda_intera"
+        },
+        {
+          "id": "K4",
+          "criterio": "feature_ai_generativa_ultimi_mesi",
+          "operatore": "<=",
+          "valore": 12,
+          "scope": "qualsiasi_feature"
+        }
+      ],
+      "keep_if_at_least": 2,
+      "keep_criteria": [
+        {
+          "id": "W1",
+          "criterio": "ultimo_redesign_ui_anni",
+          "operatore": ">=",
+          "valore": 5
+        },
+        {
+          "id": "W2",
+          "criterio": "menzioni_ai_automazione",
+          "operatore": "==",
+          "valore": 0
+        },
+        {
+          "id": "W3",
+          "criterio": "rating_medio_g2_capterra",
+          "operatore": "<",
+          "valore": 4.0,
+          "min_recensioni": 1
+        },
+        {
+          "id": "W4",
+          "criterio": "pricing_vs_valore_percepito",
+          "operatore": ">",
+          "valore": 3.0
+        }
+      ]
+    },
+    "CALIBRATED": {
+      "_descrizione": "Stessa filosofia, criteri resi discriminanti nel 2026. Ogni modifica e' motivata in docs/MIGLIORIE.md.",
+      "kill_if_any": [
+        {
+          "id": "K1",
+          "criterio": "fatturato_attribuibile_linea_prodotto_eur",
+          "operatore": ">",
+          "valore": 10000000,
+          "scope": "linea_di_prodotto_concorrente",
+          "fallback": "Se il fatturato non e' scorporabile per linea, usare il fatturato totale ma marcare il KILL come 'SOFT' e richiedere conferma da un secondo criterio."
+        },
+        {
+          "id": "K2",
+          "criterio": "funding_vc_pe_eur_ultimi_36_mesi",
+          "operatore": ">=",
+          "valore": 3000000,
+          "scope": "round_tracciabili"
+        },
+        {
+          "id": "K3",
+          "criterio": "dipendenti_unita_prodotto",
+          "operatore": ">",
+          "valore": 50,
+          "fallback": "Se l'organico per unita' non e' ricavabile, usare l'organico totale solo se l'azienda e' mono-prodotto."
+        },
+        {
+          "id": "K4",
+          "criterio": "feature_ai_generativa_sul_core_job_presente",
+          "scope": "solo_feature_che_risolve_il_job_to_be_done_del_pain",
+          "_nota": "Senza finestra temporale. Misurare l'ETA' della feature (<=12 mesi) rendeva NOT_MET chi ha AI da tre anni, cioe' la minaccia maggiore; e nessun vendor pubblica le date di rilascio, quindi l'esito era sempre UNKNOWN. Conta la pertinenza al core job, non la freschezza.",
+          "operatore": "esiste",
+          "valore": true
+        },
+        {
+          "id": "K5",
+          "criterio": "integrazione_nativa_mantenuta_con_sistema_di_record_dominante",
+          "operatore": "esiste",
+          "valore": true,
+          "_nota": "Integrazione nativa e documentata. La clausola 'aggiornata negli ultimi 12 mesi' e' stata rimossa: non e' verificabile senza changelog pubblico e spostava lo stesso caso fra KILL e PARK a seconda della lettura.",
+          "_definizione_sistema_di_record": "Il software in cui il target inserisce il dato per primo e da cui non puo' uscire: tipicamente l'ERP o il gestionale verticale, oppure il portale pubblico obbligatorio quando esiste. Se il competitor E' il sistema di record, K5 e' automaticamente MET.",
+          "_severity": "HARD solo quando il criterio e' misurato sul perimetro che intende: un VENDOR PRIVATO mantiene l'integrazione nativa E il suo sistema di record e' dominante NEL SEGMENTO BERSAGLIO, con evidenza della dominanza in quel segmento e non in generale. SOFT in due casi, entrambi 'perimetro piu' largo di quello che il criterio intende': (a) K5 e' MET solo perche' il competitor E' il sistema di record — tipicamente il portale pubblico obbligatorio e il suo strumento gratuito; (b) l'integrazione nativa e' documentata ma la dominanza del sistema di record nel segmento non lo e'. Un SOFT non uccide da solo: si applica soft_kill_policy.",
+          "_perche_il_portale_pubblico_e_SOFT": "Un portale pubblico obbligatorio non e' un concorrente nel senso che i kill criteria intendono — un incumbent privato ben dotato che ti batte sull'esecuzione. E' il PAVIMENTO del mercato, e l'intera categoria dei verticali a pagamento esiste SOPRA quel pavimento. Trattarlo come un kill HARD significa uccidere per definizione ogni mercato di conformita', perche' il portale c'e' sempre, offre sempre uno strumento gratuito, e' sempre un DIRETTO e ha sempre K5 automaticamente MET. Ma 'adempimenti normativi ricorrenti con sanzione' e' l'angolo NUMERO 1 degli otto assegnati al pain-finder e la firma numero 1 del metodo follow-the-money: il gate uccideva strutturalmente il terreno di caccia che la pipeline si prescrive. E l'esistenza di fornitori a pagamento sopra uno strumento di Stato gratuito non e' la prova che il mercato sia chiuso: e' un indizio di DISALLINEAMENTO, cioe' del ramo 9.",
+          "_trovato_da": "Controllo positivo CP-001 (runs/_dry-CP-001), agosto 2026. Il pain 'tenere il registro rifiuti' e' stato ucciso al gate 3 ramo 1 da K5 sul portale ministeriale, mentre nello stesso mercato vende SistemaSoft Srl — piccola, indipendente, listino pubblico da 99 EUR/anno — piu' almeno altri due operatori. Gia' successo una volta su dati reali e registrato come un successo: nel collaudo 20260801 P-013 (quadratura fatture SdI) e' stato ucciso dallo stesso meccanismo, e il verbale lo elenca fra le cose che hanno FUNZIONATO. Un falso negativo di questa classe non ha sintomi: si presenta come un successo."
+        }
+      ],
+      "keep_if_at_least": 2,
+      "keep_criteria": [
+        {
+          "id": "W1",
+          "criterio": "ultimo_redesign_ui_anni",
+          "operatore": ">=",
+          "valore": 5,
+          "evidenza_richiesta": "Wayback Machine o screenshot datati"
+        },
+        {
+          "id": "W2",
+          "criterio": "menzioni_ai_automazione_nel_marketing",
+          "operatore": "==",
+          "valore": 0,
+          "evidenza_richiesta": "pagina prodotto e changelog",
+          "_nota": "Ristretto al marketing: prima si sovrapponeva a K4 e lo stesso fatto veniva contato due volte."
+        },
+        {
+          "id": "W3",
+          "criterio": "rating_medio_g2_capterra",
+          "operatore": "<",
+          "valore": 4.0,
+          "min_recensioni": 20,
+          "_nota": "Aggiunta soglia minima di volume: 3 recensioni non fanno statistica."
+        },
+        {
+          "id": "W4",
+          "criterio": "recensioni_che_citano_il_prezzo_come_motivo_di_insoddisfazione",
+          "operatore": ">=",
+          "valore": 3,
+          "evidenza_richiesta": "listino pubblico + citazioni testuali da recensioni sul prezzo",
+          "_nota": "Prima era 'pricing pubblico > 3x il valore percepito': un rapporto senza unita' ne' metodo, non calcolabile, che risultava UNKNOWN su ogni competitor."
+        },
+        {
+          "id": "W5",
+          "criterio": "mesi_da_ultimo_aggiornamento_changelog_o_blog_prodotto",
+          "operatore": ">=",
+          "valore": 12,
+          "_nota": "CRITERIO NUOVO. Prodotto in manutenzione = finestra reale."
+        },
+        {
+          "id": "W6",
+          "criterio": "api_pubblica_documentata",
+          "operatore": "==",
+          "valore": false,
+          "_nota": "CRITERIO NUOVO. Assenza di API = incapacita' di stare nel workflow del cliente, il gap piu' sfruttabile in bootstrap."
+        }
+      ],
+      "misalignment_criteria": [
+        {
+          "id": "M1",
+          "criterio": "annunci_di_lavoro_per_il_compito_che_il_software_dovrebbe_eliminare",
+          "evidenza_richiesta": "almeno 2 annunci in 12 mesi nel segmento, che descrivono nel mansionario il compito manuale",
+          "_perche": "Se il software risolvesse il problema, nessuno assumerebbe per farlo a mano. E' la prova piu' forte di disallineamento perche' ha uno stipendio attaccato."
+        },
+        {
+          "id": "M2",
+          "criterio": "domande_ricorrenti_senza_risposta_nativa_nei_canali_di_assistenza_del_software_dominante",
+          "evidenza_richiesta": "almeno 3 thread distinti in cui la risposta e' un workaround, un export, un foglio di calcolo o 'non si puo' fare'",
+          "_perche": "Il forum di assistenza di un gestionale e' l'unico posto dove il confine fra cio' che il software fa e cio' che il lavoro richiede viene scritto da chi lo subisce."
+        },
+        {
+          "id": "M3",
+          "criterio": "job_to_be_done_dichiarato_dal_vendor_diverso_dal_job_del_pain",
+          "evidenza_richiesta": "confronto testuale fra la pagina prodotto e il job_to_be_done del pain, con citazione",
+          "_perche": "Il disallineamento piu' comune non e' un difetto: e' che il prodotto risolve il processo ADIACENTE. Fattura invece di riconciliare, archivia invece di verificare, registra invece di anticipare."
+        },
+        {
+          "id": "M4",
+          "criterio": "esistono_servizi_umani_a_pagamento_che_fanno_cio_che_il_software_dovrebbe_fare",
+          "evidenza_richiesta": "almeno 1 offerta di servizio con tariffa, nello stesso segmento",
+          "_perche": "Un mercato di servizi che vive sopra un mercato di software e' la misura del disallineamento: qualcuno paga due volte."
+        }
+      ],
+      "misalignment_min": 2
+    },
+    "unclassified_policy": {
+      "soglia_park": 0.4,
+      "azione": "PARK",
+      "_nota": "Se oltre il 40% dei competitor diretti resta UNCLASSIFIED per mancanza di dati, l'idea NON viene ne' uccisa ne' promossa: va in PARK con una lista di verifiche mancanti, e rientra nel run successivo. Il prompt monolitico non aveva questo stato e finiva per assumere 'battibile'."
+    },
+    "soft_kill_policy": {
+      "regola": "Un kill criterion con severity SOFT (tipicamente K1 o K3 valutati sul totale aziendale perche' non scorporabili per linea di prodotto) NON uccide da solo.",
+      "promuovi_a_hard_se": "almeno un secondo kill criterion risulta MET con state VERIFIED sullo stesso competitor",
+      "altrimenti": "PARK, con la scomposizione del fatturato o dell'organico per linea di prodotto inserita in missing_to_decide",
+      "_nota": "Senza questa regola il flag SOFT non viene consumato da nessun gate e la difesa contro il falso KILL diventa un 'mai KILL': un competitor da 40M EUR non scorporabile non ucciderebbe mai."
+    },
+    "no_beatable_policy": {
+      "regola": "Esistono competitor DIRETTI ben documentati, nessuno soddisfa un kill criterion, nessuno soddisfa keep_if_at_least keep_criteria (tutti STRONG).",
+      "azione_se_disallineamento": "PASS con evidence_route DISALLINEAMENTO — servono almeno misalignment_min criteri M verificati",
+      "azione_altrimenti": "KILL",
+      "codice": "G7",
+      "_nota_v2_3": "G7 e' stato INVERTITO. Prima uccideva ogni mercato con software sano: era il criterio che escludeva per costruzione meta' della missione. Ora uccide solo il mercato con software sano E ALLINEATO. Software sano ma disallineato e' esattamente cio' che si sta cercando."
+    },
+    "min_competitors_to_map": 5,
+    "max_competitors_to_map": 12,
+    "precedenza_verdetto": "KILL prima di UNCLASSIFIED prima di PARK prima di PASS. La regola sui dati insufficienti NON puo' precedere quella di kill: con STOP-1 che ferma al primo kill trovato, gli UNKNOWN sono garantiti e sotto la lettura opposta il KILL diventava irraggiungibile.",
+    "valutazione_a_scalini": {
+      "_diagnosi": "11 criteri x 5-12 competitor DIRETTI = 55-132 valutazioni, con 10 ricerche. Il prompt vieta giustamente il BEATABLE per assenza di dati, quindi l'esito onesto era UNKNOWN in massa, quindi UNCLASSIFIED, quindi unclassified_ratio sopra 0.4, quindi PARK. Il ramo 4 del gate 3 non era un caso limite: era il modo predefinito. Nel collaudo 20260801: 3 DIRETTI, 33 valutazioni richieste, 6 ricerche disponibili, 24 criteri su 33 UNKNOWN, ratio 1.0, PARK.",
+      "criteri_obbligatori": [
+        "K4",
+        "K5",
+        "W2",
+        "W5",
+        "W6"
+      ],
+      "_obbligatori_nota": "Si leggono quasi tutti dalla stessa fetch — pagina prodotto, pagina integrazioni, changelog, sottodominio docs — e sono i piu' discriminanti. Vanno valutati su OGNI diretto.",
+      "criteri_best_effort": [
+        "K1",
+        "K2",
+        "K3",
+        "W1",
+        "W3",
+        "W4"
+      ],
+      "_best_effort_nota": "Bilanci, funding, organico, Wayback, recensioni: costosi e spesso irreperibili per un vendor italiano di nicchia. Se non li tenti, l'esito e' NON_TENTATO, non UNKNOWN. Sono due cose diverse: 'non lo so' e 'non ho guardato'. Confonderle e' cio' che gonfiava l'unclassified_ratio.",
+      "_asimmetria_dichiarata": "K1, K2 e K3 sono criteri di KILL e sono in best-effort: questo e' uno SCAMBIO DI ERRORI, non un'ottimizzazione neutra, e va detto. Prima: molti falsi PARK (idee sane bloccate da UNKNOWN in massa). Dopo: meno falsi PARK, ma piu' falsi PASS su incumbent finanziati, perche' un concorrente ben capitalizzato si riconosce proprio da funding e organico. Nel collaudo 20260801 il seed da 12M EUR di Pillar era un K2: sotto le regole attuali sarebbe NON_TENTATO e non avrebbe ucciso al gate 3. La copertura di questo buco NON e' il ripristino di K1-K3 come obbligatori — costerebbe di nuovo il PARK sistematico — ma la lente red-team competitor_nascosti promossa al gate 3, che cerca il finanziamento come fatto e non come criterio. Se il portafoglio ombra mostrera' idee uccise tardi da un concorrente finanziato che K2 avrebbe visto al gate 3, questo scambio va rivisto: e' la misura, non l'opinione, che deve deciderlo.",
+      "unclassified_si_calcola_su": "solo i criteri obbligatori",
+      "regola": "Un DIRETTO e' UNCLASSIFIED solo se piu' della meta' dei criteri OBBLIGATORI resta UNKNOWN dopo averli tentati. I NON_TENTATO non entrano nel denominatore: un rapporto il cui denominatore dipende da quando ti sei fermato non misura il mercato, misura la regola di arresto.",
+      "denominatore_unclassified_ratio": "competitor DIRETTI effettivamente mappati, dichiarato nel report insieme al rapporto"
+    },
+    "_min_competitors_vs_stop1": "min_competitors_to_map (5) e la condizione di STOP 1 (fermati al primo kill certo) si contraddicono, e STOP 1 vince perche' viene prima. Nel run 20260802-1759 quattro competitor-analyst su sei hanno mappato UN SOLO vendor, quindi unclassified_ratio era calcolato su 1 e min_competitors_to_map non e' mai stato raggiunto. Non e' un difetto da riparare alzando il budget: fermarsi al primo kill certo e' corretto ed economico. E' un difetto di DICHIARAZIONE: quando n_direct < min_competitors_to_map, unclassified_ratio NON e' significativo, il ramo 4 del gate 3 non si applica, e il report deve scrivere 'mercato non mappato: arresto al primo kill' invece di un rapporto calcolato su un denominatore di uno. Un rapporto su un solo competitor non misura il mercato, misura la regola di arresto — la stessa frase gia' scritta per i NON_TENTATO, e vale identica qui.",
+    "assenza_policy": {
+      "regola": "Zero competitor DIRETTI e almeno un SOSTITUTO_NON_SOFTWARE con spesa documentata: il lavoro si fa e si paga senza software.",
+      "azione": "PASS con evidence_route ASSENZA",
+      "azione_se_nessuna_spesa": "PARK — zero diretti senza spesa documentata puo' significare che il problema non interessa a nessuno, oppure che l'analista non ha guardato abbastanza. Non e' distinguibile da qui.",
+      "_perche": "E' la meta' (a) della missione — 'un segmento dove non esiste soluzione software' — e fino alla v2.13 non aveva ne' rotta ne' ramo. Con zero DIRETTI e sostituti presenti nessun ramo del gate 3 si applicava tranne l'ultimo, che uccideva con G7 ('gia' risolto da software moderno') su una premessa il cui contrario era vero. Il gate uccideva il bersaglio primario della propria missione, in silenzio, con una motivazione plausibile. Trovato eseguendo il run 20260803: l'orchestratore ha rifiutato di applicare il ramo e ha segnalato invece di obbedire."
+    }
+  },
+  "kill_criteria_globali": [
+    {
+      "id": "G1",
+      "regola": "Nessuna evidenza fontata che il cliente spenda gia' oggi denaro, tempo o personale sul problema",
+      "stage": "evidence"
+    },
+    {
+      "id": "G2",
+      "regola": "Il problema e' occasionale o una tantum: si presenta senza cadenza prevedibile e non rientra nel calendario di lavoro del target",
+      "stage": "pain",
+      "_nota_v2_1": "Prima diceva 'frequenza < mensile'. Uccideva gli adempimenti trimestrali e annuali, che sono il caso piu' PAGATO di tutti: una liquidazione IVA trimestrale e' ricorrentissima. Nel collaudo 20260801 ha eliminato il pain piu' solido di uno shard."
+    },
+    {
+      "id": "G3",
+      "regola": "Richiede educazione del mercato (il target non ha un nome per il problema)",
+      "stage": "evidence"
+    },
+    {
+      "id": "G4",
+      "regola": "Dipende da una moda passeggera senza driver strutturale o normativo",
+      "stage": "trigger"
+    },
+    {
+      "id": "G5",
+      "regola": "Necessita capitali esterni per raggiungere il primo cliente pagante",
+      "stage": "bootstrap"
+    },
+    {
+      "id": "G6",
+      "regola": "CAC stimato > 3x ARPA annuo, oppure richiede vendita enterprise (ciclo > 90 giorni, piu' di 2 decisori)",
+      "stage": "bootstrap"
+    },
+    {
+      "id": "G7",
+      "regola": "Gia' risolto da software moderno ed economico, con competitor che non rientrano nei keep_criteria",
+      "stage": "competitor"
+    },
+    {
+      "id": "G8",
+      "regola": "Nessun trigger d'acquisto entro 30 giorni con almeno una fonte",
+      "stage": "trigger"
+    },
+    {
+      "id": "G9",
+      "regola": "SOM realistico a 24 mesi inferiore a 600.000 EUR/anno, calcolato con una penetrazione ancorata a un benchmark citato",
+      "stage": "tam",
+      "_vincolo": "Se penetration_assumption.benchmark_source_ids e' vuoto, G9 produce PARK e mai KILL: un gate letale guidato da un parametro scelto liberamente dall'agente e' peggio di nessun gate."
+    }
+  ],
+  "bootstrap_constraints": {
+    "max_founders": 3,
+    "max_days_to_mvp": 90,
+    "max_capex_eur": 50000,
+    "no_fundraising": true,
+    "no_hardware": true,
+    "no_enterprise_sales": true,
+    "no_proprietary_dataset_required": true,
+    "max_cac_to_arpa_ratio": 3.0,
+    "max_sales_cycle_days": 90,
+    "max_decision_makers": 2,
+    "target_mrr_eur": 50000,
+    "target_mrr_horizon_months": 36,
+    "no_regulated_liability": true,
+    "no_certification_required": true,
+    "data_access_feasible": true,
+    "blocking_dimensions": [
+      "max_founders_3",
+      "max_days_to_mvp_90",
+      "max_capex_50k",
+      "no_fundraising",
+      "no_hardware",
+      "no_proprietary_dataset",
+      "no_enterprise_sales",
+      "decision_makers",
+      "no_regulated_liability",
+      "no_certification_required",
+      "data_access_feasible"
+    ],
+    "non_blocking_when_unknown": [
+      "cac_to_arpa_ratio",
+      "sales_cycle_days",
+      "max_days_to_mvp_90",
+      "max_capex_50k",
+      "no_proprietary_dataset",
+      "no_certification_required",
+      "data_access_feasible"
+    ],
+    "_non_blocking_nota": "Tutte queste dipendono dal PERIMETRO DI PRODOTTO, che non esiste prima del venture-architect. Pretenderle al gate 6 e' una dipendenza circolare fra stage e manda in PARK ogni idea — nel collaudo 20260801 e' successo esattamente questo su data_access_feasible. Al gate 6 si valutano solo le dimensioni indipendenti dal prodotto (1, 4, 5, 7, 10, 11); queste passano al gate 6-bis, dove un UNKNOWN blocca.",
+    "_conteggio_unknown": "Il tetto di 3 UNKNOWN totali si applica alle sole dimensioni bloccanti al pass corrente: le non bloccanti non entrano nel conteggio, altrimenti l'eccezione anti-circolarita' si annulla da sola."
+  },
+  "scoring": {
+    "dimensioni": [
+      {
+        "id": "economic_pain",
+        "peso": 0.2,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "urgency",
+        "peso": 0.15,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "bootstrap_fit",
+        "peso": 0.15,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "distribution",
+        "peso": 0.15,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "competition_gap",
+        "peso": 0.1,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "mvp_speed",
+        "peso": 0.1,
+        "scala": [
+          0,
+          10
+        ]
+      },
+      {
+        "id": "evidence_strength",
+        "peso": 0.15,
+        "scala": [
+          0,
+          10
+        ]
+      }
+    ],
+    "confidence_multiplier": {
+      "formula": "0.55 + 0.15*(domande_fontate/5) + 0.15*(quota_claim_verified) + 0.15*(spot_check_pass_rate)",
+      "range": [
+        0.55,
+        1.0
+      ],
+      "_nota": "Il punteggio finale = somma pesata * confidence_multiplier. Un'idea brillante ma non verificata non puo' superare un'idea solida e documentata. Il moltiplicatore rende impossibile 'vincere' con la retorica."
+    },
+    "score_finale": "sum(dimensione.valore * dimensione.peso) * confidence_multiplier",
+    "soglia_pubblicazione": 6.5,
+    "soglia_menzione_onorevole": 5.0,
+    "soglia_si_applica_a": "weighted_sum",
+    "_soglia_nota": "La soglia si applica alla SOMMA PESATA, non al punteggio finale. Applicarla al prodotto somma x confidenza significava chiedere 7.5/10 di media su tutte e sette le dimensioni: un'idea buona (8/7/8/6/6/8/6) faceva 6.10 e veniva scartata. Erano due meccanismi anti-retorica indipendenti moltiplicati per errore.",
+    "min_confidence_to_publish": 0.7,
+    "_min_confidence_nota": "Il moltiplicatore non e' piu' un cancello ma resta un requisito SEPARATO: sotto 0.70 l'idea non si pubblica comunque, perche' l'evidenza e' troppo sottile. Due condizioni indipendenti in AND, non un prodotto. L'intento anti-retorica e' preservato; l'effetto moltiplicativo che rendeva la soglia irraggiungibile no.",
+    "final_score": "usato per ORDINARE la classifica e per l'etichetta di fiducia, non per superare la soglia"
+  },
+  "anti_hallucination": {
+    "domande": [
+      {
+        "id": "Q1",
+        "testo": "Perche' il cliente comprerebbe entro i prossimi 30 giorni?",
+        "owner_agent": "trigger-finder"
+      },
+      {
+        "id": "Q2",
+        "testo": "Perche' non usa gia' un'altra soluzione?",
+        "owner_agent": "competitor-analyst"
+      },
+      {
+        "id": "Q3",
+        "testo": "Perche' un team di 3 persone in bootstrap puo' competere?",
+        "owner_agent": "bootstrap-filter"
+      },
+      {
+        "id": "Q4",
+        "testo": "Qual e' l'evidenza che il problema esista davvero?",
+        "owner_agent": "evidence-researcher"
+      },
+      {
+        "id": "Q5",
+        "testo": "Cosa potrebbe dimostrare che questa idea e' sbagliata?",
+        "owner_agent": "red-team"
+      }
+    ],
+    "min_domande_fontate": 4,
+    "_nota": "Ogni domanda e' assegnata a un agente diverso e nessun agente risponde a una domanda che ha anche formulato. Nel prompt monolitico lo stesso modello poneva e rispondeva a tutte e cinque: era autovalutazione, non verifica."
+  },
+  "memory": {
+    "seen_pains_file": "state/seen-pains.jsonl",
+    "query_ledger_file": "state/query-ledger.jsonl",
+    "source_ledger_file": "state/source-ledger.jsonl",
+    "sector_history_file": "state/sector-history.jsonl",
+    "killed_pain_cooldown_days": 90,
+    "parked_pain_retry_days": 14,
+    "published_idea_cooldown_days": 365,
+    "_nota": "Senza questa memoria un run settimanale ricicla le stesse idee ogni venerdi'. Un pain gia' ucciso rientra prima del cooldown solo se il Trigger Finder rileva un cambiamento normativo o di mercato che invalida il motivo dello scarto.",
+    "shadow_portfolio_file": "state/shadow-portfolio.jsonl",
+    "shadow_recheck_months": 6,
+    "_shadow_nota": "Elenco delle idee uccise dal gate 3 in poi, da ricontrollare dopo sei mesi per vedere se qualcun altro ci ha costruito un prodotto. E' l'unica misura di verita' possibile per questo sistema: senza, il tasso di falsi KILL resta ignoto e ogni soglia resta un'opinione.",
+    "pain_outcomes": [
+      "PUBBLICATA",
+      "VALIDAZIONE-SUL-CAMPO",
+      "MENZIONE-ONESTA",
+      "PARKED",
+      "KILLED",
+      "NOT_SELECTED"
+    ],
+    "_pain_outcomes_nota": "Vocabolario dell'esito registrato in seen-pains.jsonl. E' run.outcomes piu' NOT_SELECTED, che non e' un esito di IDEA ma di PAIN: generato e mai promosso allo stage successivo. Fino alla v2.7 l'orchestratore scriveva qui un vocabolario suo, in inglese (PUBLISHED invece di PUBBLICATA), divergente da run.outcomes: la memoria fra run si sarebbe riempita di etichette che nessun altro file riconosce, e il conteggio della condizione_di_riprogettazione — 5 run senza PUBBLICATA — non avrebbe mai trovato una PUBBLICATA. Trovato da spec_check SC-05, non da una rilettura."
+  },
+  "budget": {
+    "_nota": "Due unita' distinte. Il vincolo reale sono le FETCH: WebSearch restituisce titoli e URL, e ogni snippet FETCHED costa una fetch. Contare solo le ricerche svuota il funnel senza che nessuno se ne accorga. Gli snippet SERP non costano fetch: usarli e' legittimo, e il verificatore li controlla per primi.",
+    "min_searches_per_published_idea": 5,
+    "_min_searches_nota": "Vincolo del prompt originale mantenuto e rafforzato: si contano solo query distinte per ANGOLO, non riformulazioni. In pratica un'idea che arriva in output avra' accumulato 40+ ricerche distinte fra tutti gli agenti.",
+    "hard_stop_on_budget_exhausted": true,
+    "warn_at_budget_pct": 0.8,
+    "_warn_nota": "All'80% del tetto l'orchestratore smette di aprire nuove idee al gate 3 e concentra il budget residuo su quelle gia' in corso, per non lasciare idee a meta' pipeline.",
+    "max_per_agent": {
+      "pain-finder": {
+        "searches": 8,
+        "harvests": 10,
+        "fetches": 20,
+        "_nota": "MISURATO, non stimato. Nel run 20260802-1759 (BALANCED) sei shard su sei hanno chiuso BUDGET_EXHAUSTED con 4+6, zero_yield non e' MAI scattata, e la resa e' stata 3 pain per shard contro un tetto strutturale di 12 e un obiettivo di 40 (resa reale ~20). Il vincolo che morde non e' l'obiettivo dichiarato ne' l'intervallo di ID: e' questo budget. Due cause visibili solo eseguendo: le ricerche vengono consumate per LOCALIZZARE i corpora (il modello della mietitura presuppone che l'indirizzo sia noto, e non lo e'), e una parte consistente dei corpora italiani non e' raggiungibile (InfoJobs chiusa, marketplace Zucchetti/TeamSystem/SAP in timeout, 403 o certificato non valido). Con 8+10 la saturazione diventa almeno misurabile: finche' zero_yield non scatta mai, 'non c'e' altro' e 'ho finito il budget' restano indistinguibili."
+      },
+      "evidence-researcher": {
+        "searches": "da funnel[profile].evidence_searches_per_channel",
+        "fetches": "= searches x 2"
+      },
+      "competitor-analyst": {
+        "searches": 10,
+        "fetches": 14
+      },
+      "trigger-finder": {
+        "searches": 8,
+        "fetches": 12
+      },
+      "tam-analyst": {
+        "searches": 8,
+        "fetches": 10
+      },
+      "red-team": {
+        "searches": 8,
+        "fetches": 10
+      },
+      "source-verifier": {
+        "searches": 4,
+        "fetches": "= numero di coppie ricevute"
+      }
+    },
+    "_calcolo_teorico": "Somma teorica dei budget per istanza, ricalcolata sulla v2.14.1 (evidence_searches_per_channel = 8) e comprensiva del source-verifier: DEEP 1624 ricerche / 2932 fetch, BALANCED 860/1556, LIGHT 438/798. I tetti di funnel devono stare sopra somma/warn_at_budget_pct, non sopra la somma: vedi funnel._nota_budget_v2_15. Questa riga va ricalcolata a OGNI modifica di un budget per istanza o di un numero del funnel — la versione precedente descriveva i budget pre-v2.14 ed e' rimasta scritta mentre le evidenze passavano da 3 a 8, che e' come i tetti sono finiti sotto la somma senza che nessuno lo vedesse.",
+    "_formula_dei_tetti": "somma_ricerche = shards x pain-finder.searches + pains_to_evidence x 5 x evidence_searches_per_channel + pains_to_competitor x (competitor + trigger + tam + red-team).searches + ideas_to_architect x 3 x red-team.searches + ideas_to_architect x 2 x source-verifier.searches. La somma fetch usa gli stessi fattori con i rispettivi .fetches, evidence = searches x 2, verifier = verifier_max_pairs_per_instance. E' la formula che esegue SC-25: se cambia la topologia delle wave, va cambiata anche li'.",
+    "unita_di_consumo": "Tre unita' distinte, e vanno contate cosi'. RICERCA: una query a un motore. MIETITURA: una lettura di un corpus strutturato dell'elenco H1-H5, contata UNA VOLTA per corpus distinto tentato, indipendentemente da quante pagine o filtri servano. FETCH: ogni singola richiesta HTTP, INCLUSE quelle fatte durante una mietitura, INCLUSE quelle fallite. Una mietitura consuma quindi sia una mietitura sia le fetch che comporta. Un tentativo fallito consuma la fetch e NON consuma la mietitura, perche' un corpus irraggiungibile non e' un corpus mietuto. Nel run 20260802-1759 questa regola non esisteva: due shard hanno contato in modi opposti e sullo shard 2 la lettura opposta avrebbe restituito zero pain per un motivo di rete invece di tre pain per un motivo di mercato."
+  },
+  "_changelog": "2.15.0 — red team esterno sui tre run archiviati. Riaperto e richiuso S5 (sei tetti di budget su sei sotto la somma dei budget per istanza, LIGHT compreso); l'emettibilita' dei KILL diventa un calcolo invece di tre frasi stantie; kill_basis e kill_attribution acquistano uno slot tipizzato e un lettore; il record di memoria acquista uno schema; il taglio wave1->2 smette di ordinare per sola documentabilita'; il report non puo' piu' essere vuoto (portafoglio per profondita' di sopravvivenza). SC-25 e SC-26, autotest 59/59. | 2.7.0 — riparati tre difetti bloccanti introdotti dalle correzioni precedenti (pattern del run_id, intervalli di ID sovrapposti, verificatore che parsava prosa) e due difetti topologici: il gate 3 non e' piu' aritmeticamente costretto al PARK, e VALIDAZIONE-SUL-CAMPO non e' piu' dietro sette filtri documentali. | 2.6.0 — Sprint 0. | 2.5.0 — mietitura. | 2.4.0 — regola del troncamento.",
+  "missione": {
+    "obiettivo": "Trovare un problema economico ricorrente in un segmento dove (a) non esiste soluzione software, OPPURE (b) la soluzione esiste ma e' ININFLUENTE rispetto al problema reale.",
+    "_nota": "La seconda meta' e' il vero bersaglio e non era modellata da nessuna parte fino alla v2.3. Il sistema misurava la QUALITA' dei competitor (UI vecchia, niente API, recensioni basse) mentre la missione chiede di misurare il loro ALLINEAMENTO al problema. Un software puo' essere moderno, ben fatto, ben recensito e completamente ininfluente sul lavoro che il cliente deve fare davvero.",
+    "_conseguenza": "Un mercato con competitor sani NON e' piu' un scarto automatico. E' lo scarto giusto solo se non c'e' evidenza di disallineamento. Software forte + tracce di workaround forti = il bersaglio migliore possibile, non il peggiore."
+  },
+  "stop_rules": {
+    "_diagnosi": "Nel collaudo 20260801, 12 istanze su 18 hanno chiuso in BUDGET_EXHAUSTED e NESSUN agente di ricerca ha mai chiuso in COMPLETED o ZERO_YIELD. Il valore ZERO_YIELD dell'enum non e' mai stato usato nemmeno una volta: significa che il sistema non ha mai osservato lo stato 'ho guardato abbastanza', che e' esattamente lo stato in cui un KILL diventa un'affermazione sul mercato invece che sullo strumento.",
+    "_causa": "Le due condizioni di arresto erano mal scalate fra loro. ZERO_YIELD chiedeva 3 ricerche consecutive a vuoto, ma il budget era di 3-6 ricerche: il tetto scattava sempre per primo e il rilevatore di saturazione era codice morto.",
+    "zero_yield_window": "max(2, floor(budget_ricerche / 3))",
+    "_zero_yield_window_nota": "La finestra si scala sul budget invece di essere fissa a 3. Con budget 6 la finestra e' 2, con budget 12 e' 4. Cosi' la saturazione e' raggiungibile prima del tetto e il segnale esiste.",
+    "saturazione_si_misura_su": "RENDIMENTO MARGINALE — fonti nuove per query nell'ultimo terzo del budget — non sul raggiungimento del tetto",
+    "kill_richiede_uno_di": [
+      "COMPLETED",
+      "ZERO_YIELD",
+      "KILL_TRIGGERED"
+    ],
+    "regola_del_troncamento": {
+      "condizione": "stop_reason = BUDGET_EXHAUSTED E le ultime query hanno ancora resa USEFUL o PARTIAL",
+      "effetto": "il verdetto dell'agente viene plafonato a PARK dall'orchestratore, qualunque cosa abbia dichiarato",
+      "eccezione": "un KILL_TRIGGERED resta valido anche a budget saturo: chi ha trovato la prova ha finito per definizione, non e' stato fermato",
+      "_perche": "Un agente fermato dal budget mentre stava ancora trovando non ha misurato il mercato: ha misurato dove gli e' stato detto di smettere. Il suo 'no' e' un 'non lo so' scritto male. Questa e' la singola regola che separa kill_attribution MONDO da STRUMENTO, e senza di essa ogni zero della pipeline resta non interpretabile."
+    },
+    "budget_minimo_perche_un_kill_sia_emettibile": "il budget di un agente deve essere almeno 3x la sua zero_yield_window, altrimenti quell'agente non puo' strutturalmente raggiungere la saturazione e non dovrebbe poter uccidere",
+    "_e_una_regola_da_CALCOLARE_non_da_RICORDARE": "Quale agente possa uccidere non e' un fatto da scrivere in prosa: e' il confronto fra due numeri che stanno entrambi in questo file. L'orchestratore lo VALUTA a ogni run, per ogni agente, prima della wave 1, e ne scrive l'esito nel manifesto. Ogni frase che dichiari a memoria 'questo agente non puo' uccidere' e' una fotografia di una configurazione passata: si scolla in silenzio alla prima modifica di un budget, e nessuno la rilegge. E' successo esattamente cosi' fra la v2.14 e la v2.14.1 — vedi _storia_dello_scollamento.",
+    "_conseguenza_gate_2": "CALCOLATA, non asserita. Con evidence_searches_per_channel = 8 in tutti e tre i profili: zero_yield_window = max(2, floor(8/3)) = 2, minimo richiesto = 3 x 2 = 6, budget concesso = 8. 8 >= 6, quindi i KILL del gate 2 — G1 (nessuna spesa documentata) e G3 (nessun linguaggio del problema) — SONO emettibili in LIGHT, BALANCED e DEEP. Se un giorno un profilo scendesse sotto 6, in quel profilo tornerebbero PARK d'ufficio: la regola resta la stessa, cambia il numero che la soddisfa. SC-26 verifica che nessun file affermi il contrario di questo calcolo.",
+    "_storia_dello_scollamento": "Fino alla v2.13 evidence_searches_per_channel valeva 3-4 e il minimo di 6 non era raggiungibile in nessun profilo: G1 e G3 erano davvero inemettibili, ed era corretto scriverlo. La v2.14 ha portato il valore a 8 PROPRIO PER RIABILITARLI (vedi funnel._nota_gate2), e ha lasciato in piedi tre frasi che dichiaravano l'inemettibilita' come un fatto: questa nota, _come_riabilitare_gate_2, e la regola di arresto 3 dell'orchestratore. Il run 20260803-1204 ha applicato la frase invece del calcolo e ha mandato P-023 in PARK dichiarando 'il KILL non era emettibile' — allora vero, perche' quel run girava a 3. Oggi non lo e' piu'. Il sistema si era tolto da solo l'unico gate capace di uccidere per assenza di spesa, e non lo sapeva.",
+    "_eccezione_verifier": "Il source-verifier non uccide idee, verifica claim: la regola del budget minimo non lo riguarda.",
+    "_prezzo_di_un_no_credibile": "Riabilitare i KILL del gate 2 e' costato circa 640 ricerche per run in DEEP (24 pain x 5 canali x 4 ricerche in piu'). E' il prezzo esplicito di un no credibile sull'assenza di spesa, ed e' pagato dalla v2.14 in poi. Chi volesse riabbassare il budget per risparmiare deve sapere che sta ricomprando il PARK d'ufficio su G1 e G3, non solo delle ricerche."
+  },
+  "generazione": {
+    "_diagnosi": "Nel collaudo la wave 1 ha usato il 19% del budget e ha prodotto 1,0 candidati per ricerca. Il soffitto della qualita' dell'output e' fissato li': nessuna quantita' di verifica produce un'idea che non e' mai stata proposta. In piu' i tre numeri della wave 1 non erano coerenti fra loro — DEEP dichiarava 80 candidati, l'intervallo di ID ne concedeva 64 e il budget ne permetteva 48.",
+    "_cambio_di_verbo": "Cercare e' il verbo sbagliato per la generazione. Una query semantica restituisce dieci risultati di cui forse uno e' un candidato. Una MIETITURA — una sola fetch su un corpus strutturato — restituisce una lista di decine di segnali gia' ordinati. E sono ordinati DAL MONDO, non da noi: i thread piu' letti, gli annunci piu' ripetuti, le integrazioni piu' installate. Quella e' priorizzazione gratuita che nessun ragionamento replica.",
+    "harvest_corpora": [
+      {
+        "id": "H1",
+        "corpus": "bacheche di annunci di lavoro filtrate per settore e mansione",
+        "cosa_si_estrae": "il MANSIONARIO: il compito manuale descritto per esteso, con uno stipendio attaccato",
+        "resa_attesa": "20-50 righe per pagina, 2-4 pain ben formati"
+      },
+      {
+        "id": "H2",
+        "corpus": "marketplace delle integrazioni dei gestionali dominanti del segmento",
+        "cosa_si_estrae": "l'elenco di cio' che l'ERP NON copre e per cui qualcuno ha comunque costruito e venduto un connettore",
+        "resa_attesa": "la mappa dei buchi del sistema di record, gia' validata da chi paga"
+      },
+      {
+        "id": "H3",
+        "corpus": "forum e basi di conoscenza dell'assistenza dei gestionali verticali, ordinati per visualizzazioni o risposte",
+        "cosa_si_estrae": "le domande ricorrenti la cui risposta e' un workaround, un export o 'non si puo' fare'",
+        "resa_attesa": "il confine fra cio' che il software fa e cio' che il lavoro richiede, scritto da chi lo subisce"
+      },
+      {
+        "id": "H4",
+        "corpus": "capitolati, codici di condotta fornitori e bandi pubblicati",
+        "cosa_si_estrae": "i requisiti che un committente grande impone ai fornitori piccoli",
+        "resa_attesa": "obblighi contrattuali con scadenza: sono trigger e pain insieme"
+      },
+      {
+        "id": "H5",
+        "corpus": "circolari e comunicazioni delle associazioni di categoria ai propri soci",
+        "cosa_si_estrae": "cio' che l'associazione ritiene abbastanza urgente da scrivere a tutti",
+        "resa_attesa": "pain gia' aggregati per settore, con il canale di distribuzione incluso"
+      }
+    ],
+    "_nota_su_H2_e_H3": "Sono anche le fonti dei criteri di disallineamento M2 e M4. Un corpus mietuto in wave 1 non va rimietuto al gate 3: le fonti restano nel ledger e il competitor-analyst le riusa.",
+    "quota_budget_generazione": 0.35,
+    "_quota_nota": "La generazione deve valere circa un terzo del budget, non un quinto. E' l'unico stage che alza il soffitto invece di abbassarlo."
+  },
+  "verifica_specifica": {
+    "_perche": "Questo blocco non configura la pipeline: configura il VERIFICATORE della pipeline (tools/spec_check.py). Serve a rendere controllabile da un programma cio' che finora viveva solo nella prosa — quali agenti non possono cercare, quali numeri devono comparire uguali ovunque. Un invariante che nessuno confronta non e' un invariante: e' un'intenzione. Tre versioni consecutive hanno introdotto difetti della stessa classe (soglia corretta in config e non nel prompt, pattern corretto in uno schema e non nell'altro) e ogni volta la correzione era attenta. Il tasso non scende con fix migliori, scende quando qualcosa confronta i file al posto di chi li scrive.",
+    "agenti": {
+      "_regola": "La separazione dei poteri e' STRUTTURALE, non lessicale: un agente di solo giudizio non puo' fabbricare una fonte perche' non ha lo strumento per andarla a prendere. Il frontmatter e' l'unico punto in cui questo si decide, ed era verificabile solo leggendo dieci file a mano.",
+      "solo_giudizio": [
+        "bootstrap-filter",
+        "venture-architect",
+        "ranking-agent"
+      ],
+      "con_ricerca": [
+        "pain-finder",
+        "evidence-researcher",
+        "competitor-analyst",
+        "trigger-finder",
+        "tam-analyst",
+        "red-team",
+        "source-verifier"
+      ]
+    },
+    "costanti_rispecchiate": [
+      {
+        "percorso": "competitor_thresholds.unclassified_policy.soglia_park",
+        "etichette": [
+          "unclassified_ratio"
+        ]
+      },
+      {
+        "percorso": "scoring.soglia_pubblicazione",
+        "etichette": [
+          "soglia_pubblicazione",
+          "soglia di pubblicazione"
+        ]
+      },
+      {
+        "percorso": "scoring.soglia_menzione_onorevole",
+        "etichette": [
+          "soglia_menzione_onorevole"
+        ]
+      },
+      {
+        "percorso": "scoring.min_confidence_to_publish",
+        "etichette": [
+          "min_confidence_to_publish"
+        ]
+      },
+      {
+        "percorso": "anti_hallucination.min_domande_fontate",
+        "etichette": [
+          "min_domande_fontate"
+        ]
+      },
+      {
+        "percorso": "competitor_thresholds.CALIBRATED.misalignment_min",
+        "etichette": [
+          "misalignment_min"
+        ]
+      },
+      {
+        "percorso": "sources.staleness.warn_after_months",
+        "etichette": [
+          "warn_after_months"
+        ]
+      },
+      {
+        "percorso": "competitor_thresholds.CALIBRATED.keep_if_at_least",
+        "etichette": [
+          "keep_if_at_least"
+        ]
+      },
+      {
+        "percorso": "competitor_thresholds.min_competitors_to_map",
+        "etichette": [
+          "min_competitors_to_map"
+        ]
+      },
+      {
+        "percorso": "competitor_thresholds.max_competitors_to_map",
+        "etichette": [
+          "max_competitors_to_map"
+        ]
+      },
+      {
+        "percorso": "bootstrap_constraints.max_cac_to_arpa_ratio",
+        "etichette": [
+          "max_cac_to_arpa_ratio"
+        ]
+      },
+      {
+        "percorso": "parallelism.max_supplement_rounds",
+        "etichette": [
+          "max_supplement_rounds"
+        ]
+      }
+    ],
+    "_limite_dichiarato": "spec_check confronta l'ACCORDO fra i file, non la loro correttezza. Non sa se 0.4 sia la soglia giusta per unclassified_ratio e non deve saperlo: verifica che 0.4 sia scritto uguale ovunque. E' la ragione per cui poteva essere scritto adesso, con le soglie ancora ipotesi non toccate da alcun dato — non congela nessun numero, congela solo l'accordo. Il motore dei gate in codice, invece, congelerebbe giudizi: quello resta fuori finche' il portafoglio ombra non produce il primo tasso di falsi KILL.",
+    "id_namespacati_per_run": [
+      "S-"
+    ],
+    "_id_namespacati_nota": "Gli ID di fonte incorporano il run_id per evitare le collisioni fra istanze parallele. La conseguenza e' che il loro pattern DIPENDE da quello di run_id: cambiare run_id senza aggiornarli e' il difetto C1 della v2.6, dove ogni pattern preso da solo restava coerente con se stesso e nessun confronto fra pari lo avrebbe visto. La relazione da verificare non e' 'sono uguali' ma 'uno contiene l'altro'.",
+    "liste_vs_enum": [
+      {
+        "percorso": "run.outcomes",
+        "schema": "scorecard.schema.json",
+        "puntatore": "/properties/payload/properties/excluded/items/properties/outcome/enum"
+      },
+      {
+        "percorso": "sources.fact_promotion_rules._codici",
+        "schema": "evidence-pack.schema.json",
+        "puntatore": "/properties/payload/properties/claims/items/properties/promoted_by/enum"
+      }
+    ],
+    "_liste_vs_enum_nota": "Coppie (lista nel config, enum in uno schema) che devono coincidere ESATTAMENTE. Aggiungere una coppia qui e' il modo di rendere sorvegliata una corrispondenza che oggi vive solo nella testa di chi scrive.",
+    "schema_per_agente": [
+      {
+        "schema": "pain.schema.json",
+        "agente": "pain-finder"
+      },
+      {
+        "schema": "evidence-pack.schema.json",
+        "agente": "evidence-researcher"
+      },
+      {
+        "schema": "competitor-report.schema.json",
+        "agente": "competitor-analyst"
+      },
+      {
+        "schema": "trigger-report.schema.json",
+        "agente": "trigger-finder"
+      },
+      {
+        "schema": "market-report.schema.json",
+        "agente": "tam-analyst"
+      },
+      {
+        "schema": "bootstrap-verdict.schema.json",
+        "agente": "bootstrap-filter"
+      },
+      {
+        "schema": "venture-blueprint.schema.json",
+        "agente": "venture-architect"
+      },
+      {
+        "schema": "redteam-report.schema.json",
+        "agente": "red-team"
+      },
+      {
+        "schema": "verification-report.schema.json",
+        "agente": "source-verifier"
+      },
+      {
+        "schema": "scorecard.schema.json",
+        "agente": "ranking-agent"
+      }
+    ],
+    "_schema_per_agente_nota": "Quale schema produce quale agente. Serve a SC-15, che controlla la direzione schema→prompt: un campo required che il prompt non nomina mai fa fallire la validazione a ogni istanza di ogni run, e fino alla v2.8.1 passava pulito perche' tutti i controlli guardavano solo prompt→schema.",
+    "wave_per_agente": {
+      "pain-finder": [
+        1
+      ],
+      "evidence-researcher": [
+        2
+      ],
+      "competitor-analyst": [
+        3
+      ],
+      "trigger-finder": [
+        3
+      ],
+      "tam-analyst": [
+        3
+      ],
+      "bootstrap-filter": [
+        4,
+        5
+      ],
+      "venture-architect": [
+        5
+      ],
+      "red-team": [
+        3,
+        6
+      ],
+      "source-verifier": [
+        6
+      ],
+      "ranking-agent": [
+        7
+      ]
+    },
+    "_wave_per_agente_nota": "In quale wave ogni agente ha diritto di comparire. Serve a SC-12, che fino alla v2.9 verificava solo la PRESENZA del nome nell'orchestratore: un agente messo nella wave sbagliata era invisibile. red-team compare in due wave perche' la lente competitor_nascosti e' promossa al gate 3; bootstrap-filter perche' il suo pass 2 sta nella sezione della wave 5.",
+    "enum_condivisi": {
+      "_cosa_sono": "Nomi di campo che sono LO STESSO campo in schemi diversi e devono ammettere gli stessi valori. Su contratto e non automatico: applicato a ogni nome ripetuto il controllo sparava su sette campi legittimi — il 'type' di un moat e il 'type' di un trigger condividono un sostantivo, non un vocabolario — e un controllo che sbaglia sette volte su otto viene spento entro la settimana, lasciando in eredita' un alibi al posto di una difesa.",
+      "state": {
+        "valori": [
+          "VERIFIED",
+          "ESTIMATED",
+          "HYPOTHESIS",
+          "UNKNOWN"
+        ],
+        "perche": "CLAUDE.md §2: quattro stati, nessuna sfumatura, e UNKNOWN e HYPOTHESIS sono valori di PRIMA CLASSE. Fino alla v2.13 sette dei nove enum 'state' ne ammettevano tre: quattro senza HYPOTHESIS, uno senza UNKNOWN. Il declassamento d'ufficio imposto da IC-1 — 'uno statement VERIFIED senza source_id valido viene declassato a HYPOTHESIS, l'agente non puo' opporsi' — era quindi INSCRIVIBILE nella maggioranza dei posti in cui uno stato si scrive: applicare l'invariante faceva fallire la validazione dell'artefatto. Terza forma in questa versione dello stesso difetto di IC-4 e di fact_promotion FP0: un obbligo enunciato senza lo slot per assolverlo.",
+        "restrizioni_ammesse": {
+          "core.schema.json:$defs.Numeric.properties.state": "Un numero non puo' essere un'ipotesi. §7 ammette VERIFIED o ESTIMATED e prescrive UNKNOWN quando il dato manca; una quantita' 'plausibile ma non sostenuta' e' precisamente cio' che quel paragrafo vieta. Restrizione voluta, quindi dichiarata: la differenza fra una scelta e una deriva e' che la scelta sta scritta da qualche parte."
+        }
+      },
+      "evidence_route": {
+        "valori": [
+          "PUBBLICAZIONE",
+          "COMPORTAMENTO",
+          "DISALLINEAMENTO",
+          "ASSENZA"
+        ],
+        "perche": "Viaggia dal gate 2 al gate 3 alla scorecard. ASSENZA e' arrivata con la v2.14 e toglierla da uno solo dei due schemi che la ricevono non produce un errore visibile: l'agente emette il valore che il gate prescrive e l'artefatto fallisce la validazione DOPO aver speso l'intero stage competitor.",
+        "restrizioni_ammesse": {}
+      },
+      "access_status": {
+        "valori": [
+          "OK",
+          "PAYWALL",
+          "BLOCKED",
+          "NOT_FOUND",
+          "ROBOTS",
+          "PARTIAL",
+          "API_LIMIT",
+          "LOGIN_REQUIRED",
+          "NO_PUBLIC_DATA"
+        ],
+        "perche": "IC-4 impone di registrare ogni fonte irraggiungibile col proprio access_status: i motivi di rifiuto devono essere tutti scrivibili qui, o l'obbligo non e' assolvibile.",
+        "restrizioni_ammesse": {}
+      },
+      "evidence_kind": {
+        "valori": [
+          "PUBBLICAZIONE",
+          "COMPORTAMENTO",
+          "ARTEFATTO"
+        ],
+        "perche": "CLAUDE.md §2-bis: e' l'asse che distingue 'qualcuno ha scritto che accade' da 'qualcuno ha speso perche' accada'. Fonderne due significa tornare a un asse solo.",
+        "restrizioni_ammesse": {}
+      }
+    }
+  },
+  "modelli": {
+    "_principio": "Il criterio NON e' 'retrieval costa poco, giudizio costa caro'. E' l'ASIMMETRIA DELL'ERRORE: si spende dove sbagliare e' irrecuperabile, si risparmia dove l'output e' vincolato da uno schema, ricontrollato da un altro agente e ricalcolabile. Un pain mai generato non viene trovato da nessuno a valle: e' irrecuperabile. Un fatto fatale che il red team non trova diventa un'idea pubblicata sbagliata, cioe' l'errore che l'intera pipeline esiste per evitare. Un ranking sbagliato invece si vede subito e si rifa' con l'aritmetica in mano.",
+    "_avvertenza": "Risparmiare sul pain-finder o sul red-team NON e' un risparmio: sposta il costo a valle e lo moltiplica. Il funnel spende 5 gate a filtrare cio' che il pain-finder produce; se produce peggio, si paga il filtraggio di materiale peggiore. E un red team debole non fa fallire il red team, fa passare l'idea.",
+    "per_agente": {
+      "pain-finder": {
+        "modello": "sonnet",
+        "perche": "Genera i candidati: e' l'unico stadio CREATIVO della pipeline e tutto il resto e' filtro. Nel run 20260802-1759 la resa e' stata 3 pain per shard contro un tetto di 12 — il collo di bottiglia e' gia' qui, e abbassare il modello lo stringe ancora. Irrecuperabile a valle."
+      },
+      "red-team": {
+        "modello": "sonnet",
+        "perche": "Avversario. Nel collaudo 20260801 due lenti cieche fra loro hanno trovato indipendentemente il modulo TeamSystem che conteneva due capability dell'MVP piu' il moat, e la lente fallimenti ha trovato il seed da 12M di Pillar. Sono ritrovamenti che richiedono ricerca abile, non applicazione di regole. Un red team debole non fallisce visibilmente: fa PASSARE."
+      },
+      "competitor-analyst": {
+        "modello": "sonnet",
+        "perche": "Il PASSO 1 (DIRETTO vs ADIACENTE) e' definito dal prompt stesso 'la decisione piu' delicata di tutto lo stage', e si propaga a ogni gate a valle. Nel collaudo 20260801 TeamSystem fu classificato ADIACENTE su una sola pagina, e il fatto fatale ricomparve al gate 7 dopo che l'idea aveva speso l'intero budget. Il resto del suo lavoro sarebbe da haiku: e' il passo 1 a decidere il tier."
+      },
+      "venture-architect": {
+        "modello": "sonnet",
+        "perche": "Progetta, ed e' l'unico agente che produce qualcosa invece di valutarlo. Judgment-only senza strumenti di ricerca, quindi il rischio non e' la fabbricazione ma la banalita': un blueprint mediocre supera i gate e non lo costruirebbe nessuno."
+      },
+      "evidence-researcher": {
+        "modello": "haiku",
+        "perche": "Cinque canali ciechi che riempiono slot di Claim vincolati dallo schema. La struttura a slot — subject, observed, quantity, period, geo — e' precisamente cio' che rende un modello piccolo sufficiente: non c'e' un campo dove scrivere bene."
+      },
+      "trigger-finder": {
+        "modello": "haiku",
+        "perche": "Cerca scadenze normative con data e perimetro. Il verdetto e' aritmetico sui rami del gate 4."
+      },
+      "tam-analyst": {
+        "modello": "haiku",
+        "perche": "Conta popolazioni e ricalcola formule dichiarate. Ogni numero porta formula e input_source_ids: e' verificabile a valle riga per riga."
+      },
+      "source-verifier": {
+        "modello": "haiku",
+        "perche": "Confronto di stringa fra snippet e pagina. IC-3 esiste apposta per renderlo 'meccanico ed economico'. Se questo agente avesse bisogno di un modello grande, sarebbe il segnale che IC-3 non sta funzionando."
+      },
+      "bootstrap-filter": {
+        "modello": "haiku",
+        "perche": "Applica 13 dimensioni contro vincoli numerici del config. UNKNOWN e' una risposta legittima e frequente: non serve profondita', serve disciplina."
+      },
+      "ranking-agent": {
+        "modello": "haiku",
+        "perche": "CLAUDE.md §8 gli vieta di modificare qualunque cosa: 'si limita a CONTARE'. E' aritmetica su pesi presi dal config. E' anche il primo candidato a diventare codice Python invece di un agente, quando le soglie smetteranno di muoversi."
+      }
+    },
+    "orchestratore": "opus — e' l'unico che decide, applica i gate, scrive la prosa del report e possiede i ledger. Non e' delegabile e non e' declassabile: e' il solo punto in cui un errore non viene ricontrollato da nessuno."
+  },
+  "provider": {
+    "_perche": "Permette di delegare stage di sola RACCOLTA a un provider esterno via tools/ds_call.py, come processo Bash. Non tocca il provider di questa sessione: ANTHROPIC_BASE_URL e ANTHROPIC_API_KEY non sono letti ne' scritti da nessuno strumento di questa pipeline.",
+    "disponibili": [
+      "anthropic",
+      "deepseek"
+    ],
+    "_disponibili_nota": "Solo deepseek per ora. Aggiungerne un altro e' una voce qui piu' la sua variabile d'ambiente: non richiede toccare ds_call.py, che parla l'API OpenAI-compatibile.",
+    "deepseek": {
+      "env_chiave": "DEEPSEEK_API_KEY",
+      "env_base_url": "DEEPSEEK_BASE_URL",
+      "base_url_default": "https://api.deepseek.com",
+      "modello_default": "deepseek-chat"
+    },
+    "delegabili": [
+      "bootstrap-filter",
+      "evidence-researcher",
+      "ranking-agent",
+      "tam-analyst",
+      "trigger-finder"
+    ],
+    "_delegabili_regola": "DELEGABILE SE E SOLO SE il tier e' haiku E l'agente e' CHIUSO SUL PROPRIO INPUT. Il tier risponde a 'l'errore di questo agente e' recuperabile?'; la chiusura risponde a 'il suo compito si esaurisce nel testo che riceve?'. Servono entrambe e per undici versioni ne guardavamo una: source-verifier e' haiku a pieno titolo — il suo lavoro E' confronto di stringa — e resta non delegabile, perche' la stringa con cui confrontare sta su una pagina che il ponte non puo' aprire. Due liste disegnate su criteri diversi divergono al primo cambiamento; una derivata dalle altre due no, e SC-20 verifica l'equivalenza nei due sensi.",
+    "_perche_mai_il_red_team": "Delegare l'avversario al modello piu' economico e' il risparmio piu' dannoso possibile in questo sistema. Un red team debole non produce un errore visibile: produce un PASS. L'unico modo di accorgersene e' costruire l'idea e fallire — cioe' fuori dalla pipeline, con i tuoi soldi. Questa riga esiste perche' fra sei mesi, guardando la bolletta, sembrera' una buona idea.",
+    "_perche_mai_il_pain_finder": "E' l'unico stadio creativo e il collo di bottiglia misurato del funnel. Delegarlo non sposta un costo: riduce cio' che entra, e tutto il resto della pipeline e' filtro su quello.",
+    "attivo_per_agente": {},
+    "_attivo_nota": "Mappa agente -> provider effettivo. Assente = anthropic. La scrive tools/provider_switch.py, che valida la propria modifica con spec_check e la annulla se fallisce. E' l'ELENCO di chi gira dove; 'delegabili' e' il PERMESSO. Sono due cose diverse e SC-20 sorveglia entrambe, perche' la mappa attiva e' quella che il run legge davvero.",
+    "_correzione_v2_12": "Fino alla v2.11 delegabili conteneva solo i tre retrieval-only haiku, e bootstrap-filter, ranking-agent e source-verifier erano esclusi con la motivazione che 'delegare un judgment-only non risparmia nulla'. Era un ragionamento sul costo in TOKEN, e il vincolo reale dell'utente e' la QUOTA Anthropic — sotto quel vincolo il risparmio e' esattamente quello che serve. E la separazione dei poteri non si rompe: un judgment-only su un provider esterno resta senza strumenti di ricerca, quindi continua a non poter cercare. L'invariante e' sugli STRUMENTI, non sul modello che li usa. Linea tracciata sull'asse sbagliato, corretta.",
+    "_avvertenza_source_verifier": "Non delegabile, e sara' il piu' caro dei sei per la quota. E' anche l'unico il cui fallimento e' SILENZIOSO: se non intercetta un claim col perimetro slittato, nessuno a valle se ne accorge — nel collaudo 20260801 ne trovo' 2 su 10, e uno aveva gia' inquinato il TAM che produsse il KILL su G9. Se la quota stringe, la leva onesta resta il PROFILO (un LIGHT costa un quinto di un DEEP), non spegnere l'unico controllo indipendente sulla raccolta.",
+    "_non_delegabili": "I quattro sonnet: pain-finder (unico stadio creativo e collo di bottiglia misurato), red-team (l'avversario: delegarlo non produce un errore visibile, produce un PASS), competitor-analyst (il PASSO 1 si propaga a ogni gate), venture-architect (il rischio non e' la fabbricazione ma la banalita'). Se la quota resta il vincolo, la leva onesta e' il PROFILO — un LIGHT invece di un DEEP costa un quinto — non spostare l'avversario sul modello piu' economico.",
+    "chiuso_sul_proprio_input": {
+      "_cosa_significa": "Il compito dell'agente si esaurisce nel testo che riceve. Un estrattore a cui l'orchestratore passa le SERP e' chiuso: tutto cio' che deve giudicare e' davanti a lui, e l'unico modo di sbagliare e' strutturare male — che lo schema vincola e i controlli a valle ricalcolano. Un agente NON chiuso deve confrontare cio' che riceve con qualcosa che NON riceve; riempirgli il prompt con quel qualcosa non lo rende chiuso, lo rende cieco al proprio oggetto.",
+      "source-verifier": {
+        "chiuso": false,
+        "perche": "Il suo mestiere e' aprire la pagina e confrontarla con lo snippet dichiarato. ds_call.py non passa 'tools' e l'endpoint non naviga: delegato, puo' solo confrontare lo snippet con il prompt, cioe' con se stesso. E la variante 'l'orchestratore scarica, DeepSeek estrae' — che per gli altri cinque funziona — qui non e' inadatta, e' CONTRADDITTORIA: l'orchestratore fornirebbe la prova per l'audit della raccolta che ha mediato lui, e la cecita' da cui il verificatore prende tutto il suo valore sparisce. Il residuo sarebbe 'questo testo contiene questa sottostringa', tre righe di Python senza modello. Non e' un'eccezione al criterio: e' il criterio applicato a un caso che il criterio vecchio non sapeva vedere."
+      }
+    },
+    "_correzione_v2_14": "SECONDA volta che questa linea era tracciata sull'asse sbagliato. La v2.12 la sposto' da COSTO a QUOTA; la v2.14 aggiunge l'asse che mancava a entrambe. L'avvertenza che stava qui fino alla v2.13 diceva che delegare il source-verifier era 'legittimo, perche' il suo lavoro e' confronto di stringa' — vero e irrilevante: ometteva che il confronto ha due termini e che il secondo non entra dal prompt. Il difetto non e' stato trovato da un controllo ma leggendo il payload di ds_call.py e notando l'assenza di 'tools', cioe' nello stesso modo in cui si trovano le cose quando nessuno le sorveglia. Ora SC-20 sorveglia la congiunzione."
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verification-report.schema.json",
+  "title": "Output di source-verifier",
+  "description": "Audit indipendente delle citazioni. Non conosce le conclusioni della pipeline e non deve conoscerle: riceve solo coppie (claim, source) da ricontrollare.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "checks",
+        "summary"
+      ],
+      "properties": {
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "claim_id",
+              "source_id",
+              "result"
+            ],
+            "properties": {
+              "claim_id": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              },
+              "result": {
+                "enum": [
+                  "CONFIRMED",
+                  "PARTIALLY_CONFIRMED",
+                  "NOT_SUPPORTED",
+                  "CONTRADICTED",
+                  "SOURCE_UNREACHABLE",
+                  "SOURCE_NOT_FOUND"
+                ],
+                "description": "NOT_SUPPORTED = la fonte esiste ma non dice quello che il claim afferma. CONTRADICTED = la fonte dice il contrario. SOURCE_NOT_FOUND = l'URL non esiste: e' il segnale di una fonte fabbricata."
+              },
+              "url_resolves": {
+                "type": "boolean"
+              },
+              "date_matches": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "tier_matches": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "actual_snippet": {
+                "type": "string"
+              },
+              "discrepancy": {
+                "type": "string"
+              },
+              "suggested_downgrade": {
+                "enum": [
+                  "NONE",
+                  "TO_ESTIMATED",
+                  "TO_HYPOTHESIS",
+                  "REMOVE"
+                ]
+              }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "n_checked",
+            "pass_rate",
+            "fabricated_sources"
+          ],
+          "properties": {
+            "n_checked": {
+              "type": "integer"
+            },
+            "n_confirmed": {
+              "type": "integer"
+            },
+            "pass_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "fabricated_sources": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "source_ids il cui URL non esiste o il cui contenuto non ha alcuna relazione con il claim. Anche una sola fonte fabbricata su un'idea comporta la revisione integrale di tutti i claim prodotti dallo stesso agente su quell'idea."
+            },
+            "agents_with_issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string"
+                  },
+                  "n_issues": {
+                    "type": "integer"
+                  },
+                  "worst_result": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

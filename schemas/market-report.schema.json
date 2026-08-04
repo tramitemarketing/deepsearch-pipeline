@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "market-report.schema.json",
+  "title": "Output di tam-analyst",
+  "description": "Ogni numero deve essere VERIFIED con fonte, oppure ESTIMATED con formula ricalcolabile. Non esiste una terza possibilita'.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "method",
+        "population",
+        "price_point",
+        "arpa_annual",
+        "tam",
+        "sam",
+        "som",
+        "clients_needed_for_target_mrr",
+        "verdict",
+        "monthly_new_clients_required"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "bottom_up",
+            "top_down",
+            "ibrido"
+          ],
+          "description": "Preferire SEMPRE bottom_up: numero di aziende target x prezzo annuo realistico. Il top_down da report di mercato e' accettato solo come controprova, mai come fonte primaria del SOM."
+        },
+        "population": {
+          "type": "object",
+          "description": "Conteggio delle aziende che rientrano nell'ICP, per geografia. E' il denominatore di tutto: se questo e' UNKNOWN, TAM e SAM sono UNKNOWN.",
+          "required": [
+            "counts"
+          ],
+          "properties": {
+            "counts": {
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "core.schema.json#/$defs/Numeric"
+                  }
+                ],
+                "description": "Un record per geografia. Fonte attesa: ISTAT/Eurostat/Registro Imprese per codice ATECO/NACE."
+              }
+            },
+            "filters_applied": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Es. 'ATECO 49.41', 'dipendenti 10-249', 'con flotta propria'."
+            },
+            "filter_attrition": {
+              "type": "array",
+              "description": "Effetto di ciascun filtro sulla popolazione. Rende il funnel di dimensionamento ispezionabile invece che un salto.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "filter": {
+                    "type": "string"
+                  },
+                  "surviving": {
+                    "$ref": "core.schema.json#/$defs/Numeric"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "price_point": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          ],
+          "description": "Prezzo annuo realistico per cliente, ancorato ai listini dei competitor osservati o alla spesa attuale documentata. Mai un numero di comodo scelto per far quadrare il SOM."
+        },
+        "tam": {
+          "$ref": "core.schema.json#/$defs/Numeric"
+        },
+        "sam": {
+          "$ref": "core.schema.json#/$defs/Numeric"
+        },
+        "som": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          ],
+          "description": "SOM a 24 mesi, con assunzione di penetrazione dichiarata e giustificata. Deve rispondere alla domanda: quanti clienti servono per 50.000 EUR/MRR e quanti se ne possono realisticamente acquisire in 24 mesi con 3 persone."
+        },
+        "arpa_annual": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          ],
+          "description": "Ricavo medio annuo per cliente atteso, derivato da price_point e dal mix di fascia ipotizzato. E' il denominatore del rapporto CAC/ARPA che il bootstrap-filter deve valutare: senza questo campo quella dimensione resterebbe sempre UNKNOWN e il gate 6 andrebbe in PARK su ogni idea."
+        },
+        "clients_needed_for_target_mrr": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          ],
+          "description": "target_mrr_eur / (price_point/12). Sempre ESTIMATED, sempre con formula esplicita."
+        },
+        "penetration_assumption": {
+          "type": "object",
+          "required": [
+            "value_pct",
+            "justification",
+            "benchmark_source_ids"
+          ],
+          "properties": {
+            "value_pct": {
+              "type": "number"
+            },
+            "justification": {
+              "type": "string"
+            },
+            "benchmark_source_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Se vuoto, il gate 5 NON puo' produrre KILL su G9: al massimo PARK. Nel collaudo 20260801 un'assunzione di penetrazione non ancorata ha deciso da sola l'eliminazione di un'idea."
+            }
+          }
+        },
+        "growth_rate": {
+          "$ref": "core.schema.json#/$defs/Numeric"
+        },
+        "sensitivity": {
+          "type": "array",
+          "description": "Almeno due scenari (pessimistico/base) sul SOM, per mostrare quanto la conclusione dipende dalle assunzioni.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scenario": {
+                "type": "string"
+              },
+              "assumption_changed": {
+                "type": "string"
+              },
+              "som": {
+                "$ref": "core.schema.json#/$defs/Numeric"
+              }
+            }
+          }
+        },
+        "verdict": {
+          "$ref": "core.schema.json#/$defs/Verdict"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim"
+          }
+        },
+        "monthly_new_clients_required": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          ],
+          "description": "clients_needed_for_target_mrr diviso l'orizzonte in mesi. Era citato dal prompt del tam-analyst e assente dallo schema."
+        }
+      }
+    }
+  }
+}

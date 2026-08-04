@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEEPSEARCH v2 — Architettura della pipeline</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --line:#242a35; --ink:#e6e8ec; --dim:#9aa3b2;
+    --acc:#7aa2f7; --ok:#7ec99a; --kill:#e07a7a; --park:#d9b26a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.65 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 24px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:26px;margin-bottom:34px}
+  h1{font-size:26px;margin:0 0 8px;letter-spacing:-.01em;font-weight:650}
+  .sub{color:var(--dim);font-size:15px;max-width:74ch;margin:0}
+  .principio{margin-top:22px;padding:16px 20px;background:var(--panel);
+             border-left:3px solid var(--acc);border-radius:0 8px 8px 0}
+  .principio b{color:var(--acc);font-weight:600}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);
+     font-weight:600;margin:52px 0 18px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:22px;overflow-x:auto}
+  .card svg{border-radius:8px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:9px 12px;
+     border-bottom:1px solid var(--line);white-space:nowrap;font-size:12px;
+     text-transform:uppercase;letter-spacing:.05em}
+  td{padding:9px 12px;border-bottom:1px solid #1c2129;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  code{background:#1d222b;padding:1.5px 6px;border-radius:4px;font-size:12.5px;
+       font-family:ui-monospace,"SF Mono",Menlo,monospace;color:#c9d3e6}
+  .no{color:var(--kill);font-weight:600}
+  .yes{color:var(--ok);font-weight:600}
+  .funnel{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin-top:4px}
+  .step{flex:1;min-width:132px;background:var(--panel);border:1px solid var(--line);
+        border-radius:10px;padding:15px 14px;position:relative}
+  .step .n{font-size:26px;font-weight:650;letter-spacing:-.02em}
+  .step .l{color:var(--dim);font-size:12.5px;margin-top:3px}
+  .step .w{color:#6c7686;font-size:11.5px;margin-top:9px;line-height:1.45}
+  .step:nth-child(1) .n{color:#8b93a3}
+  .step:nth-child(2) .n{color:#9aa8c4}
+  .step:nth-child(3) .n{color:var(--acc)}
+  .step:nth-child(4) .n{color:#8fb6f0}
+  .step:nth-child(5) .n{color:var(--ok)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+  .def{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 17px}
+  .def h3{margin:0 0 7px;font-size:13.5px;font-weight:600}
+  .def p{margin:0;color:var(--dim);font-size:13px;line-height:1.6}
+  .num{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;
+       background:#232a36;border-radius:5px;font-size:11.5px;color:var(--acc);
+       margin-right:8px;font-weight:600}
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+         color:#5e6775;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>DEEPSEARCH v2 — pipeline multi-agent</h1>
+  <p class="sub">Riprogettazione del prompt monolitico in 10 subagent specializzati con stage gate,
+  contratti dati verificabili e memoria persistente fra i run settimanali.</p>
+  <div class="principio">
+    <b>Chi cerca non conclude. Chi conclude non cerca.</b><br>
+    Da questa regola discende quasi tutta l'architettura. Gli agenti che giudicano non hanno
+    strumenti di ricerca: non possono <i>materialmente</i> fabbricare una fonte.
+  </div>
+</header>
+
+<h2>Flusso completo</h2>
+<div class="card">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1690" width="100%" style="max-width:1080px;height:auto;display:block;margin:0 auto" font-family="ui-sans-serif,-apple-system,Segoe UI,Inter,system-ui,sans-serif">
+<defs>
+<marker id="a-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5a6478"/></marker>
+<marker id="a-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#a85a5a"/></marker>
+<marker id="a-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#a8894a"/></marker>
+</defs>
+<rect width="1080" height="1690" fill="#12151b"/>
+<rect x="22" y="150" width="150" height="1340" rx="12" fill="#292418" stroke="#7a6a3b" stroke-width="1.2"/>
+<text x="97.0" y="178" font-size="12" fill="#d9b26a" font-weight="650" text-anchor="middle" letter-spacing="1.4">PARKED</text>
+<text x="97.0" y="199" font-size="10" fill="#9a8a5a" text-anchor="middle">retry 14 giorni</text>
+<text x="97.0" y="214" font-size="10" fill="#9a8a5a" text-anchor="middle">rientra dallo stage</text>
+<text x="97.0" y="229" font-size="10" fill="#9a8a5a" text-anchor="middle">in cui si era fermato</text>
+<text x="97.0" y="244" font-size="10" fill="#9a8a5a" text-anchor="middle">con la lista delle</text>
+<text x="97.0" y="259" font-size="10" fill="#9a8a5a" text-anchor="middle">verifiche mancanti</text>
+<rect x="745" y="150" width="250" height="1340" rx="12" fill="#2a1a1c" stroke="#7a3f45" stroke-width="1.2"/>
+<text x="870.0" y="178" font-size="12" fill="#e08a8a" font-weight="650" text-anchor="middle" letter-spacing="1.4">KILLED</text>
+<text x="870.0" y="199" font-size="10" fill="#9a6a6a" text-anchor="middle">registro degli scarti</text>
+<text x="870.0" y="214" font-size="10" fill="#9a6a6a" text-anchor="middle">cooldown 90 giorni</text>
+<text x="870.0" y="229" font-size="10" fill="#9a6a6a" text-anchor="middle">rientra prima solo se una fonte</text>
+<text x="870.0" y="244" font-size="10" fill="#9a6a6a" text-anchor="middle">documenta un cambiamento</text>
+<rect x="320" y="34" width="200" height="38" rx="19" fill="#1b2836" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="57.5" font-size="13" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">/deepsearch</text>
+<path d="M 420.0 72 L 420.0 100" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="100" width="350" height="52" rx="9" fill="#1e2530" stroke="#3a4351" stroke-width="1.2"/>
+<text x="420.0" y="122.75" font-size="12.5" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">Orchestrator — setup del run</text>
+<text x="420.0" y="138.25" font-size="10" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">legge la memoria · ruota i settori · riesuma i PARKED</text>
+<path d="M 420.0 152 L 420.0 180" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="210" y="180" width="420" height="92" rx="11" fill="#151a22" stroke="#2b3340" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="225" y="199" font-size="10" fill="#98a2b3" font-weight="600" text-anchor="start" letter-spacing="0.85">WAVE 1 — GENERAZIONE · 4-8 SHARD CIECHI</text>
+<rect x="222.0" y="209" width="124.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="284.0" y="223.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">pain-finder</text>
+<text x="284.0" y="238.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">settore A</text>
+<text x="284.0" y="254.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">angolo 1</text>
+<rect x="358.0" y="209" width="124.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="420.0" y="223.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">pain-finder</text>
+<text x="420.0" y="238.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">settore B</text>
+<text x="420.0" y="254.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">angolo 2</text>
+<rect x="494.0" y="209" width="124.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="556.0" y="223.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">pain-finder</text>
+<text x="556.0" y="238.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">settore F</text>
+<text x="556.0" y="254.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">angolo 8</text>
+<path d="M 420.0 272 L 420.0 296" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="296" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="314.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 1 — Pain</text>
+<text x="420.0" y="330.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">dedup vs memoria · G1 spesa · G2 ricorrenza</text>
+<path d="M 420.0 340 L 420.0 364" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="210" y="364" width="420" height="88" rx="11" fill="#151a22" stroke="#2b3340" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="225" y="383" font-size="10" fill="#98a2b3" font-weight="600" text-anchor="start" letter-spacing="0.85">WAVE 2 — EVIDENZE · 5 CANALI PARALLELI PER PAIN</text>
+<rect x="222.0" y="393" width="69.6" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="256.8" y="420.5" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">normativa</text>
+<rect x="303.6" y="393" width="69.6" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="338.40000000000003" y="420.5" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">statistica</text>
+<rect x="385.2" y="393" width="69.6" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="420.0" y="420.5" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">community</text>
+<rect x="466.79999999999995" y="393" width="69.6" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="501.59999999999997" y="420.5" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">pricing</text>
+<rect x="548.4" y="393" width="69.6" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="583.1999999999999" y="420.5" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">trend</text>
+<path d="M 420.0 452 L 420.0 476" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="476" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="494.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 2 — Evidence</text>
+<text x="420.0" y="510.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">G1 spesa attuale · G3 linguaggio del problema</text>
+<path d="M 420.0 520 L 420.0 544" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="210" y="544" width="420" height="88" rx="11" fill="#151a22" stroke="#2b3340" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="225" y="563" font-size="10" fill="#98a2b3" font-weight="600" text-anchor="start" letter-spacing="0.85">WAVE 3 — PARALLELA, VALUTAZIONE SEQUENZIALE</text>
+<rect x="222.0" y="573" width="124.0" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="284.0" y="592.75" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">competitor</text>
+<text x="284.0" y="608.25" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">analyst</text>
+<rect x="358.0" y="573" width="124.0" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="420.0" y="592.75" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">trigger</text>
+<text x="420.0" y="608.25" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">finder</text>
+<rect x="494.0" y="573" width="124.0" height="46" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="556.0" y="592.75" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">tam</text>
+<text x="556.0" y="608.25" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">analyst</text>
+<path d="M 420.0 632 L 420.0 656" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="656" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="674.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 3 — Competitor</text>
+<text x="420.0" y="690.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">K1-K5 · G7 tutti STRONG · SOFT non confermato</text>
+<path d="M 420.0 700 L 420.0 720" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="720" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="738.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 4 — Trigger</text>
+<text x="420.0" y="754.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">G8 nessun trigger · G4 moda · scadenza lontana</text>
+<path d="M 420.0 764 L 420.0 784" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="784" width="350" height="38" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="799.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 5 — TAM</text>
+<text x="420.0" y="815.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">G9 SOM sotto soglia a 24 mesi</text>
+<path d="M 420.0 822 L 420.0 846" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="846" width="350" height="48" rx="9" fill="#1e2530" stroke="#3a4351" stroke-width="1.2"/>
+<text x="420.0" y="866.75" font-size="12.5" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">bootstrap-filter · pass 1</text>
+<text x="420.0" y="882.25" font-size="10" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">judgment-only · 13 dimensioni · CAC e ciclo non bloccanti</text>
+<rect x="313" y="899" width="214" height="17" rx="8" fill="#241f14" stroke="#7a6a3b" stroke-width="1" stroke-dasharray="3 3"/>
+<text x="420.0" y="911" font-size="9.5" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">⟲  supplemento istruttorio · massimo 1 round</text>
+<path d="M 420.0 920 L 420.0 936" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="936" width="350" height="38" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="951.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 6 — Bootstrap</text>
+<text x="420.0" y="967.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">FAIL su dimensione bloccante</text>
+<path d="M 420.0 974 L 420.0 998" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="998" width="350" height="42" rx="9" fill="#1e2530" stroke="#3a4351" stroke-width="1.2"/>
+<text x="420.0" y="1015.75" font-size="12.5" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">venture-architect</text>
+<text x="420.0" y="1031.25" font-size="10" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">judgment-only · nessuna ricerca</text>
+<path d="M 420.0 1040 L 420.0 1060" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="1060" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="1078.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 6-bis — Unit economics</text>
+<text x="420.0" y="1094.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">CAC/ARPA calcolabile solo ora, sui canali del blueprint</text>
+<path d="M 420.0 1104 L 420.0 1128" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="210" y="1128" width="420" height="92" rx="11" fill="#151a22" stroke="#2b3340" stroke-width="1.2" stroke-dasharray="5 4"/>
+<text x="225" y="1147" font-size="10" fill="#98a2b3" font-weight="600" text-anchor="start" letter-spacing="0.85">WAVE 6 — AVVERSARIALE + AUDIT CIECO</text>
+<rect x="222.0" y="1157" width="90.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="267.0" y="1171.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">red-team</text>
+<text x="267.0" y="1186.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">competitor</text>
+<text x="267.0" y="1202.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">nascosti</text>
+<rect x="324.0" y="1157" width="90.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="369.0" y="1171.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">red-team</text>
+<text x="369.0" y="1186.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">fallimenti</text>
+<text x="369.0" y="1202.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">storici</text>
+<rect x="426.0" y="1157" width="90.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="471.0" y="1171.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">red-team</text>
+<text x="471.0" y="1186.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">economics</text>
+<text x="471.0" y="1202.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">distribuzione</text>
+<rect x="528.0" y="1157" width="90.0" height="50" rx="7" fill="#232b37" stroke="#39414f" stroke-width="1.2"/>
+<text x="573.0" y="1171.0" font-size="11" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">source</text>
+<text x="573.0" y="1186.5" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">verifier</text>
+<text x="573.0" y="1202.0" font-size="11" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">cieco</text>
+<path d="M 420.0 1220 L 420.0 1244" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="1244" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="1262.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 7 — Red Team</text>
+<text x="420.0" y="1278.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">2 voti KILL su 3 · oppure 1 FATALE VERIFIED</text>
+<path d="M 420.0 1288 L 420.0 1308" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="1308" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="1326.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 7-bis — Integrita' delle fonti</text>
+<text x="420.0" y="1342.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">fonte fabbricata · pass rate sotto 0.6</text>
+<path d="M 420.0 1352 L 420.0 1376" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="1376" width="350" height="42" rx="9" fill="#1e2530" stroke="#3a4351" stroke-width="1.2"/>
+<text x="420.0" y="1393.75" font-size="12.5" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">ranking-agent</text>
+<text x="420.0" y="1409.25" font-size="10" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">7 dimensioni × moltiplicatore di confidenza</text>
+<path d="M 420.0 1418 L 420.0 1438" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="245" y="1438" width="350" height="44" rx="7" fill="#1a2432" stroke="#5c7fc4" stroke-width="1.2"/>
+<text x="420.0" y="1456.75" font-size="12.5" fill="#7aa2f7" font-weight="500" text-anchor="middle" letter-spacing="0">GATE 8 — Pubblicazione</text>
+<text x="420.0" y="1472.25" font-size="10.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">score &gt;= 6.5  e  &gt;= 4/5 domande fontate</text>
+<path d="M 595 318 L 741 318" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="303.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="315" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 498 L 741 498" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="483.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="495" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 678 L 741 678" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="663.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="675" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 742 L 741 742" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="727.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="739" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 803 L 741 803" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="788.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="800" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 955 L 741 955" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="940.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="952" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">FAIL</text>
+<path d="M 595 1082 L 741 1082" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="1067.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="1079" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 1266 L 741 1266" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="1251.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="1263" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 1330 L 741 1330" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="653.0" y="1315.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="1327" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">KILL</text>
+<path d="M 595 1460 L 741 1460" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="633.75" y="1445.5" width="72.5" height="15" rx="4" fill="#12151b"/>
+<text x="670.0" y="1457" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">score &lt; 5.0</text>
+<path d="M 245 506 L 176 506" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="491.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="503" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 686 L 176 686" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="671.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="683" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 750 L 176 750" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="735.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="747" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 811 L 176 811" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="796.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="808" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 963 L 176 963" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="948.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="960" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 1090 L 176 1090" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="1075.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="1087" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 1338 L 176 1338" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="191.5" y="1323.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="1335" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">PARK</text>
+<path d="M 245 1468 L 176 1468" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="158.5" y="1453.5" width="100.0" height="15" rx="4" fill="#12151b"/>
+<text x="208.5" y="1465" font-size="10" fill="#a8894a" font-weight="500" text-anchor="middle" letter-spacing="0">score alto · 3/5</text>
+<rect x="220" y="1540" width="400" height="52" rx="11" fill="#15261c" stroke="#43855f" stroke-width="1.2"/>
+<text x="420.0" y="1562.75" font-size="12.5" fill="#7ec99a" font-weight="500" text-anchor="middle" letter-spacing="0">REPORT.md — massimo 4 idee, 400 parole ciascuna</text>
+<text x="420.0" y="1578.25" font-size="10" fill="#7f9c8a" font-weight="400" text-anchor="middle" letter-spacing="0">sintesi degli scarti · menzioni oneste · parcheggiate · note di esecuzione</text>
+<path d="M 420.0 1482 L 420.0 1540" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+<rect x="455.0" y="1512.5" width="34.0" height="15" rx="4" fill="#12151b"/>
+<text x="472.0" y="1524" font-size="10" fill="#5a6478" font-weight="500" text-anchor="middle" letter-spacing="0">PASS</text>
+<path d="M 870.0 1490 L 870.0 1552" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<rect x="809.0" y="1514.5" width="122.0" height="15" rx="4" fill="#12151b"/>
+<text x="870.0" y="1526" font-size="10" fill="#a85a5a" font-weight="500" text-anchor="middle" letter-spacing="0">sintesi degli scarti</text>
+<path d="M 870.0 1552 L 624 1566" fill="none" stroke="#a85a5a" stroke-width="1.5"  marker-end="url(#a-k)"/>
+<path d="M 97.0 1490 L 97.0 1566" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<path d="M 97.0 1566 L 224 1566" fill="none" stroke="#a8894a" stroke-width="1.5"  marker-end="url(#a-p)"/>
+<rect x="275" y="1618" width="290" height="40" rx="9" fill="#191d25" stroke="#333b48" stroke-width="1.2"/>
+<text x="420.0" y="1634.75" font-size="11.5" fill="#e6e8ec" font-weight="500" text-anchor="middle" letter-spacing="0">memoria aggiornata</text>
+<text x="420.0" y="1650.25" font-size="9.5" fill="#98a2b3" font-weight="400" text-anchor="middle" letter-spacing="0">seen-pains · settori · fonti</text>
+<path d="M 420.0 1592 L 420.0 1618" fill="none" stroke="#5a6478" stroke-width="1.5"  marker-end="url(#a-n)"/>
+</svg>
+</div>
+
+<h2>Funnel — profilo DEEP</h2>
+<div class="funnel">
+  <div class="step"><div class="n">80</div><div class="l">pain generati</div>
+    <div class="w">8 shard ciechi<br/>settori x angoli</div></div>
+  <div class="step"><div class="n">24</div><div class="l">a evidenze</div>
+    <div class="w">ordinati per spesa attuale documentata</div></div>
+  <div class="step"><div class="n">12</div><div class="l">a competitor</div>
+    <div class="w">ordinati per forza dell'evidenza</div></div>
+  <div class="step"><div class="n">6</div><div class="l">architettate</div>
+    <div class="w">sopravvissute a 5 gate consecutivi</div></div>
+  <div class="step"><div class="n">≤4</div><div class="l">pubblicate</div>
+    <div class="w">score ≥ 6.5 e ≥ 4/5 domande fontate</div></div>
+</div>
+
+<h2>Mappa degli agenti</h2>
+<div class="card">
+<table>
+<thead><tr><th>Agente</th><th>Classe</th><th>Cerca</th><th>Conclude</th><th>Parallelismo</th><th>Domanda</th></tr></thead>
+<tbody>
+<tr><td><code>pain-finder</code></td><td>generativo vincolato</td><td class="yes">sì</td><td>solo candidati</td><td>4-8 shard</td><td>—</td></tr>
+<tr><td><code>evidence-researcher</code></td><td>retrieval-only</td><td class="yes">sì</td><td class="no">no</td><td>5 canali × N pain</td><td>Q4</td></tr>
+<tr><td><code>competitor-analyst</code></td><td>retrieval-only</td><td class="yes">sì</td><td class="no">no</td><td>1 × N pain</td><td>Q2</td></tr>
+<tr><td><code>trigger-finder</code></td><td>retrieval-only</td><td class="yes">sì</td><td class="no">no</td><td>1 × N pain</td><td>Q1</td></tr>
+<tr><td><code>tam-analyst</code></td><td>retrieval-only</td><td class="yes">sì</td><td class="no">no</td><td>1 × N pain</td><td>—</td></tr>
+<tr><td><code>bootstrap-filter</code></td><td>judgment-only</td><td class="no">no</td><td class="yes">sì</td><td>1 × N idee</td><td>Q3</td></tr>
+<tr><td><code>venture-architect</code></td><td>judgment-only</td><td class="no">no</td><td class="yes">sì</td><td>1 × N idee</td><td>—</td></tr>
+<tr><td><code>red-team</code></td><td>avversariale</td><td class="yes">sì</td><td>solo verso il KILL</td><td>3 lenti × N idee</td><td>Q5</td></tr>
+<tr><td><code>source-verifier</code></td><td>audit cieco</td><td class="yes">sì</td><td>solo su citazioni</td><td>N istanze</td><td>—</td></tr>
+<tr><td><code>ranking-agent</code></td><td>judgment deterministico</td><td class="no">no</td><td class="yes">sì</td><td>1 globale</td><td>conta</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Le nove difese anti-allucinazione</h2>
+<div class="grid">
+  <div class="def"><h3><span class="num">1</span>Separazione dei poteri</h3>
+    <p>Chi cerca non conclude. Gli agenti judgment non hanno strumenti di ricerca: fabbricare una fonte è impossibile per costruzione, non vietato.</p></div>
+  <div class="def"><h3><span class="num">2</span>Divieto lessicale</h3>
+    <p>Gli agenti retrieval non possono usare aggettivi valutativi. L'orchestratore controlla e rimuove.</p></div>
+  <div class="def"><h3><span class="num">3</span>Tre stati</h3>
+    <p><code>VERIFIED</code> / <code>ESTIMATED</code> / <code>UNKNOWN</code>. Nessun quarto stato "probabile".</p></div>
+  <div class="def"><h3><span class="num">4</span>Snippet obbligatorio</h3>
+    <p>Se non puoi riportare la frase letta, non hai letto la fonte. Blocca gli URL plausibili mai aperti.</p></div>
+  <div class="def"><h3><span class="num">5</span>Tier delle fonti</h3>
+    <p>Un fatto richiede 1×T1, 1×T2, 2×T3 indipendenti o 4×T4. Un thread di forum non diventa più un dato.</p></div>
+  <div class="def"><h3><span class="num">6</span>Prove contrarie obbligatorie</h3>
+    <p>Ricerche dedicate a falsificare il problema e a trovare proroghe delle scadenze.</p></div>
+  <div class="def"><h3><span class="num">7</span>Downgrade meccanico</h3>
+    <p>L'orchestratore declassa d'ufficio ogni fatto senza fonte risolvibile. L'agente non è consultato.</p></div>
+  <div class="def"><h3><span class="num">8</span>Verificatore cieco</h3>
+    <p>Ricontrolla le citazioni senza sapere quale idea sostengono. Intercetta perimetri slittati e date gonfiate.</p></div>
+  <div class="def"><h3><span class="num">9</span>Moltiplicatore di confidenza</h3>
+    <p>Il punteggio finale è moltiplicato per 0.55–1.0 secondo le evidenze. Non si vince scrivendo meglio.</p></div>
+</div>
+
+<footer>DEEPSEARCH v2 · 10 subagent · 11 schemi JSON · 10 stage gate · memoria persistente fra run</footer>
+</div>
+
+</body>
+</html>

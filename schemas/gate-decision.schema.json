@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gate-decision.schema.json",
+  "title": "Decisione di gate — artefatto dell'ORCHESTRATORE",
+  "description": "L'unico artefatto tipizzato che non proviene da un subagent. L'orchestratore lo scrive in runs/<run_id>/<NN>-<stage>/GATE<N>-decisioni.json a ogni gate applicato. Prima della v2.14.1 questi file esistevano gia' nei run reali (GATE2-decisioni.json, GATE3-decisioni.json) ma erano inventati caso per caso: nessuno schema li validava, nessun programma li rileggeva, e i due campi che servivano a rendere interpretabili gli zeri del sistema — kill_basis e kill_attribution — vivevano solo li' dentro. run_close.py li legge e ne stampa la distribuzione.",
+  "type": "object",
+  "required": [
+    "gate",
+    "run_id",
+    "decided_by",
+    "timestamp",
+    "verdetti"
+  ],
+  "properties": {
+    "gate": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}-[0-9]{4}$"
+    },
+    "decided_by": {
+      "const": "orchestratore",
+      "description": "Costante. Un subagent che scrive qui ha violato la separazione dei poteri: il passaggio di stato lo decide solo l'orchestratore (CLAUDE.md §5)."
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "condizione_comune": {
+      "type": "object",
+      "description": "Fatti veri per tutti i pain di questo gate in questo run: via documentale esaurita o no, emettibilita' dei kill, ecc. Sta qui e non nei singoli verdetti perche' ripeterlo per pain invita a scriverlo in modi diversi.",
+      "additionalProperties": true
+    },
+    "verdetti": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "pain_id",
+          "verdetto",
+          "motivazione"
+        ],
+        "properties": {
+          "pain_id": {
+            "type": "string",
+            "pattern": "^P-[0-9]{3}$"
+          },
+          "verdetto": {
+            "enum": [
+              "PASS",
+              "PARK",
+              "KILL",
+              "ABORT"
+            ]
+          },
+          "reason_code": {
+            "type": "string",
+            "description": "Codice del criterio che ha deciso: G1..G9, K1..K5, PASS-A, PASS-B, ecc."
+          },
+          "kill_analysis": {
+            "oneOf": [
+              { "$ref": "core.schema.json#/$defs/KillAnalysis" },
+              { "type": "null" }
+            ],
+            "description": "OBBLIGATORIO quando verdetto e' PARK o KILL — e' il campo per cui questo schema esiste. Su un PASS vale null ESPLICITO, non assente: la stessa regola degli artefatti vuoti di §11 dell'orchestratore. Un null dice 'non c'e' un no da spiegare', un campo assente dice 'non lo so', e sono due affermazioni diverse. run_close.py segnala i PARK/KILL che arrivano senza."
+          },
+          "evidence_route": {
+            "enum": [
+              "PUBBLICAZIONE",
+              "COMPORTAMENTO",
+              "DISALLINEAMENTO",
+              "ASSENZA",
+              null
+            ]
+          },
+          "profondita_raggiunta": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8,
+            "description": "Gate massimo che questo pain ha superato PRIMA di questa decisione. E' la chiave di ordinamento primaria del portafoglio di §9 dell'orchestratore, ed e' l'unica grandezza confrontabile fra run senza rinormalizzazioni: non dipende da soglie, pesi o dimensioni, solo da quanto lontano e' arrivato."
+          },
+          "claim_verified_accumulati": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Terza chiave di ordinamento del portafoglio, dopo profondita' e reason_code."
+          },
+          "motivazione": {
+            "type": "string",
+            "maxLength": 1200
+          },
+          "missing_to_decide": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Obbligatorio se verdetto e' PARK. Ogni voce deve essere un'AZIONE, non una constatazione: 'rieseguire il canale community con budget >= 6' e non 'mancano dati sul linguaggio'. E' cio' che il portafoglio pubblica come azione piu' economica che sbloccherebbe l'idea, ed e' l'unico canale per cui il lavoro di un run non torna a zero al run successivo."
+          },
+          "azione_sbloccante": {
+            "type": ["object", "null"],
+            "description": "La piu' economica delle missing_to_decide, con il suo prezzo. La sceglie l'orchestratore, non l'agente. null esplicito su un PASS, che non ha niente da sbloccare.",
+            "required": [
+              "descrizione",
+              "costo_stimato_ricerche"
+            ],
+            "properties": {
+              "descrizione": {
+                "type": "string",
+                "maxLength": 300
+              },
+              "costo_stimato_ricerche": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "agente_necessario": {
+                "type": "string"
+              },
+              "fuori_scrivania": {
+                "type": "boolean",
+                "description": "true se l'azione non e' eseguibile da questa pipeline (una telefonata, una visita, un accesso privato). Un'azione fuori scrivania NON va rimandata al funnel di scrivania: ripagherebbe lo stesso fallimento."
+              }
+            }
+          },
+          "retry_after": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

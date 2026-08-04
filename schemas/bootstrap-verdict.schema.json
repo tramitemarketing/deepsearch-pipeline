@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bootstrap-verdict.schema.json",
+  "title": "Output di bootstrap-filter",
+  "description": "Agente JUDGMENT-ONLY: nessuno strumento di ricerca. Ragiona esclusivamente sui claim gia' presenti nel ledger. Se gli manca un dato scrive UNKNOWN e chiede supplemento.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "dimensions",
+        "verdict",
+        "q3_answer"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "dimensions": {
+          "type": "array",
+          "description": "Ogni vincolo di config.bootstrap_constraints va valutato esplicitamente. Nessuno puo' essere saltato.",
+          "items": {
+            "type": "object",
+            "required": [
+              "constraint",
+              "result",
+              "reasoning"
+            ],
+            "properties": {
+              "constraint": {
+                "enum": [
+                  "max_founders_3",
+                  "max_days_to_mvp_90",
+                  "max_capex_50k",
+                  "no_fundraising",
+                  "no_hardware",
+                  "no_enterprise_sales",
+                  "no_proprietary_dataset",
+                  "cac_to_arpa_ratio",
+                  "sales_cycle_days",
+                  "decision_makers",
+                  "no_regulated_liability",
+                  "no_certification_required",
+                  "data_access_feasible"
+                ]
+              },
+              "result": {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "UNKNOWN"
+                ]
+              },
+              "reasoning": {
+                "type": "string"
+              },
+              "claim_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Claim del ledger su cui si fonda la valutazione. Se vuoto, result deve essere UNKNOWN."
+              },
+              "blocking": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "build_plan_feasibility": {
+          "type": "object",
+          "properties": {
+            "hardest_technical_dependency": {
+              "type": "string"
+            },
+            "data_access_required": {
+              "type": "string",
+              "description": "Da dove arrivano i dati che il prodotto deve elaborare. Se richiedono un accordo commerciale con un incumbent, e' un FAIL su no_proprietary_dataset."
+            },
+            "third_party_api_risk": {
+              "type": "string"
+            },
+            "regulatory_liability": {
+              "type": "string",
+              "description": "Il prodotto assume responsabilita' legale (firma, conservazione a norma, calcolo fiscale)? In quel caso servono certificazioni o assicurazioni che tre persone non possono reggere in 90 giorni."
+            }
+          }
+        },
+        "unit_economics": {
+          "type": "object",
+          "properties": {
+            "arpa_annual": {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            },
+            "cac_estimate": {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            },
+            "cac_to_arpa": {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            },
+            "payback_months": {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            }
+          }
+        },
+        "verdict": {
+          "$ref": "core.schema.json#/$defs/Verdict"
+        },
+        "q3_answer": {
+          "$ref": "core.schema.json#/$defs/AntiHallucinationAnswer"
+        },
+        "supplement_requests": {
+          "type": "array",
+          "description": "Dati mancanti che l'agente NON puo' cercare da solo. L'orchestratore decide se attivare un supplemento istruttorio con un agente retrieval.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "what": {
+                "type": "string"
+              },
+              "assigned_to": {
+                "enum": [
+                  "evidence-researcher",
+                  "competitor-analyst",
+                  "tam-analyst",
+                  "trigger-finder"
+                ]
+              },
+              "blocks_verdict": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

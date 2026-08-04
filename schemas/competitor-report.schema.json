@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "competitor-report.schema.json",
+  "title": "Output di competitor-analyst",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "threshold_profile",
+        "competitors",
+        "verdict",
+        "q2_answer"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "threshold_profile": {
+          "enum": [
+            "STRICT",
+            "CALIBRATED"
+          ]
+        },
+        "competitors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "url",
+              "relation"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "relation": {
+                "enum": [
+                  "DIRETTO",
+                  "ADIACENTE",
+                  "SOSTITUTO_NON_SOFTWARE"
+                ],
+                "description": "DIRETTO solo se stesso ICP + stesso job-to-be-done + stessa geografia di go-to-market. Solo i DIRETTI attivano i criteri di kill."
+              },
+              "relation_justification": {
+                "type": "string"
+              },
+              "classification": {
+                "enum": [
+                  "KILL",
+                  "STRONG",
+                  "BEATABLE",
+                  "UNCLASSIFIED"
+                ],
+                "description": "KILL = soddisfa almeno un kill criterion. STRONG = ben documentato, nessun kill criterion soddisfatto ma nemmeno keep_if_at_least keep_criteria: e' un prodotto sano, moderno ed economico. BEATABLE = soddisfa almeno keep_if_at_least dei keep_criteria. UNCLASSIFIED = dati insufficienti. Mai assumere BEATABLE per assenza di dati."
+              },
+              "kill_severity": {
+                "enum": [
+                  "HARD",
+                  "SOFT",
+                  null
+                ],
+                "description": "Valorizzato solo se classification=KILL. SOFT non uccide da solo: vedi soft_kill_policy in config."
+              },
+              "criteria_evaluated": {
+                "type": "array",
+                "description": "Obbligatorio SOLO per i DIRETTI. Il prompt vieta di valutare i criteri sugli ADIACENTI: pretenderli qui era una contraddizione fra schema e prompt.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "criterion_id",
+                    "result",
+                    "state"
+                  ],
+                  "properties": {
+                    "criterion_id": {
+                      "type": "string",
+                      "description": "K1..K5 oppure W1..W6"
+                    },
+                    "observed_value": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "result": {
+                      "enum": [
+                        "MET",
+                        "NOT_MET",
+                        "UNKNOWN",
+                        "NON_TENTATO"
+                      ],
+                      "description": "UNKNOWN = ho guardato e non l'ho trovato. NON_TENTATO = non ho guardato, perche' il criterio e' best-effort e il budget e' andato ai criteri obbligatori. Distinguerli e' necessario: solo gli UNKNOWN sui criteri obbligatori concorrono a unclassified_ratio."
+                    },
+                    "state": {
+                      "enum": [
+                        "VERIFIED",
+                        "ESTIMATED",
+                        "HYPOTHESIS",
+                        "UNKNOWN"
+                      ]
+                    },
+                    "severity": {
+                      "enum": [
+                        "HARD",
+                        "SOFT"
+                      ]
+                    },
+                    "severity_reason": {
+                      "enum": [
+                        "PERIMETRO_GIUSTO",
+                        "FALLBACK_TOTALE_AZIENDALE",
+                        "DOMINANZA_NON_DOCUMENTATA",
+                        "E_IL_SISTEMA_DI_RECORD"
+                      ],
+                      "description": "PERCHE' la severity vale quel che vale, come valore tipizzato invece che come nota in prosa. PERIMETRO_GIUSTO -> HARD. Gli altri tre sono perimetri piu' larghi di quello che il criterio intende e valgono SOFT: FALLBACK_TOTALE_AZIENDALE (K1/K3 non scorporabili), DOMINANZA_NON_DOCUMENTATA (K5 con integrazione nativa documentata ma dominanza nel segmento no), E_IL_SISTEMA_DI_RECORD (K5 MET solo perche' il competitor E' il sistema di record — tipicamente il portale pubblico obbligatorio e il suo strumento gratuito). Quest'ultimo valore e' la deroga senza la quale il gate 3 uccide al ramo 1 ogni pain di conformita', precludendo per costruzione il ramo 9 (DISALLINEAMENTO) che config.missione chiama meta' della missione. Sta in un enum e non in una nota perche' una deroga scritta in prosa e' una deroga che il prossimo turno cancella: e' esattamente cio' che il controllo positivo CP-001 ha dimostrato quando la prima versione di SC-27 e' risultata decorativa."
+                    },
+                    "source_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "criterion_class": {
+                      "enum": [
+                        "OBBLIGATORIO",
+                        "BEST_EFFORT"
+                      ]
+                    }
+                  }
+                }
+              },
+              "pricing": {
+                "type": "object",
+                "properties": {
+                  "public": {
+                    "type": "boolean"
+                  },
+                  "tiers": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "core.schema.json#/$defs/Numeric"
+                    }
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "reviews": {
+                "type": "object",
+                "properties": {
+                  "platform": {
+                    "type": "string"
+                  },
+                  "avg_rating": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "n_reviews": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "recurring_complaints": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "theme",
+                        "verbatim",
+                        "source_id"
+                      ],
+                      "properties": {
+                        "theme": {
+                          "type": "string"
+                        },
+                        "verbatim": {
+                          "type": "string",
+                          "description": "Citazione testuale, non parafrasi."
+                        },
+                        "occurrences": {
+                          "type": "integer"
+                        },
+                        "source_id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "ui_freshness": {
+                "type": "object",
+                "properties": {
+                  "last_visible_redesign_year": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "method": {
+                    "enum": [
+                      "wayback",
+                      "screenshot",
+                      "recensioni",
+                      "changelog",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "market_gap": {
+                "type": "string",
+                "description": "Cosa NON fa, descritto come fatto osservabile e citato. Non 'e' vecchio': 'non espone API pubblica documentata [S-xxx]'."
+              }
+            }
+          }
+        },
+        "coverage_stats": {
+          "type": "object",
+          "required": [
+            "n_direct",
+            "n_unclassified",
+            "unclassified_ratio"
+          ],
+          "properties": {
+            "n_direct": {
+              "type": "integer"
+            },
+            "n_adjacent": {
+              "type": "integer"
+            },
+            "n_unclassified": {
+              "type": "integer"
+            },
+            "n_strong": {
+              "type": "integer"
+            },
+            "n_beatable": {
+              "type": "integer"
+            },
+            "unclassified_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        },
+        "verdict": {
+          "$ref": "core.schema.json#/$defs/Verdict"
+        },
+        "q2_answer": {
+          "$ref": "core.schema.json#/$defs/AntiHallucinationAnswer"
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim"
+          },
+          "description": "Aggiunto dopo il collaudo 20260801. Senza oggetti Claim, la regola del bootstrap-filter 'dimensione senza claim_ids => UNKNOWN' forzava a UNKNOWN tutto cio' che poggia su questo stage, inclinando strutturalmente il gate 6 verso il PARK."
+        },
+        "misalignment": {
+          "type": "object",
+          "required": [
+            "criteri",
+            "disallineamento_dichiarato"
+          ],
+          "description": "Misura quanto le soluzioni esistenti sono LONTANE dal problema, non quanto sono deboli. E' l'altra meta' della missione e non esisteva prima della v2.3.",
+          "properties": {
+            "criteri": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "criterion_id",
+                  "result",
+                  "state"
+                ],
+                "properties": {
+                  "criterion_id": {
+                    "enum": [
+                      "M1",
+                      "M2",
+                      "M3",
+                      "M4"
+                    ]
+                  },
+                  "result": {
+                    "enum": [
+                      "MET",
+                      "NOT_MET",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "VERIFIED",
+                      "ESTIMATED",
+                      "HYPOTHESIS",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "evidenza": {
+                    "type": "string",
+                    "description": "Citazione testuale: il mansionario dell'annuncio, il thread di assistenza, la frase della pagina prodotto, la tariffa del servizio."
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "disallineamento_dichiarato": {
+              "type": "boolean"
+            },
+            "distanza": {
+              "type": "string",
+              "description": "In una frase: cosa fa il software, cosa richiede il lavoro, e dove si separano."
+            }
+          }
+        },
+        "evidence_route": {
+          "enum": [
+            "PUBBLICAZIONE",
+            "COMPORTAMENTO",
+            "DISALLINEAMENTO",
+            "ASSENZA",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

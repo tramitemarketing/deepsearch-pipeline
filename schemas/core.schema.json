@@ -1,0 +1,743 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "core.schema.json",
+  "title": "DEEPSEARCH — tipi condivisi",
+  "description": "Definizioni riusate da tutti gli schemi di agente. Ogni agente valida il proprio output contro il proprio schema, che a sua volta referenzia queste definizioni.",
+  "$defs": {
+    "KillAnalysis": {
+      "type": "object",
+      "description": "Come e' stato prodotto un verdetto negativo. Lo scrive SOLO l'orchestratore, mai un subagent: e' una misura esterna sull'agente, e un campo che l'agente compila da se' e' un campo che si compila per passare. Fino alla v2.14.1 questi due valori erano prescritti dall'orchestratore, citati da config.run.condizione_di_riprogettazione e non esistevano in nessuno schema: finivano in file inventati che nessun programma rileggeva. Quinta occorrenza in questo repo di un obbligo enunciato senza lo slot per assolverlo.",
+      "required": [
+        "kill_basis",
+        "kill_attribution",
+        "ramo_attivato",
+        "stop_reason_osservato"
+      ],
+      "properties": {
+        "kill_basis": {
+          "enum": [
+            "PRESENZA",
+            "ASSENZA"
+          ],
+          "description": "PRESENZA: si e' trovata la prova che uccide (K1-K5, G6 con CAC calcolato, finding FATALE+VERIFIED). ASSENZA: non si e' trovata la prova che salva (G1, G3, G8, rami 5 e 7 del gate 3). Derivato meccanicamente dal ramo attivato, mai dichiarato."
+        },
+        "kill_attribution": {
+          "enum": [
+            "MONDO",
+            "STRUMENTO",
+            "MISTO",
+            "NON_APPLICABILE"
+          ],
+          "description": "MONDO: l'agente aveva finito di guardare (COMPLETED, ZERO_YIELD, KILL_TRIGGERED) e non ha trovato. STRUMENTO: l'agente e' stato fermato mentre trovava ancora (BUDGET_EXHAUSTED con ultime query a resa USEFUL o PARTIAL), oppure le fonti erano irraggiungibili: il suo no e' un 'non lo so' scritto male. MISTO: piu' canali con esiti divergenti. NON_APPLICABILE: il verdetto non e' negativo."
+        },
+        "ramo_attivato": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Numero del ramo del gate che ha deciso. E' cio' da cui kill_basis si deriva, e va scritto perche' la derivazione sia ricontrollabile."
+        },
+        "stop_reason_osservato": {
+          "enum": [
+            "COMPLETED",
+            "ZERO_YIELD",
+            "KILL_TRIGGERED",
+            "BUDGET_EXHAUSTED",
+            "INSUFFICIENT_DATA",
+            "ABORTED_BY_ORCHESTRATOR"
+          ],
+          "description": "Lo stop_reason dell'agente, o il piu' sfavorevole fra quelli dei canali quando il gate ne consolida piu' d'uno."
+        },
+        "kill_emettibile": {
+          "type": "boolean",
+          "description": "Esito del confronto budget >= 3 x zero_yield_window per l'agente che ha prodotto il verdetto. Se false, un KILL viene plafonato a PARK. Calcolato dall'orchestratore prima della wave 1 e ripreso qui, mai riscritto a memoria."
+        },
+        "predicato_falsificabile": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Cosa, se osservato, smentirebbe questo verdetto negativo. Deve essere un'esistenza positiva decidibile con una ricerca ('esiste un vendor italiano con API pubblica su questo job'), non una negazione ('non c'e' mercato'). Chi non riesce a scriverlo ha appena scoperto qualcosa sul proprio criterio."
+        }
+      }
+    },
+    "Envelope": {
+      "type": "object",
+      "required": [
+        "agent",
+        "run_id",
+        "status",
+        "budget_used",
+        "stop_reason",
+        "payload",
+        "new_sources",
+        "queries_run",
+        "unreachable_sources",
+        "self_check"
+      ],
+      "properties": {
+        "agent": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9]{8}(-[0-9]{4})?$",
+          "description": "YYYYMMDD oppure YYYYMMDD-HHMM. La seconda forma evita che due run nello stesso giorno collidano; il pattern deve ammetterle entrambe, altrimenti ogni output fallisce la validazione e ogni idea finisce in PARKED per costruzione."
+        },
+        "pain_id": {
+          "type": "string",
+          "pattern": "^P-[0-9]{3}$",
+          "description": "SEMPRE tre cifre con zeri iniziali: P-007, mai P-7. La convenzione e' il padding, non la lunghezza minima. Fino alla v2.7 questo campo ammetteva ^P-[0-9]{1,3}$ mentre pain.schema.json pretendeva ^P-[0-9]{3}$: un pain-finder che avesse emesso P-7 avrebbe superato l'envelope e fallito il proprio schema, cioe' la stessa classe di difetto che la v2.7 aveva appena riparato su run_id. Il padding serve anche all'ordinamento lessicografico dei file su disco."
+        },
+        "status": {
+          "enum": [
+            "OK",
+            "PARTIAL",
+            "FAILED"
+          ]
+        },
+        "budget_used": {
+          "type": "object",
+          "required": [
+            "searches",
+            "searches_limit",
+            "fetches",
+            "fetches_limit"
+          ],
+          "description": "Il vincolo reale della pipeline sono le FETCH, non le ricerche: WebSearch restituisce titoli e URL, e ogni snippet richiede una fetch. Contarne una sola delle due e' il difetto che ha svuotato il collaudo 20260801. | v2.9.1: aggiunte le MIETITURE. La v2.5 ha introdotto una terza unita' di consumo e non l'ha messa nell'envelope: nel run 20260802-1759 quattro shard hanno inventato quattro convenzioni private e i loro budget_used non erano confrontabili fra loro. E' il difetto P0-1 del collaudo 20260801 (budget contato sull'unita' sbagliata) reintrodotto su una terza unita' dalla correzione stessa.",
+          "properties": {
+            "searches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "searches_limit": {
+              "type": "integer"
+            },
+            "fetches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fetches_limit": {
+              "type": "integer"
+            },
+            "harvests": {
+              "type": "integer",
+              "description": "Mietiture consumate. Obbligatorio per gli agenti che hanno un budget harvests in config."
+            },
+            "harvests_limit": {
+              "type": "integer"
+            }
+          }
+        },
+        "stop_reason": {
+          "enum": [
+            "COMPLETED",
+            "BUDGET_EXHAUSTED",
+            "INSUFFICIENT_DATA",
+            "KILL_TRIGGERED",
+            "ABORTED_BY_ORCHESTRATOR",
+            "ZERO_YIELD"
+          ],
+          "description": "PRECEDENZA, quando piu' di uno e' vero insieme: KILL_TRIGGERED > ABORTED_BY_ORCHESTRATOR > BUDGET_EXHAUSTED > ZERO_YIELD > INSUFFICIENT_DATA > COMPLETED. BUDGET_EXHAUSTED precede ZERO_YIELD deliberatamente: e' l'ordine PRUDENTE, perche' plafona il verdetto a PARK (regola del troncamento) invece di renderlo emettibile. Nel run 20260802-1759 lo shard 2 si e' fermato con entrambi veri e ha scelto correttamente per proprio scrupolo — ma la precedenza non era scritta da nessuna parte, e un agente meno scrupoloso avrebbe scritto ZERO_YIELD rendendo emettibile un kill su pagine semplicemente irraggiungibili."
+        },
+        "payload": {
+          "type": "object"
+        },
+        "new_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          }
+        },
+        "queries_run": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Query"
+          }
+        },
+        "unreachable_sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UnreachableSource"
+          }
+        },
+        "self_check": {
+          "type": "object",
+          "required": [
+            "invarianti_violati"
+          ],
+          "properties": {
+            "invarianti_violati": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "IC-1",
+                  "IC-2",
+                  "IC-3",
+                  "IC-4",
+                  "SEP-RETRIEVAL",
+                  "SEP-JUDGMENT",
+                  "TRE-STATI",
+                  "NUMERI"
+                ]
+              },
+              "description": "L'agente dichiara gli invarianti che sa di aver violato. Una dichiarazione onesta costa meno di una violazione scoperta dall'orchestratore: se l'orchestratore rileva una violazione NON dichiarata, l'intero output dell'agente viene scartato."
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "required": [
+        "id",
+        "url",
+        "publisher",
+        "title",
+        "published_date",
+        "accessed_at",
+        "tier",
+        "access_status",
+        "retrieved_by"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^S-[0-9]{8}(-[0-9]{4})?-[0-9]{4}$",
+          "description": "S-<run_id>-<nnnn>, dove run_id e' YYYYMMDD o YYYYMMDD-HHMM. Quattro cifre per la fonte: in DEEP girano oltre 120 istanze e 1000 slot non bastano. L'orchestratore assegna a OGNI ISTANZA un intervallo disgiunto preso da un cursore, non da una formula."
+        },
+        "url": {
+          "type": "string"
+        },
+        "publisher": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "published_date": {
+          "type": "string",
+          "description": "ISO 8601 YYYY, YYYY-MM o YYYY-MM-DD, oppure UNKNOWN. Il solo anno e' ammesso: ISTAT e molti annuari non pubblicano altro.",
+          "pattern": "^([0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?|UNKNOWN)$"
+        },
+        "accessed_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "tier": {
+          "enum": [
+            "T1",
+            "T2",
+            "T3",
+            "T4",
+            "T5"
+          ]
+        },
+        "access_status": {
+          "enum": [
+            "OK",
+            "PAYWALL",
+            "BLOCKED",
+            "NOT_FOUND",
+            "ROBOTS",
+            "PARTIAL",
+            "API_LIMIT",
+            "LOGIN_REQUIRED",
+            "NO_PUBLIC_DATA"
+          ],
+          "description": "I tre valori aggiunti in v2.14 (API_LIMIT, LOGIN_REQUIRED, NO_PUBLIC_DATA) esistevano gia' nell'enum 'why' di UnreachableSource. CLAUDE.md IC-4 impone di registrare nel ledger ogni fonte irraggiungibile 'con il proprio access_status', ma per tre motivi su sette quel valore non era scrivibile: l'obbligo era enunciato e non discharge-abile."
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "months_old": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "retrieved_by": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "data_year": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Anno a cui si riferisce il DATO, che puo' differire dall'anno di pubblicazione. La staleness si misura su questo, non su published_date: un annuario 2024 con dati 2022 e' vecchio di 4 anni ai fini di un dimensionamento."
+        },
+        "evidence_kind": {
+          "enum": [
+            "PUBBLICAZIONE",
+            "COMPORTAMENTO",
+            "ARTEFATTO"
+          ],
+          "description": "PUBBLICAZIONE: qualcuno ha scritto che accade. COMPORTAMENTO: qualcuno ha SPESO per farlo accadere (annuncio di lavoro, capitolato, listino di chi vende il rimedio, bando). ARTEFATTO: esiste un oggetto che presuppone il problema (modulo, template, portale, FAQ di ente). Asse indipendente dal tier: un annuncio di lavoro e' un T3 debole come pubblicazione e una prova forte come comportamento."
+        },
+        "snippet_lang": {
+          "type": "string",
+          "description": "Lingua dello snippet come e' stato REGISTRATO (it, en, ...). Se differisce dalla lingua della pagina, lo strumento ha tradotto."
+        },
+        "snippet_is_translation": {
+          "type": "boolean",
+          "description": "true se lo snippet non e' il testo originale della fonte. Nel run 20260802-1759 due shard ciechi fra loro hanno ricevuto snippet in inglese da pagine italiane. Conseguenza: IC-3 chiede una citazione 'verificabile carattere per carattere' e la difesa 4 dichiara che serve a rendere il verificatore cieco 'meccanico ed economico — confronto di stringa invece di giudizio'. Se lo strumento riscrive il testo, quel confronto non esiste piu' e il verificatore torna a essere un giudizio, senza che nessuno se ne accorga."
+        }
+      }
+    },
+    "UnreachableSource": {
+      "type": "object",
+      "required": [
+        "what",
+        "why",
+        "impact"
+      ],
+      "properties": {
+        "what": {
+          "type": "string",
+          "description": "Cosa si voleva verificare"
+        },
+        "url_or_target": {
+          "type": "string"
+        },
+        "why": {
+          "enum": [
+            "PAYWALL",
+            "BLOCKED",
+            "NOT_FOUND",
+            "ROBOTS",
+            "API_LIMIT",
+            "LOGIN_REQUIRED",
+            "NO_PUBLIC_DATA",
+            "BUDGET_EXHAUSTED",
+            "STOP_RULE"
+          ],
+          "description": "Due famiglie, e la differenza non e' cosmetica. I primi sette sono proprieta' della FONTE: qualcuno ha bussato e si e' visto chiudere la porta, quindi la fonte esiste, e' identificata e va nel ledger con il suo access_status (source_id obbligatorio). BUDGET_EXHAUSTED e STOP_RULE sono proprieta' del NOSTRO RUN: nessuno ha bussato. Non c'e' niente da registrare perche' non e' stato recuperato niente — e' una lacuna dichiarata, non una fonte. BUDGET_EXHAUSTED e STOP_RULE sono stati aggiunti dopo il collaudo 20260801: sei agenti su nove hanno dovuto dichiarare API_LIMIT sapendo che era falso, perche' l'omissione e' vietata da IC-4 e l'enum non aveva il valore giusto."
+        },
+        "impact": {
+          "type": "string",
+          "description": "Quale claim sarebbe stato rafforzato o smentito da questa fonte"
+        },
+        "source_id": {
+          "type": "string",
+          "description": "ID del record di ledger che descrive questa fonte. Obbligatorio quando la fonte e' stata TENTATA e ha rifiutato (paywall, blocco, 404, robots, limite API, login, dato non pubblico): in quel caso esiste un oggetto fonte, ha un URL e un access_status, e va nel ledger come tutti gli altri. Senza questo campo IC-4 chiedeva di dichiarare una fonte che IC-1 non poteva risolvere, e il run risultava DEGRADATO per aver fatto la cosa giusta."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "why": {
+                "enum": [
+                  "PAYWALL",
+                  "BLOCKED",
+                  "NOT_FOUND",
+                  "ROBOTS",
+                  "API_LIMIT",
+                  "LOGIN_REQUIRED",
+                  "NO_PUBLIC_DATA"
+                ]
+              }
+            },
+            "required": [
+              "why"
+            ]
+          },
+          "then": {
+            "required": [
+              "source_id"
+            ],
+            "description": "fonte tentata e rifiutata: esiste, quindi si identifica"
+          },
+          "else": {
+            "not": {
+              "required": [
+                "source_id"
+              ]
+            },
+            "description": "mai tentata: non c'e' nessun oggetto fonte da citare"
+          }
+        }
+      ]
+    },
+    "Query": {
+      "type": "object",
+      "required": [
+        "raw_query",
+        "normalized_query",
+        "angle",
+        "n_results",
+        "source_ids"
+      ],
+      "properties": {
+        "raw_query": {
+          "type": "string"
+        },
+        "normalized_query": {
+          "type": "string"
+        },
+        "angle": {
+          "enum": [
+            "normativa",
+            "statistica_ufficiale",
+            "competitor",
+            "pricing",
+            "community",
+            "trend_adozione",
+            "fallimenti_storici",
+            "job_posting",
+            "bilanci",
+            "recensioni",
+            "wayback",
+            "integrazioni",
+            "falsificazione",
+            "stagionalita",
+            "capitolati_e_bandi",
+            "mietitura_annunci",
+            "mietitura_marketplace_integrazioni",
+            "mietitura_forum_assistenza",
+            "mietitura_capitolati",
+            "mietitura_circolari_categoria"
+          ],
+          "description": "Angolo di ricerca. Il vincolo 'minimo 5 ricerche distinte' si misura su angoli DIVERSI, non su riformulazioni."
+        },
+        "n_results": {
+          "type": "integer"
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "yield": {
+          "enum": [
+            "USEFUL",
+            "PARTIAL",
+            "EMPTY"
+          ]
+        },
+        "harvest": {
+          "type": "boolean",
+          "description": "true se e' una mietitura su corpus strutturato invece di una query semantica. Consuma il budget harvests, non searches."
+        }
+      }
+    },
+    "Claim": {
+      "type": "object",
+      "required": [
+        "id",
+        "statement",
+        "state",
+        "source_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^C-[A-Za-z0-9]{2,20}-[0-9]{3}$",
+          "description": "Namespaced per istanza: C-<istanza>-<nnn>, con <istanza> assegnato dall'orchestratore. Senza namespace i cinque evidence pack numerano tutti da C-001 e i riferimenti a valle non sono risolvibili."
+        },
+        "statement": {
+          "type": "object",
+          "required": [
+            "subject",
+            "observed"
+          ],
+          "description": "Decomposto in slot invece che testo libero: e' la separazione retrieval/judgment resa strutturale invece che lessicale. Non esiste un campo dove scrivere 'significativo'.",
+          "properties": {
+            "subject": {
+              "type": "string",
+              "description": "Chi o cosa. Popolazione o soggetto osservato, senza qualificatori."
+            },
+            "observed": {
+              "type": "string",
+              "description": "Cosa e' osservato. Verbo e complemento, nessun aggettivo di valore."
+            },
+            "quantity": {
+              "$ref": "#/$defs/Numeric"
+            },
+            "period": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "geo": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "state": {
+          "enum": [
+            "VERIFIED",
+            "ESTIMATED",
+            "HYPOTHESIS",
+            "UNKNOWN"
+          ]
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "promotion_rule_met": {
+          "type": "string",
+          "description": "Quale regola di fact_promotion e' stata soddisfatta, es. '1xT1' o '2xT3-indipendenti'. Obbligatorio se state=VERIFIED."
+        },
+        "estimation_formula": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stale_warning": {
+          "type": "boolean"
+        },
+        "contradicted_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "source_ids che contraddicono il claim. Non nasconderli: una contraddizione dichiarata vale piu' di un consenso costruito ignorando i dati contrari."
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 0,
+          "description": "Una voce per coppia (claim, fonte). Lo snippet appartiene alla COPPIA, non alla fonte: nel collaudo 20260801 tre coppie su dieci avevano uno snippet corretto ma non pertinente al claim, perche' riusato fra claim diversi che poggiavano sulla stessa fonte.",
+          "items": {
+            "type": "object",
+            "required": [
+              "source_id",
+              "snippet",
+              "snippet_source"
+            ],
+            "properties": {
+              "source_id": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string",
+                "maxLength": 300,
+                "description": "Il passaggio che sostiene QUESTO claim, copiato alla lettera."
+              },
+              "snippet_source": {
+                "enum": [
+                  "SERP",
+                  "FETCHED"
+                ],
+                "description": "SERP = estratto dai risultati di ricerca senza aprire la pagina. E' ammesso e non e' una colpa: costa zero fetch. Il source-verifier da' priorita' proprio a questi, che sono quelli a rischio."
+              },
+              "verbatim_quote": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Unico campo di testo libero superstite, e per definizione copiato: verificabile carattere per carattere."
+              }
+            }
+          }
+        },
+        "evidence_kind": {
+          "enum": [
+            "PUBBLICAZIONE",
+            "COMPORTAMENTO",
+            "ARTEFATTO"
+          ]
+        }
+      }
+    },
+    "Numeric": {
+      "type": "object",
+      "required": [
+        "label",
+        "value",
+        "unit",
+        "state"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Valore puntuale. Per gli intervalli usare value_min e value_max lasciando value a null."
+        },
+        "unit": {
+          "type": "string"
+        },
+        "currency": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "year": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "geo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "VERIFIED",
+            "ESTIMATED",
+            "UNKNOWN"
+          ],
+          "description": "Tre stati e non quattro, ed e' l'unica restrizione dichiarata di questo enum: un NUMERO non puo' essere un'ipotesi. CLAUDE.md §7 ammette VERIFIED o ESTIMATED e prescrive UNKNOWN quando il dato manca; una quantita' 'plausibile ma non sostenuta' e' esattamente cio' che quel paragrafo vieta di scrivere. Registrata in config.verifica_specifica.enum_condivisi."
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "formula": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Obbligatorio se state=ESTIMATED. Deve essere ricalcolabile a mano."
+        },
+        "input_source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "is_assumption": {
+          "type": "boolean",
+          "description": "true quando il numero e' una scelta progettuale dichiarata e non una misura (tipicamente i prezzi e il CAC prodotti dal venture-architect). Un'assunzione dichiarata e' legittima anche per un agente judgment-only; un'assunzione travestita da misura no. Se true, state DEVE essere ESTIMATED e display_string deve iniziare con 'Assunzione di progetto:' — che ha precedenza sul prefisso 'Stima non verificata:' quando entrambe le regole si applicherebbero."
+        },
+        "display_string": {
+          "type": "string",
+          "description": "Come il numero va scritto nel report. Se ESTIMATED deve iniziare con 'Stima non verificata:'."
+        },
+        "value_min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "value_max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "description": "Sanzioni di legge e listini a fascia sono intervalli: senza questi campi finivano tutti a value:null, perdendo il dato."
+        }
+      }
+    },
+    "AntiHallucinationAnswer": {
+      "type": "object",
+      "required": [
+        "question_id",
+        "answer",
+        "grounded",
+        "source_ids"
+      ],
+      "properties": {
+        "question_id": {
+          "enum": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4",
+            "Q5"
+          ]
+        },
+        "answer": {
+          "type": "string"
+        },
+        "grounded": {
+          "type": "boolean",
+          "description": "true solo se esiste almeno un source_id risolvibile che sostiene direttamente la risposta."
+        },
+        "source_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "answered_by": {
+          "type": "string"
+        }
+      }
+    },
+    "Verdict": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "reasons"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "PASS",
+            "KILL",
+            "FAIL",
+            "PARK"
+          ],
+          "description": "FAIL e' il verdetto del bootstrap-filter, che i suoi prompt usano da sempre e che l'enum non ammetteva: ogni FAIL falliva la validazione, veniva rilanciato e finiva in PARK. Il gate 6 non ha mai potuto uccidere. L'orchestratore mappa FAIL su KILL nel funnel."
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "code",
+              "text"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Codice del criterio applicato, es. K5, G6, W3."
+              },
+              "text": {
+                "type": "string"
+              },
+              "claim_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "severity": {
+                "enum": [
+                  "HARD",
+                  "SOFT"
+                ]
+              }
+            }
+          }
+        },
+        "missing_to_decide": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Obbligatorio se verdict=PARK: elenco puntuale delle verifiche che sbloccherebbero la decisione nel run successivo."
+        }
+      }
+    }
+  }
+}

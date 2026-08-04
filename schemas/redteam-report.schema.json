@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "redteam-report.schema.json",
+  "title": "Output di red-team",
+  "description": "Tre istanze girano in parallelo con lenti diverse. Il mandato e' esclusivamente distruttivo: trovare motivi per scartare, mai per migliorare.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "lens",
+        "findings",
+        "kill_vote",
+        "q5_answer"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "lens": {
+          "enum": [
+            "competitor_nascosti",
+            "fallimenti_storici",
+            "economics_e_distribuzione"
+          ],
+          "description": "competitor_nascosti: chi risolve gia' il problema fuori dal radar (moduli di ERP, servizi dei commercialisti, consorzi, fogli condivisi, il gestionale verticale locale). fallimenti_storici: startup simili morte e perche'. economics_e_distribuzione: CAC, ciclo di vendita, churn, dipendenze da API, concentrazione del canale."
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "title",
+              "argument",
+              "severity",
+              "state",
+              "source_ids",
+              "would_kill_if_true"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "argument": {
+                "type": "string",
+                "description": "Perche' l'idea fallisce. Concreto e falsificabile."
+              },
+              "severity": {
+                "enum": [
+                  "FATALE",
+                  "GRAVE",
+                  "MODERATO"
+                ]
+              },
+              "state": {
+                "enum": [
+                  "VERIFIED",
+                  "ESTIMATED",
+                  "HYPOTHESIS",
+                  "UNKNOWN"
+                ]
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "would_kill_if_true": {
+                "type": "boolean"
+              },
+              "how_to_falsify_this_finding": {
+                "type": "string",
+                "description": "Come si potrebbe dimostrare che questa obiezione e' sbagliata. Serve a impedire al red team di produrre obiezioni non verificabili."
+              }
+            }
+          }
+        },
+        "hidden_competitors": {
+          "type": "array",
+          "description": "Solo per lens=competitor_nascosti. Soluzioni non-software incluse.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "who": {
+                "type": "string"
+              },
+              "form": {
+                "enum": [
+                  "modulo_di_erp",
+                  "servizio_professionale",
+                  "consorzio_o_associazione",
+                  "excel_condiviso",
+                  "gestionale_verticale_locale",
+                  "processo_interno",
+                  "software_estero_non_localizzato"
+                ]
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "dead_startups": {
+          "type": "array",
+          "description": "Solo per lens=fallimenti_storici.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "what_they_did": {
+                "type": "string"
+              },
+              "years_active": {
+                "type": "string"
+              },
+              "cause_of_death": {
+                "type": "string"
+              },
+              "applies_to_this_idea_because": {
+                "type": "string"
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "kill_vote": {
+          "type": "object",
+          "required": [
+            "vote",
+            "rationale"
+          ],
+          "properties": {
+            "vote": {
+              "enum": [
+                "KILL",
+                "SURVIVE",
+                "ABSTAIN"
+              ]
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "abstain_reason": {
+              "type": "string",
+              "description": "ABSTAIN e' ammesso solo per mancanza di dati, mai per indecisione."
+            }
+          }
+        },
+        "q5_answer": {
+          "$ref": "core.schema.json#/$defs/AntiHallucinationAnswer"
+        }
+      }
+    }
+  }
+}

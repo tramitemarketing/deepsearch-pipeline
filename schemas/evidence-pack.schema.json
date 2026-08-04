@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "evidence-pack.schema.json",
+  "title": "Output di evidence-researcher",
+  "description": "Contiene SOLO fatti. Nessuna conclusione, nessuna raccomandazione, nessun aggettivo valutativo.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "channel",
+        "claims",
+        "q4_answer",
+        "coverage"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "normativa",
+            "statistica_ufficiale",
+            "community",
+            "pricing_mercato",
+            "trend_adozione"
+          ],
+          "description": "Canale assegnato a questa istanza dell'agente. Cinque istanze girano in parallelo, una per canale, senza vedersi."
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim",
+            "properties": {
+              "promoted_by": {
+                "enum": [
+                  "FP0",
+                  "FP1",
+                  "FP2",
+                  "FP3",
+                  "FP4",
+                  "FP5"
+                ],
+                "description": "Il codice della regola di fact_promotion che ha promosso questo claim, oppure FP0 se nessuna. FP0 e' un esito CORRETTO e frequente, non un fallimento: uno statement non promosso resta ESTIMATED, HYPOTHESIS o UNKNOWN. Prima della v2.13 le regole non avevano codice e non esisteva il ramo negativo, quindi gli agenti coniavano etichette proprie ('1xT3') e nove pack su dieci fallivano la validazione."
+              }
+            },
+            "required": [
+              "promoted_by"
+            ]
+          }
+        },
+        "spend_evidence": {
+          "type": "array",
+          "description": "Sottoinsieme dei claim che dimostrano una spesa gia' in corso sul problema. Se vuoto per tutti i canali, scatta il kill criterion G1.",
+          "items": {
+            "type": "object",
+            "required": [
+              "claim_id",
+              "spend_form"
+            ],
+            "properties": {
+              "claim_id": {
+                "type": "string"
+              },
+              "spend_form": {
+                "enum": [
+                  "software",
+                  "personale_interno",
+                  "consulenza_esterna",
+                  "penali_o_sanzioni",
+                  "perdite_operative"
+                ]
+              },
+              "amount": {
+                "$ref": "core.schema.json#/$defs/Numeric"
+              }
+            }
+          }
+        },
+        "language_of_the_problem": {
+          "type": "array",
+          "description": "Come il target chiama il problema con parole sue. Serve a testare il kill criterion G3 (educazione del mercato): se il target non ha un nome per il problema, va educato, e in bootstrap non si puo'.",
+          "items": {
+            "type": "object",
+            "required": [
+              "phrase",
+              "source_id"
+            ],
+            "properties": {
+              "phrase": {
+                "type": "string"
+              },
+              "context": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "contradictory_evidence": {
+          "type": "array",
+          "description": "Evidenze che indeboliscono l'ipotesi che il problema esista o sia costoso. OBBLIGATORIO cercarle attivamente, non solo registrarle se capitano.",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim"
+          }
+        },
+        "q4_answer": {
+          "allOf": [
+            {
+              "$ref": "core.schema.json#/$defs/AntiHallucinationAnswer"
+            }
+          ],
+          "description": "Risposta a Q4 limitata al proprio canale. Ogni istanza la compila sempre. L'orchestratore consolida le 5 risposte: grounded = OR delle istanze, e si conserva la risposta con piu' source_ids risolvibili. Le istanze girano cieche fra loro e non possono sapere quale evidenza sia la piu' forte."
+        },
+        "coverage": {
+          "type": "object",
+          "required": [
+            "angles_covered",
+            "gaps"
+          ],
+          "properties": {
+            "angles_covered": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "gaps": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Cosa non e' stato possibile coprire e perche'."
+            }
+          }
+        }
+      }
+    }
+  }
+}

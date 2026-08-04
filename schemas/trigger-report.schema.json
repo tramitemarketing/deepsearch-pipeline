@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trigger-report.schema.json",
+  "title": "Output di trigger-finder",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "triggers",
+        "verdict",
+        "q1_answer"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "description",
+              "date_or_window",
+              "who_is_affected",
+              "forcing_function",
+              "source_ids",
+              "state"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "normativa_nuova",
+                  "scadenza_adempimento",
+                  "audit_o_ispezione",
+                  "certificazione_o_rinnovo",
+                  "gdpr_nis2_iso",
+                  "rinnovo_contratto_software",
+                  "fine_supporto_prodotto",
+                  "aumento_costi_input",
+                  "nuove_assunzioni",
+                  "bando_o_incentivo",
+                  "cambio_fornitore",
+                  "sanzione_recente_nel_settore",
+                  "obbligo_di_filiera",
+                  "altro"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "date_or_window": {
+                "type": "string",
+                "description": "Data certa o finestra temporale. Se il trigger e' una scadenza normativa deve avere la data esatta e il riferimento dell'atto."
+              },
+              "legal_reference": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Es. 'Reg. (UE) 2022/2555 art. 21' o 'D.Lgs. 138/2024'."
+              },
+              "who_is_affected": {
+                "type": "string",
+                "description": "Perimetro esatto dei soggetti obbligati/colpiti. Un trigger che vale per 'tutte le aziende' non e' un trigger, e' rumore."
+              },
+              "forcing_function": {
+                "type": "string",
+                "description": "Cosa succede a chi non agisce: sanzione, esclusione da gara, blocco fatturazione, perdita certificazione. Senza conseguenza non c'e' urgenza."
+              },
+              "penalty": {
+                "$ref": "core.schema.json#/$defs/Numeric"
+              },
+              "days_to_deadline": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "buy_within_30_days": {
+                "type": "boolean",
+                "description": "true solo se la conseguenza matura entro un orizzonte che rende razionale comprare entro 30 giorni."
+              },
+              "state": {
+                "enum": [
+                  "VERIFIED",
+                  "ESTIMATED",
+                  "HYPOTHESIS",
+                  "UNKNOWN"
+                ]
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              }
+            }
+          }
+        },
+        "counter_evidence": {
+          "type": "array",
+          "description": "Proroghe, rinvii, moratorie, interpretazioni che disinnescano il trigger. Va cercato attivamente: il rinvio di una scadenza e' la causa piu' frequente di trigger fantasma.",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim"
+          }
+        },
+        "seasonality": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "peak_months": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "source_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "verdict": {
+          "$ref": "core.schema.json#/$defs/Verdict"
+        },
+        "q1_answer": {
+          "$ref": "core.schema.json#/$defs/AntiHallucinationAnswer"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pain.schema.json",
+  "title": "Output di pain-finder",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "shard",
+        "pains"
+      ],
+      "properties": {
+        "shard": {
+          "type": "object",
+          "required": [
+            "sector",
+            "geo",
+            "angle"
+          ],
+          "properties": {
+            "sector": {
+              "type": "string"
+            },
+            "geo": {
+              "type": "string"
+            },
+            "angle": {
+              "type": "string",
+              "description": "Angolo assegnato a questo shard, es. 'adempimenti normativi ricorrenti' o 'riconciliazioni manuali fra sistemi'."
+            }
+          }
+        },
+        "pains": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "statement",
+              "icp",
+              "recurrence",
+              "economic_loss",
+              "current_workaround",
+              "already_spending",
+              "behaviour_traces",
+              "evidence_seeds",
+              "dedup_key"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^P-[0-9]{3}$"
+              },
+              "statement": {
+                "type": "string",
+                "maxLength": 320,
+                "description": "Il problema economico, descritto come processo che brucia denaro. NON una soluzione, NON un prodotto, NON una categoria software."
+              },
+              "job_to_be_done": {
+                "type": "string"
+              },
+              "icp": {
+                "type": "object",
+                "required": [
+                  "sector",
+                  "company_size",
+                  "geo",
+                  "buyer_role"
+                ],
+                "properties": {
+                  "sector": {
+                    "type": "string"
+                  },
+                  "company_size": {
+                    "type": "string",
+                    "description": "Fascia dipendenti e/o fatturato"
+                  },
+                  "geo": {
+                    "type": "string"
+                  },
+                  "buyer_role": {
+                    "type": "string",
+                    "description": "Chi firma. Ruolo, non nome."
+                  },
+                  "user_role": {
+                    "type": "string",
+                    "description": "Chi subisce il problema ogni giorno."
+                  }
+                }
+              },
+              "recurrence": {
+                "type": "object",
+                "required": [
+                  "frequency",
+                  "state"
+                ],
+                "properties": {
+                  "frequency": {
+                    "enum": [
+                      "giornaliera",
+                      "settimanale",
+                      "mensile",
+                      "trimestrale",
+                      "annuale",
+                      "occasionale",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "VERIFIED",
+                      "ESTIMATED",
+                      "HYPOTHESIS",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "economic_loss": {
+                "$ref": "core.schema.json#/$defs/Numeric"
+              },
+              "loss_mechanism": {
+                "type": "string",
+                "description": "COME si perdono i soldi: ore uomo, penali, scarti, ritardi di incasso, rilavorazioni, sanzioni, sovra-acquisto. Deve essere un meccanismo, non un'etichetta."
+              },
+              "current_workaround": {
+                "type": "object",
+                "required": [
+                  "description",
+                  "state"
+                ],
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "description": "Excel, uno stagista, un consulente esterno, un gestionale anni '90, il telefono."
+                  },
+                  "state": {
+                    "enum": [
+                      "VERIFIED",
+                      "ESTIMATED",
+                      "HYPOTHESIS",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "already_spending": {
+                "type": "object",
+                "required": [
+                  "is_spending",
+                  "state"
+                ],
+                "description": "FOLLOW THE MONEY. Il cliente sta gia' spendendo su questo problema?",
+                "properties": {
+                  "is_spending": {
+                    "enum": [
+                      true,
+                      false,
+                      "UNKNOWN"
+                    ]
+                  },
+                  "spend_form": {
+                    "enum": [
+                      "software",
+                      "personale_interno",
+                      "consulenza_esterna",
+                      "penali_o_sanzioni",
+                      "perdite_operative",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "amount": {
+                    "$ref": "core.schema.json#/$defs/Numeric"
+                  },
+                  "state": {
+                    "enum": [
+                      "VERIFIED",
+                      "ESTIMATED",
+                      "HYPOTHESIS",
+                      "UNKNOWN"
+                    ]
+                  },
+                  "source_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "behaviour_traces": {
+                "type": "array",
+                "description": "Tracce di COMPORTAMENTO gia' viste in fase di screening: attori DISTINTI che hanno speso perche' quel compito venga fatto. Non e' una prova completa — la wave 2 le verifica — ma e' il termine che pesa 0.30 nell'ordinamento del taglio wave1->2, cioe' nel filtro piu' letale della pipeline. LO SLOT MANCAVA: la v2.15 ha aggiunto il termine all'ordinamento leggendo un dato che nessuno schema permetteva di scrivere, ed e' la stessa classe di difetto che questo repo ha gia' trovato cinque volte. Trovato eseguendo il controllo positivo CP-001, prima di qualunque run. OBBLIGATORIO ANCHE VUOTO, e non e' burocrazia: rieseguendo l'ordinamento sui 14 pain del run 20260803 il termine vale zero per tutti — il campo non esisteva — e la correzione risulta INERTE, zero pain entrano e zero escono dal taglio. Un array vuoto dichiara 'ho guardato e non ho trovato tracce di spesa'; un campo assente non dichiara niente, e la differenza fra le due e' l'intera correzione.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "actor",
+                    "kind",
+                    "actor_class",
+                    "source_ids"
+                  ],
+                  "properties": {
+                    "actor": {
+                      "type": "string",
+                      "description": "Ragione sociale o ente, verificabile per nome. Mai un profilo anonimo: config.sources.fact_promotion_rules.indipendenza_per_asse pretende entita' giuridiche distinte, e l'asse di indipendenza qui e' L'ATTORE CHE HA SPESO, non il publisher."
+                    },
+                    "kind": {
+                      "enum": [
+                        "annuncio_lavoro",
+                        "capitolato",
+                        "listino_rimedio",
+                        "bando",
+                        "offerta_outsourcing"
+                      ]
+                    },
+                    "actor_class": {
+                      "enum": [
+                        "domanda",
+                        "offerta",
+                        "istituzione"
+                      ],
+                      "description": "Tre annunci di lavoro di tre aziende sono tre osservazioni dello stesso lato del mercato; un annuncio piu' il listino di chi vende il rimedio sono due lati che si confermano. La diversita' di classe e' cio' che il gate 2 ramo 4 pesa davvero, non il conteggio."
+                    },
+                    "source_ids": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "_limite_ICP": {
+                      "type": "string",
+                      "description": "Promemoria, non un obbligo: una traccia di COMPORTAMENTO documenta il COMPITO, mai la TAGLIA di chi lo paga. L'appartenenza alla fascia 5-249 resta UNKNOWN."
+                    }
+                  }
+                }
+              },
+              "evidence_seeds": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Piste concrete che l'evidence-researcher dovra' battere. Non sono prove: sono indirizzi di ricerca.",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "angle",
+                    "what_to_look_for"
+                  ],
+                  "properties": {
+                    "angle": {
+                      "type": "string"
+                    },
+                    "what_to_look_for": {
+                      "type": "string"
+                    },
+                    "candidate_source": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "preliminary_sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "dedup_key": {
+                "type": "string",
+                "description": "Chiave normalizzata sector|company_size|job_to_be_done in minuscolo senza articoli. Usata contro state/seen-pains.jsonl per non riproporre pain gia' esaminati nei run precedenti."
+              },
+              "self_kill_flags": {
+                "type": "array",
+                "description": "Kill criteria globali che l'agente stesso riconosce gia' soddisfatti. Dichiararli qui e' un merito, non un demerito.",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "rejected_during_screening": {
+          "type": "array",
+          "description": "Problemi considerati e scartati dallo shard prima di produrre l'output, con motivo. Alimenta la sintesi degli scarti del report finale.",
+          "items": {
+            "type": "object",
+            "required": [
+              "statement",
+              "reason_code"
+            ],
+            "properties": {
+              "statement": {
+                "type": "string"
+              },
+              "reason_code": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "$ref": "core.schema.json#/$defs/Claim"
+          },
+          "description": "Contenitore dei Claim del pain-finder. NON esisteva: l'orchestratore assegnava un claim_namespace a ogni istanza e lo schema non aveva un array di Claim dove metterli, quindi IC-3 (snippet per coppia claim-fonte) era ineseguibile per questo agente. Nel run 20260802-1759 quattro shard ciechi fra loro hanno inventato quattro convenzioni private per aggirarlo, sfruttando l'assenza di additionalProperties. Trovato eseguendo, non rileggendo."
+        }
+      },
+      "additionalProperties": false,
+      "_additionalProperties_nota": "false e' deliberato: senza, un agente che non trova il campo giusto ne inventa uno e l'output valida lo stesso. E' successo davvero."
+    }
+  }
+}

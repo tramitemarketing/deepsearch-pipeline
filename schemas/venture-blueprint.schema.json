@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "venture-blueprint.schema.json",
+  "title": "Output di venture-architect",
+  "description": "Agente JUDGMENT-ONLY: nessuna ricerca. Progetta solo su claim gia' verificati. Ogni scelta di prodotto o prezzo deve puntare al claim che la giustifica.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "pain_id",
+        "concept_name",
+        "one_liner",
+        "mvp",
+        "pricing",
+        "gtm",
+        "roadmap",
+        "moat"
+      ],
+      "properties": {
+        "pain_id": {
+          "type": "string"
+        },
+        "concept_name": {
+          "type": "string"
+        },
+        "one_liner": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "problem_restated": {
+          "type": "string",
+          "description": "Il problema con le parole del target, prese da language_of_the_problem dell'evidence pack."
+        },
+        "mvp": {
+          "type": "object",
+          "required": [
+            "scope_30_days",
+            "explicitly_out_of_scope",
+            "first_value_moment"
+          ],
+          "properties": {
+            "scope_30_days": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "capability",
+                  "justifying_claim_ids"
+                ],
+                "properties": {
+                  "capability": {
+                    "type": "string"
+                  },
+                  "justifying_claim_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Perche' questa funzione e' nell'MVP: quale evidenza la richiede. Una funzione senza claim che la giustifichi va tolta."
+                  },
+                  "build_days": {
+                    "type": "integer"
+                  }
+                }
+              }
+            },
+            "explicitly_out_of_scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Cosa NON si costruisce. Piu' importante di cosa si costruisce."
+            },
+            "first_value_moment": {
+              "type": "string",
+              "description": "Il momento esatto in cui il cliente vede il valore. Deve arrivare entro la prima sessione d'uso."
+            },
+            "manual_before_automated": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Cosa si eroga a mano nei primi 90 giorni per non costruire software prima di aver venduto."
+            }
+          }
+        },
+        "pricing": {
+          "type": "object",
+          "required": [
+            "tiers",
+            "anchor"
+          ],
+          "properties": {
+            "tiers": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "price",
+                  "included",
+                  "target_segment"
+                ],
+                "properties": {
+                  "name": {
+                    "enum": [
+                      "Starter",
+                      "Pro",
+                      "Business"
+                    ]
+                  },
+                  "price": {
+                    "$ref": "core.schema.json#/$defs/Numeric"
+                  },
+                  "included": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "target_segment": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "anchor": {
+              "type": "string",
+              "description": "A cosa e' ancorato il prezzo: la spesa attuale documentata del cliente o il listino dei competitor. Deve citare claim_ids."
+            },
+            "anchor_claim_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "path_to_target_mrr": {
+              "type": "object",
+              "properties": {
+                "clients_needed": {
+                  "$ref": "core.schema.json#/$defs/Numeric"
+                },
+                "mix_assumption": {
+                  "type": "string"
+                },
+                "months": {
+                  "type": "integer"
+                },
+                "monthly_new_clients_required": {
+                  "$ref": "core.schema.json#/$defs/Numeric"
+                }
+              }
+            }
+          }
+        },
+        "gtm": {
+          "type": "object",
+          "required": [
+            "beachhead",
+            "channels",
+            "first_10_customers_plan"
+          ],
+          "properties": {
+            "beachhead": {
+              "type": "string",
+              "description": "Profilo, non nomi di aziende inventati."
+            },
+            "channels": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "channel",
+                  "why_it_reaches_this_icp",
+                  "cost_model"
+                ],
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "why_it_reaches_this_icp": {
+                    "type": "string"
+                  },
+                  "supporting_claim_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "cost_model": {
+                    "type": "string"
+                  },
+                  "estimated_cac": {
+                    "$ref": "core.schema.json#/$defs/Numeric"
+                  }
+                }
+              }
+            },
+            "trigger_hook": {
+              "type": "string",
+              "description": "Come il messaggio commerciale aggancia il trigger trovato dal trigger-finder."
+            },
+            "first_10_customers_plan": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Azioni concrete e non scalabili per i primi 10 clienti."
+            },
+            "aggregators": {
+              "type": "array",
+              "description": "Dove il target e' gia' aggregato: associazioni di categoria, consorzi, commercialisti, fornitori di gestionali, fiere. Un aggregatore senza supporting_claim_ids non conta nel punteggio di distribuzione del ranking.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "supporting_claim_ids"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "reach_description": {
+                    "type": "string",
+                    "description": "Quanta parte del target raggiunge, per quanto documentabile. UNKNOWN e' un valore accettabile."
+                  },
+                  "supporting_claim_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "ai_usage": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "where",
+              "why_ai_and_not_rules",
+              "failure_mode"
+            ],
+            "properties": {
+              "where": {
+                "type": "string"
+              },
+              "why_ai_and_not_rules": {
+                "type": "string",
+                "description": "Se un if/else basta, l'AI non serve. Rispondere onestamente."
+              },
+              "failure_mode": {
+                "type": "string",
+                "description": "Cosa succede quando il modello sbaglia e chi paga l'errore."
+              },
+              "human_in_the_loop": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "integrations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "system",
+              "necessity",
+              "feasibility"
+            ],
+            "properties": {
+              "system": {
+                "type": "string"
+              },
+              "necessity": {
+                "enum": [
+                  "BLOCCANTE",
+                  "IMPORTANTE",
+                  "NICE_TO_HAVE"
+                ]
+              },
+              "feasibility": {
+                "enum": [
+                  "API_PUBBLICA",
+                  "FILE_EXPORT",
+                  "SCRAPING",
+                  "ACCORDO_COMMERCIALE",
+                  "UNKNOWN"
+                ]
+              },
+              "risk_note": {
+                "type": "string"
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "roadmap": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "horizon": {
+                "enum": [
+                  "0-30gg",
+                  "30-90gg",
+                  "90-180gg",
+                  "180-360gg"
+                ]
+              },
+              "objective": {
+                "type": "string"
+              },
+              "success_metric": {
+                "type": "string"
+              },
+              "kill_metric": {
+                "type": "string",
+                "description": "La soglia sotto la quale si smette. Ogni orizzonte deve averne una."
+              }
+            }
+          }
+        },
+        "moat": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "description",
+              "time_to_build"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "dati_proprietari_accumulati",
+                  "workflow_lock_in",
+                  "integrazione_profonda",
+                  "compliance_e_certificazioni",
+                  "brand_di_nicchia",
+                  "canale_esclusivo",
+                  "switching_cost_operativo"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "time_to_build": {
+                "type": "string"
+              },
+              "defensibility_honest_assessment": {
+                "type": "string",
+                "description": "Quanto regge davvero contro un incumbent che decidesse di copiarlo. Rispondere senza autoindulgenza."
+              }
+            }
+          }
+        },
+        "design_constraints_respected": {
+          "type": "array",
+          "description": "Come il progetto rispetta i vincoli PASS del bootstrap-filter. Se un elemento del blueprint viola un vincolo gia' approvato, il blueprint e' invalido.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unit_economics_assumptions": {
+          "type": "object",
+          "description": "Assunzioni economiche dichiarate. Il churn non esisteva in nessuno schema della pipeline, benche' il red team avesse mandato di attaccarlo.",
+          "properties": {
+            "churn_annuo_pct": {
+              "$ref": "core.schema.json#/$defs/Numeric"
+            },
+            "churn_rationale": {
+              "type": "string",
+              "description": "Perche' il cliente rinnova. Se il problema si risolve una volta sola, il churn e' il rischio principale e va detto."
+            },
+            "stagionalita": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cac_per_canale": {
+              "type": "array",
+              "items": {
+                "$ref": "core.schema.json#/$defs/Numeric"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scorecard.schema.json",
+  "title": "Output di ranking-agent",
+  "description": "Agente JUDGMENT-ONLY e deterministico. Non cerca, non riscrive, non riclassifica le risposte alle 5 domande: le conta.",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "core.schema.json#/$defs/Envelope"
+    }
+  ],
+  "properties": {
+    "payload": {
+      "type": "object",
+      "required": [
+        "ranking",
+        "excluded"
+      ],
+      "properties": {
+        "ranking": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rank",
+              "pain_id",
+              "concept_name",
+              "dimensions",
+              "weighted_sum",
+              "confidence_multiplier",
+              "final_score",
+              "grounded_questions",
+              "publishable"
+            ],
+            "properties": {
+              "rank": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "pain_id": {
+                "type": "string"
+              },
+              "concept_name": {
+                "type": "string"
+              },
+              "dimensions": {
+                "type": "array",
+                "minItems": 7,
+                "maxItems": 7,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "score",
+                    "weight",
+                    "justification",
+                    "evidence_ids"
+                  ],
+                  "properties": {
+                    "id": {
+                      "enum": [
+                        "economic_pain",
+                        "urgency",
+                        "bootstrap_fit",
+                        "distribution",
+                        "competition_gap",
+                        "mvp_speed",
+                        "evidence_strength"
+                      ]
+                    },
+                    "score": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 10
+                    },
+                    "weight": {
+                      "type": "number"
+                    },
+                    "justification": {
+                      "type": "string",
+                      "maxLength": 300
+                    },
+                    "evidence_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "claim_ids o source_ids che giustificano il punteggio. Un punteggio senza evidenze e' plafonato a 5."
+                    }
+                  }
+                }
+              },
+              "weighted_sum": {
+                "type": "number"
+              },
+              "confidence_multiplier": {
+                "type": "number",
+                "minimum": 0.55,
+                "maximum": 1.0
+              },
+              "confidence_inputs": {
+                "type": "object",
+                "required": [
+                  "grounded_questions_ratio",
+                  "verified_claims_ratio",
+                  "spot_check_pass_rate"
+                ],
+                "properties": {
+                  "grounded_questions_ratio": {
+                    "type": "number"
+                  },
+                  "verified_claims_ratio": {
+                    "type": "number"
+                  },
+                  "spot_check_pass_rate": {
+                    "type": "number"
+                  }
+                }
+              },
+              "final_score": {
+                "type": "number"
+              },
+              "grounded_questions": {
+                "type": "object",
+                "required": [
+                  "count",
+                  "detail"
+                ],
+                "properties": {
+                  "count": {
+                    "type": "string",
+                    "pattern": "^[0-5]/5$"
+                  },
+                  "detail": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "question_id": {
+                          "enum": [
+                            "Q1",
+                            "Q2",
+                            "Q3",
+                            "Q4",
+                            "Q5"
+                          ]
+                        },
+                        "grounded": {
+                          "type": "boolean"
+                        },
+                        "answered_by": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "confidence_label": {
+                "enum": [
+                  "Alto",
+                  "Medio",
+                  "Basso"
+                ]
+              },
+              "confidence_label_rationale": {
+                "type": "string"
+              },
+              "publishable": {
+                "type": "boolean",
+                "description": "weighted_sum >= config.scoring.soglia_pubblicazione AND confidence_multiplier >= config.scoring.min_confidence_to_publish AND grounded >= 4/5 AND nessun KILL del red team. La soglia si applica alla SOMMA PESATA: applicarla al final_score (che e' il prodotto somma x confidenza) reintroduce lo sbarramento moltiplicativo corretto in v2.4."
+              },
+              "tiebreakers_applied": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "budget_normalization": {
+                "type": "object",
+                "description": "evidence_strength va normalizzata sul budget effettivamente speso sull'idea. Senza, il ranking punisce l'idea per un fallimento della pipeline: chi ha esaurito il budget presto sembra meno documentato.",
+                "properties": {
+                  "searches_spent": {
+                    "type": "integer"
+                  },
+                  "searches_expected": {
+                    "type": "integer"
+                  },
+                  "raw_evidence_strength": {
+                    "type": "number"
+                  },
+                  "normalized": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "excluded": {
+          "type": "array",
+          "description": "Idee arrivate al ranking ma non pubblicabili, con il motivo e l'esito. Nessuna idea puo' uscire dal ranking senza comparire qui o in ranking: un'idea che sparisce senza traccia e' un difetto del gate.",
+          "items": {
+            "type": "object",
+            "required": [
+              "pain_id",
+              "final_score",
+              "outcome",
+              "reason"
+            ],
+            "properties": {
+              "pain_id": {
+                "type": "string"
+              },
+              "concept_name": {
+                "type": "string"
+              },
+              "final_score": {
+                "type": "number"
+              },
+              "outcome": {
+                "enum": [
+                  "PUBBLICATA",
+                  "VALIDAZIONE-SUL-CAMPO",
+                  "MENZIONE-ONESTA",
+                  "PARKED",
+                  "KILLED"
+                ],
+                "description": "Tutti i valori si decidono sulla SOMMA PESATA, mai sul final_score. VALIDAZIONE-SUL-CAMPO: somma >= soglia, domande fontate < 4/5, evidence_route COMPORTAMENTO o DISALLINEAMENTO."
+              },
+              "missing_to_decide": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Obbligatorio se outcome=PARKED: tipicamente le domande anti-allucinazione rimaste non fontate."
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "empty_output_declaration": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Obbligatorio e non nullo se nessuna idea e' publishable. Deve dichiarare esplicitamente che nessuna opportunita' ha superato i criteri e riassumere perche'."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# chiavi dei provider esterni — mai nel repo
+.env
+*.prima-dello-switch
+*.prima-del-setup
+__pycache__/
+
+# Esiti dei run: restano locali.
+# Contengono i pain esaminati, i settori battuti, i competitor mappati e le fonti
+# raccolte — cioe' la ricerca vera e propria, non il metodo. Il repo pubblica come
+# funziona la pipeline, non cosa ha trovato.
+runs/
+
+# I due ledger cumulativi, per la stessa ragione: sono il registro di cosa e' stato
+# realmente cercato attraverso tutti i run. Gli altri file di state/ restano tracciati
+# vuoti perche' fanno parte della struttura. L'orchestratore li ricrea al primo run.
+state/query-ledger.jsonl
+state/source-ledger.jsonl
