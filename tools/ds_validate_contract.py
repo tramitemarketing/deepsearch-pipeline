@@ -604,6 +604,24 @@ def valida_contratto_record(rec: Any) -> list:
             e["missing_property"], MAX_MISSING_PROPERTY_BYTES
         ):
             v.append("BOUND:missing_property")
+        # A1 rev4 §2.4 — i caratteri di controllo grezzi sono RIFIUTATI nei campi di
+        # posizione persistiti. Il backslash NON e' vietato: e' legittimo nei dati, e
+        # sotto A4 il tetto si misura sulla serializzazione canonica e su nient'altro,
+        # quindi vietarlo non comprerebbe nulla e rifiuterebbe dati conformi.
+        #
+        # E' un backstop. Dopo §2.3 il produttore di questa capacita' non puo' piu'
+        # costruire un record simile da dati di istanza; il rifiuto serve ai record che
+        # l'aggregatore §4.13 legge da una directory che non ha scritto lui, e al caso
+        # di §4.2 in cui il carattere viene dallo SCHEMA e non e' redigibile.
+        for k in (
+            "schema_pointer",
+            "instance_pointer",
+            "instance_location",
+            "keyword",
+            "missing_property",
+        ):
+            if isinstance(e[k], str) and contiene_controllo(e[k]):
+                v.append("CARATTERI:" + k)
         if not isinstance(e["location_is_exact"], bool):
             v.append("TIPO:location_is_exact")
         else:

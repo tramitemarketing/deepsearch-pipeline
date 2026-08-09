@@ -589,11 +589,17 @@ def sezione_7_3():
         check("7.3 " + nome + " -> CONTEXT_INVALID, valore offensivo mai restituito",
               ok and not perde, str(e.invocation_error.reason_code))
 
+    # A1 rev4 §2.2 — un contesto duck-typed e' ora rifiutato sul TIPO, prima che uno
+    # qualsiasi dei suoi attributi venga letto. Il campo citato non e' piu' il primo
+    # mancante (`artifact_id`): non si arriva a guardarlo. Deve restare nell'insieme
+    # chiuso di §4.3, che non ha un membro per "l'oggetto contesto".
     e = V._esegui_shadow_core({}, ContestoIncompleto(),
                               config=V.ConfigTest(attivo=True, radice_output=None), adattatori=ad)
-    check("7.3 campo mancante -> CONTEXT_INVALID",
+    check("7.3 contesto duck-typed -> CONTEXT_INVALID sul tipo",
           e.invocation_status is InvocationStatus.INVOCATION_ERROR
-          and e.invocation_error.field == "artifact_id")
+          and e.invocation_error.reason_code is InvocationReasonCode.CONTEXT_INVALID
+          and e.invocation_error.field in INVOCATION_ERROR_FIELDS
+          and e.validation_result is None)
 
     for oggetto in ("non-un-contesto", 42, None, object()):
         e = V._esegui_shadow_core({}, oggetto,
@@ -1545,6 +1551,326 @@ def sezione_7_15():
 
 
 # ==========================================================================
+# A1 rev4 — confine delle eccezioni, tipi esatti, igiene dei caratteri
+#
+# Criteri di accettazione A1 rev4 §6. Ogni item dichiara dove si applica, perche' le
+# tre superfici di §2.0 non raggiungono la stessa macchina: `_valida_sottoschema_test`
+# non persiste alcun record, e la produzione si ferma al passo 3 con SHADOW OFF.
+# ==========================================================================
+
+# Cio' che `json.loads(r'"\ud800"')` restituisce: un surrogato spaiato dentro un `str`
+# perfettamente ordinario. Faceva alzare UnicodeEncodeError dalla superficie pubblica.
+SURROGATO = "\ud800"
+CTRL = "\x01"
+NOME_CTRL = "pa" + CTRL + "in"
+NOME_BACKSLASH = "a\\b"
+BV = "bootstrap-verdict.schema.json"
+
+
+class _GetattrOstile:
+    def __getattr__(self, nome):
+        raise RuntimeError("attributo ostile")
+
+
+class _ProprietaOstile:
+    @property
+    def invocation_id(self):
+        raise RuntimeError("proprieta' ostile")
+
+
+class _ClasseOstile:
+    @property
+    def __class__(self):
+        raise RuntimeError("__class__ ostile")
+
+
+class _StrRotta(str):
+    def encode(self, *a, **k):
+        raise RuntimeError("encode rotto")
+
+
+class _IntRotto(int):
+    def __ge__(self, altro):
+        raise RuntimeError("__ge__ rotto")
+
+
+class _SottoContesto(ValidationContext):
+    """Una sottoclasse puo' ridefinire __getattribute__: per questo e' rifiutata."""
+
+
+def _superfici(istanza, ctx, ad):
+    """Le tre superfici callable di A1 rev4 §2.0, invocate senza far uscire eccezioni.
+
+    Restituisce [(nome, esecuzione | None, eccezione | None)].
+    """
+    fatti = []
+    for nome, chiamata in (
+        ("pubblica", lambda: V.esegui_shadow_produzione(istanza, ctx)),
+        ("core", lambda: V._esegui_shadow_core(
+            istanza, ctx, config=V.ConfigTest(attivo=True, radice_output=None), adattatori=ad)),
+        ("sottoschema", lambda: V._valida_sottoschema_test(
+            istanza, ctx, target=TestValidationTarget.CORE_SOURCE, adattatori=ad)),
+    ):
+        try:
+            fatti.append((nome, chiamata(), None))
+        except BaseException as exc:  # noqa: BLE001 - e' il punto del test
+            fatti.append((nome, None, type(exc).__name__))
+    return fatti
+
+
+def _tutte_context_invalid(fatti, campo=None):
+    for _nome, e, exc in fatti:
+        if exc is not None or e is None:
+            return False
+        if e.invocation_status is not InvocationStatus.INVOCATION_ERROR:
+            return False
+        if e.invocation_error.reason_code is not InvocationReasonCode.CONTEXT_INVALID:
+            return False
+        if e.invocation_error.field not in INVOCATION_ERROR_FIELDS:
+            return False
+        if campo is not None and e.invocation_error.field != campo:
+            return False
+        if e.validation_result is not None:
+            return False
+    return True
+
+
+def _schema_caratteri(required_ctrl=False) -> bytes:
+    """Uno schema fidato che DICHIARA nomi non rappresentabili.
+
+    Serve per raggiungere §2.3 e §4.2: con i 13 schemi reali nessun nome dichiarato
+    porta un carattere di controllo, quindi il ramo non e' esercitabile dal corpus.
+    `bootstrap-verdict.schema.json` e' scelto perche' nessun altro schema lo referenzia:
+    sostituirlo non incrina la chiusura del registro.
+    """
+    doc = {
+        "$id": BV,
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            NOME_CTRL: {"type": "string"},
+            NOME_BACKSLASH: {"type": "string"},
+        },
+    }
+    if required_ctrl:
+        doc["required"] = [NOME_CTRL]
+    return json.dumps(doc, ensure_ascii=False).encode("utf-8")
+
+
+class _PubblicatoreInterrotto(V.Pubblicatore):
+    def pubblica(self, pending, finale):
+        raise KeyboardInterrupt()
+
+
+def sezione_a1(tmp):
+    ad = adattatori()
+
+    # --- item 1: un surrogato spaiato in ciascuno degli 8 campi -------------
+    for campo in ("invocation_id", "run_id", "role", "stage", "artifact_id",
+                  "schema_ref", "attempt", "legacy_outcome"):
+        fatti = _superfici({}, contesto(**{campo: SURROGATO}), ad)
+        senza_eccezioni = all(exc is None for _n, _e, exc in fatti)
+        check("A1.1 surrogato in " + campo + " -> CONTEXT_INVALID sulle tre superfici",
+              senza_eccezioni and _tutte_context_invalid(fatti, campo),
+              ";".join(n + ":" + str(x) for n, _e, x in fatti if x))
+
+    # --- item 2: la famiglia dei contesti ostili ---------------------------
+    ostili = {
+        "getattr_che_solleva": _GetattrOstile(),
+        "proprieta_che_solleva": _ProprietaOstile(),
+        "classe_che_solleva": _ClasseOstile(),
+    }
+    for nome, oggetto in ostili.items():
+        fatti = _superfici({}, oggetto, ad)
+        check("A1.2 " + nome + " -> CONTEXT_INVALID, zero eccezioni",
+              all(exc is None for _n, _e, exc in fatti) and _tutte_context_invalid(fatti),
+              ";".join(n + ":" + str(x) for n, _e, x in fatti if x))
+
+    fatti = _superfici({}, contesto(invocation_id=_StrRotta("inv-0001")), ad)
+    check("A1.2 sottoclasse di str con encode rotto -> CONTEXT_INVALID sul tipo",
+          all(exc is None for _n, _e, exc in fatti)
+          and _tutte_context_invalid(fatti, "invocation_id"))
+
+    fatti = _superfici({}, contesto(attempt=_IntRotto(1)), ad)
+    check("A1.2 sottoclasse di int con __ge__ rotto -> CONTEXT_INVALID sul tipo",
+          all(exc is None for _n, _e, exc in fatti)
+          and _tutte_context_invalid(fatti, "attempt"))
+
+    # --- item 3: la sottoclasse e' rifiutata, l'identico valore no ---------
+    valori = dict(invocation_id="inv-0001", attempt=1, run_id="20260808-1200",
+                  role="pain-finder", stage="pain", artifact_id=ARTEFATTO,
+                  schema_ref="pain.schema.json", legacy_outcome=LegacyOutcome.ACCEPTED)
+    fatti = _superfici({}, _SottoContesto(**valori), ad)
+    check("A1.3 sottoclasse di ValidationContext -> CONTEXT_INVALID",
+          all(exc is None for _n, _e, exc in fatti) and _tutte_context_invalid(fatti))
+
+    fatti = _superfici({}, ValidationContext(**valori), ad)
+    check("A1.3 ValidationContext con gli stessi valori -> accettato",
+          all(exc is None for _n, _e, exc in fatti)
+          and all(e.invocation_status is InvocationStatus.OK for _n, e, _x in fatti),
+          "il rifiuto e' per tipo, non per valore")
+
+    # --- item 4: attempt=True rifiutato sul tipo ---------------------------
+    fatti = _superfici({}, contesto(attempt=True), ad)
+    check("A1.4 attempt=True -> CONTEXT_INVALID sul tipo (bool e' un int)",
+          all(exc is None for _n, _e, exc in fatti)
+          and _tutte_context_invalid(fatti, "attempt"))
+
+    # --- item 5: KeyboardInterrupt propaga; il pending non e' contato ------
+    # Solo sulle superfici che attraversano la finestra di scrittura: la produzione
+    # si ferma al passo 3 con SHADOW OFF, e §4.14 non persiste mai.
+    radice = os.path.join(tmp, "a1-interrupt")
+    risultato = _risultato_per_scrittura(SCHEMI)
+    propagata = None
+    try:
+        V.scrivi_record(risultato, contesto(schema_ref=CORE_SCHEMA_ID), radice,
+                        adattatori(publisher=_PubblicatoreInterrotto()))
+    except KeyboardInterrupt:
+        propagata = True
+    except BaseException as exc:  # noqa: BLE001
+        propagata = type(exc).__name__
+    check("A1.5 KeyboardInterrupt nella finestra di scrittura PROPAGA", propagata is True,
+          str(propagata))
+    pending = [n for n in os.listdir(radice)] if os.path.isdir(radice) else []
+    rapporto = R.aggrega(radice, quiescent=True)
+    check("A1.5 il pending orfano resta, e l'aggregatore non lo conta",
+          len(pending) == 1 and pending[0].endswith(".pending")
+          and rapporto.records_discovered == 0 and rapporto.records_counted == 0,
+          str(pending) + " / " + str(rapporto.records_discovered))
+
+    check("A1.5 la superficie §4.14 non attraversa alcuna finestra di scrittura",
+          V._valida_sottoschema_test(
+              {}, contesto(), target=TestValidationTarget.CORE_SOURCE, adattatori=ad
+          ).write_receipt.write_reason_code is WriteReasonCode.NOT_ELIGIBLE)
+
+    # --- item 6/7/9: redazione dei segmenti non rappresentabili ------------
+    sotto = os.path.join(tmp, "a1-caratteri")
+    os.makedirs(sotto, exist_ok=True)
+    schemi = radice_schemi_temporanea(sotto, sostituzioni={BV: _schema_caratteri()})
+    ctx_bv = contesto(schema_ref=BV)
+
+    radice = os.path.join(tmp, "a1-ctrl")
+    e = V._esegui_shadow_core({NOME_CTRL: 123, NOME_BACKSLASH: "ok"}, ctx_bv,
+                              config=V.ConfigTest(attivo=True, radice_output=radice),
+                              adattatori=adattatori(schemi))
+    voci = e.validation_result.errors
+    v = voci[0] if len(voci) == 1 else None
+    check("A1.6 chiave con carattere di controllo -> ~R, puntatore null, non esatta",
+          v is not None and v.instance_location == "/" + REDACTED_SEGMENT
+          and v.instance_pointer is None and v.location_is_exact is False,
+          repr(None if v is None else (v.instance_location, v.instance_pointer)))
+    check("A1.6 il nome originale non compare da nessuna parte nel risultato",
+          NOME_CTRL not in canonical_json(risultato_to_dict(e.validation_result)))
+    check("A1.7 la redazione non e' uno scarto: errors_dropped_oversize resta 0",
+          e.validation_result.errors_dropped_oversize == 0
+          and e.validation_result.errors_recorded == 1)
+    check("A1.7 lo schema_pointer porta il carattere dallo SCHEMA: record rifiutato",
+          e.write_receipt.status is WriteStatus.WRITE_ERROR
+          and e.write_receipt.write_reason_code is WriteReasonCode.RECORD_FIELD_INVALID
+          and conta_finali(radice) == [],
+          str(e.write_receipt.write_reason_code))
+
+    radice = os.path.join(tmp, "a1-backslash")
+    e = V._esegui_shadow_core({NOME_CTRL: "ok", NOME_BACKSLASH: 123}, ctx_bv,
+                              config=V.ConfigTest(attivo=True, radice_output=radice),
+                              adattatori=adattatori(schemi))
+    voci = e.validation_result.errors
+    v = voci[0] if len(voci) == 1 else None
+    check("A1.9 il backslash e' conservato, non redatto",
+          v is not None and v.instance_pointer == "/" + NOME_BACKSLASH
+          and v.location_is_exact is True
+          and e.write_receipt.status is WriteStatus.WRITTEN
+          and len(conta_finali(radice)) == 1,
+          repr(None if v is None else v.instance_pointer))
+
+    # --- item 8: missing_property non rappresentabile -> null --------------
+    sotto2 = os.path.join(tmp, "a1-required")
+    os.makedirs(sotto2, exist_ok=True)
+    schemi2 = radice_schemi_temporanea(
+        sotto2, sostituzioni={BV: _schema_caratteri(required_ctrl=True)})
+    radice = os.path.join(tmp, "a1-missing")
+    e = V._esegui_shadow_core({}, ctx_bv,
+                              config=V.ConfigTest(attivo=True, radice_output=radice),
+                              adattatori=adattatori(schemi2))
+    voci = [x for x in e.validation_result.errors if x.keyword == "required"]
+    v = voci[0] if len(voci) == 1 else None
+    check("A1.8 missing_property con carattere di controllo -> null, voce conservata",
+          v is not None and v.missing_property is None and v.keyword == "required"
+          and e.validation_result.errors_dropped_oversize == 0,
+          repr(None if v is None else v.missing_property))
+    check("A1.8 il nome non rappresentabile non finisce nel record",
+          NOME_CTRL not in canonical_json(risultato_to_dict(e.validation_result)))
+
+    # --- item 10: il backstop rifiuta i cinque campi, uno per volta --------
+    # Si parte da un record REALE e conforme, e si inietta il carattere in un campo per
+    # volta. Il checksum smette di tornare — atteso e irrilevante: qui si verifica che
+    # il rifiuto per carattere ci sia, non che sia l'unica violazione.
+    fail = V._esegui_shadow_core(carica("invalid/pain.enum.json"), contesto(),
+                                 config=V.ConfigTest(attivo=True, radice_output=None),
+                                 adattatori=ad).validation_result
+    modello = V.costruisci_record(fail, contesto(), "0" * 32, "2026-08-09T00:00:00.000000Z")
+    check("A1.10 il record di partenza e' conforme", valida_contratto_record(modello) == [],
+          str(valida_contratto_record(modello)[:4]))
+
+    mutazioni = {
+        "schema_pointer": {"schema_pointer": "/properties/x" + CTRL},
+        "instance_pointer": {"instance_pointer": "/x" + CTRL,
+                             "instance_location": "/x" + CTRL,
+                             "location_is_exact": True},
+        "instance_location": {"instance_pointer": None,
+                              "instance_location": "/x" + CTRL,
+                              "location_is_exact": False},
+        "keyword": {"keyword": "ty" + CTRL + "pe"},
+        "missing_property": {"keyword": "required", "missing_property": "i" + CTRL + "d"},
+    }
+    for campo, patch in mutazioni.items():
+        record = json.loads(canonical_json(modello))
+        record["errors"] = [dict(record["errors"][0])]
+        record["errors"][0].update(patch)
+        violazioni = valida_contratto_record(record)
+        check("A1.10 carattere di controllo in " + campo + " -> record non conforme",
+              ("CARATTERI:" + campo) in violazioni, str(violazioni[:4]))
+
+    # --- item 11: la restrizione di §2.1 non sconfina nel verdetto ---------
+    e = V._esegui_shadow_core(carica("invalid/pain.enum.json"), contesto(),
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=ad)
+    check("A1.11 una violazione di schema resta FULL_FAIL, non CONTEXT_INVALID",
+          e.invocation_status is InvocationStatus.OK
+          and e.validation_result.full_outcome is FullOutcome.FULL_FAIL)
+
+    sotto3 = os.path.join(tmp, "a1-ref")
+    os.makedirs(sotto3, exist_ok=True)
+    schemi3 = radice_schemi_temporanea(
+        sotto3, sostituzioni={"pain.schema.json": byte_fixture("schema-broken/ref-external.schema.json")})
+    e = V._esegui_shadow_core({"payload": {}}, contesto(),
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=adattatori(schemi3))
+    check("A1.11 un $ref irrisolvibile resta VALIDATOR_ERROR, non CONTEXT_INVALID",
+          e.invocation_status is InvocationStatus.OK
+          and e.validation_result.reason_code is ReasonCode.REF_UNRESOLVABLE,
+          str(e.validation_result.reason_code))
+
+    # --- item 12: la regione 3 tiene la tassonomia del writer -------------
+    blob, codice = V.passo_serializza({"non": object()})
+    check("A1.12 un fallimento di serializzazione resta SERIALIZATION_FAILED",
+          blob is None and codice is WriteReasonCode.SERIALIZATION_FAILED)
+    check("A1.12 len(WriteReasonCode) == 11, invariato", len(WriteReasonCode) == 11)
+
+    # --- §2.1: nessun except nudo, nessun except BaseException ------------
+    for modulo in ("ds_validate.py", "ds_validate_contract.py", "ds_validate_report.py"):
+        with open(os.path.join(QUI, modulo), "rb") as fh:
+            albero = ast.parse(fh.read().decode("utf-8"))
+        larghi = [
+            n for n in ast.walk(albero)
+            if isinstance(n, ast.ExceptHandler)
+            and (n.type is None or (isinstance(n.type, ast.Name) and n.type.id == "BaseException"))
+        ]
+        check("A1 §2.1 " + modulo + ": nessun except nudo ne' BaseException",
+              not larghi, str(len(larghi)))
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -1562,6 +1888,7 @@ def main() -> int:
         sezione_7_7(tmp)
         sezione_7_8(tmp)
         sezione_7_9_7_10(tmp)
+        sezione_a1(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)

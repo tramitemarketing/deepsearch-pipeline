@@ -241,9 +241,21 @@ _SEPARATORI = ("/", "\\")
 
 
 def _token_sicuro(v: Any) -> bool:
-    if not isinstance(v, str):
-        return False
-    if byte_len(v) > 64:
+    """§4.5 — grammatica PRIMA di ogni codifica (A1 rev4 §2.2).
+
+    L'ordine e' normativo, non stilistico. `byte_len` codifica in UTF-8 ed e' l'unica
+    operazione qui che possa sollevare: su un surrogato spaiato — quelli che
+    `json.loads(r'"\\ud800"')` restituisce legittimamente — alzava `UnicodeEncodeError`
+    fuori dalla superficie pubblica (P0-1). Ora e' l'ultimo controllo e lo raggiunge
+    solo una stringa gia' accettata da SAFE_TOKEN, quindi di soli `[A-Za-z0-9._-]`:
+    ASCII puro, dove la codifica non puo' fallire.
+
+    Nessun controllo precedente codifica: `in`, `re.match` e `re.search` lavorano sui
+    code point. Nessuno e' ridondante rispetto a SAFE_TOKEN: `".."` e' composto di soli
+    caratteri ammessi, e `$` in Python accetta un newline finale, quindi la classe da
+    sola non escluderebbe i caratteri di controllo.
+    """
+    if type(v) is not str:
         return False
     if ".." in v:
         return False
@@ -253,40 +265,77 @@ def _token_sicuro(v: Any) -> bool:
         return False
     if contiene_controllo(v):
         return False
-    return SAFE_TOKEN.match(v) is not None
+    if SAFE_TOKEN.match(v) is None:
+        return False
+    return byte_len(v) <= 64
 
 
 def _valida_config(config: Any):
-    if not isinstance(getattr(config, "attivo", None), bool):
-        return InvocationError(InvocationReasonCode.CONFIG_INVALID, "attivo")
-    radice = getattr(config, "radice_output", "\x00assente")
+    """§4.5 — la config di test e' accettata per identita' di tipo (A1 rev4 §2.1 regione 2)."""
+    c = InvocationReasonCode.CONFIG_INVALID
+    if type(config) is not ConfigTest:
+        return InvocationError(c, "attivo")
+    if type(config.attivo) is not bool:
+        return InvocationError(c, "attivo")
+    radice = config.radice_output
     if radice is not None:
-        if not isinstance(radice, str) or not radice or contiene_controllo(radice):
-            return InvocationError(InvocationReasonCode.CONFIG_INVALID, "radice_output")
+        if type(radice) is not str or not radice or contiene_controllo(radice):
+            return InvocationError(c, "radice_output")
     return None
 
 
 def _valida_contesto(contesto: Any):
+    """§4.5 — validazione per identita' esatta di tipo (A1 rev4 §2.2).
+
+    Niente duck-typing, niente sottoclassi, nessun accesso ad attributi su oggetti
+    forniti dal chiamante prima che il tipo sia accettato. Il meccanismo non e' un
+    `except` piu' largo: e' una superficie eseguita piu' piccola. Un `__getattr__` che
+    solleva, una sottoclasse di `str` con `encode` rotto, un `__class__` che solleva
+    sotto `isinstance` non arrivano mai a eseguire il proprio codice.
+    """
     e = InvocationReasonCode.CONTEXT_INVALID
-    for campo in ("invocation_id", "run_id", "role", "stage"):
-        if not _token_sicuro(getattr(contesto, campo, None)):
-            return InvocationError(e, campo)
-    tentativo = getattr(contesto, "attempt", None)
-    if not isinstance(tentativo, int) or isinstance(tentativo, bool) or not (1 <= tentativo <= 99):
+
+    # Una SOTTOCLASSE e' rifiutata: puo' ridefinire __getattribute__ e riaprirebbe
+    # esattamente la famiglia che questo confine chiude.
+    #
+    # Il nome citato resta dentro l'insieme chiuso di §4.3. Quell'insieme non ha un
+    # membro per "l'oggetto contesto", e aggiungerne uno estenderebbe una tassonomia
+    # chiusa senza emendamento; `invocation_id` e' inoltre il nome che l'implementazione
+    # duck-typed gia' restituiva per un oggetto del tutto sbagliato, quindi il
+    # comportamento osservabile non cambia su questo punto.
+    if type(contesto) is not ValidationContext:
+        return InvocationError(e, "invocation_id")
+
+    # Letture dirette di attributo su un valore gia' accertato ValidationContext.
+    if not _token_sicuro(contesto.invocation_id):
+        return InvocationError(e, "invocation_id")
+    if not _token_sicuro(contesto.run_id):
+        return InvocationError(e, "run_id")
+    if not _token_sicuro(contesto.role):
+        return InvocationError(e, "role")
+    if not _token_sicuro(contesto.stage):
+        return InvocationError(e, "stage")
+
+    tentativo = contesto.attempt
+    # `type(x) is int` rifiuta `bool` sul tipo, non per caso: `True` e' un `int`.
+    if type(tentativo) is not int or not (1 <= tentativo <= 99):
         return InvocationError(e, "attempt")
-    artefatto = getattr(contesto, "artifact_id", None)
-    if not isinstance(artefatto, str) or re.match(r"^[0-9a-f]{64}$", artefatto) is None:
+
+    artefatto = contesto.artifact_id
+    if type(artefatto) is not str or re.match(r"^[0-9a-f]{64}$", artefatto) is None:
         return InvocationError(e, "artifact_id")
-    riferimento = getattr(contesto, "schema_ref", "\x00assente")
+
+    riferimento = contesto.schema_ref
     if riferimento is not None:
-        if (
-            not isinstance(riferimento, str)
-            or byte_len(riferimento) > 64
-            or SCHEMA_REF.match(riferimento) is None
-        ):
+        # Stesso ordine di `_token_sicuro`: grammatica prima, codifica dopo.
+        if type(riferimento) is not str:
             return InvocationError(e, "schema_ref")
-    legacy = getattr(contesto, "legacy_outcome", None)
-    if not isinstance(legacy, LegacyOutcome):
+        if SCHEMA_REF.match(riferimento) is None:
+            return InvocationError(e, "schema_ref")
+        if byte_len(riferimento) > 64:
+            return InvocationError(e, "schema_ref")
+
+    if type(contesto.legacy_outcome) is not LegacyOutcome:
         return InvocationError(e, "legacy_outcome")
     return None
 
@@ -738,6 +787,15 @@ def costruisci_posizioni(percorso_istanza, dichiarati):
         if isinstance(seg, int) and not isinstance(seg, bool):
             pezzi_rle.append(str(seg))
             continue
+        # A1 rev4 §2.3 — un segmento e' redatto anche quando NON e' rappresentabile,
+        # cioe' porta un carattere di controllo, oltre che quando non e' dichiarato
+        # dallo schema. Il nome originale non finisce mai in un record.
+        #
+        # La redazione NON e' uno scarto: `errors_dropped_oversize` continua a contare
+        # una cosa sola, la voce scartata perche' una stringa vincolata ha superato il
+        # proprio limite in byte. Gli indici di array sono interi e non passano di qui.
+        if ok and contiene_controllo(str(seg)):
+            ok = False
         if ok:
             pezzi_rle.append(_esc(str(seg)))
         else:
@@ -760,6 +818,12 @@ def _estrai_missing_property(errore) -> Any:
     nome = m.group("p")
     richiesti = getattr(errore, "validator_value", None)
     if isinstance(richiesti, (list, tuple)) and nome in richiesti:
+        # A1 rev4 §2.3 — `missing_property` e' un nome di proprieta', non un segmento di
+        # percorso: `~R` non le si applica, perche' non e' una posizione. Un nome con un
+        # carattere di controllo si riporta come `null`. La voce resta, e il suo
+        # `keyword` resta `required`.
+        if contiene_controllo(nome):
+            return None
         return nome
     return None
 
