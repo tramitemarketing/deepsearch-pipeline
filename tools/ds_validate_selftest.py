@@ -11,6 +11,7 @@ Uso:  python tools/ds_validate_selftest.py
 from __future__ import annotations
 
 import ast
+import dataclasses
 import hashlib
 import inspect
 import json
@@ -841,11 +842,18 @@ def sezione_7_5(tmp, codici_visti):
     visti.add(codice)
     check("7.5 SERIALIZATION_FAILED", codice is WriteReasonCode.SERIALIZATION_FAILED and blob is None)
 
-    codice = V.passo_dimensione(b"x" * (MAX_RECORD_BYTES + 1))
-    visti.add(codice)
-    check("7.5 RECORD_TOO_LARGE (fail-closed di riserva)",
-          codice is WriteReasonCode.RECORD_TOO_LARGE
-          and V.passo_dimensione(b"x" * MAX_RECORD_BYTES) is None)
+    # A4 — RECORD_TOO_LARGE si raggiunge dal percorso reale, non su byte fabbricati.
+    # Il test precedente chiamava `passo_dimensione(b"x" * (MAX + 1))`: non toccava ne'
+    # `costruisci_record` ne' `canonical_json`, quindi non poteva testimoniare una
+    # regola che parla di serializzazione. La dimostrazione completa e' in sezione_a4.
+    radice_grande = os.path.join(tmp, "7-5-troppo-grande")
+    ric = V.scrivi_record(_risultato_gonfio("\\"), ctx, radice_grande, adattatori())
+    visti.add(ric.write_reason_code)
+    check("7.5 RECORD_TOO_LARGE dal percorso reale, nessun file pubblicato",
+          ric.write_reason_code is WriteReasonCode.RECORD_TOO_LARGE
+          and ric.status is WriteStatus.WRITE_ERROR
+          and conta_finali(radice_grande) == [] and _pending_in(radice_grande) == [],
+          str(ric.write_reason_code))
 
     for guasto, atteso in (("apri", WriteReasonCode.TEMP_WRITE_FAILED),
                            ("scrivi", WriteReasonCode.TEMP_WRITE_FAILED),
@@ -2049,6 +2057,115 @@ def sezione_a2(tmp):
 
 
 # ==========================================================================
+# A4 — il tetto in byte si MISURA, non si calcola
+#
+# Nessuna logica nuova: il codice gia' serializzava e misurava il blob reale. A
+# cambiare e' l'evidenza. §4.11 sommava budget di campo — 512+512+512+64+32+128+~120
+# ~= 1.880 byte per voce, x50 ~= 94.000, piu' metadati ~= 94.600 < 131.072 — e da quel
+# conto dichiarava RECORD_TOO_LARGE irraggiungibile. La somma conta i byte dei CAMPI e
+# assume implicitamente che la serializzazione JSON sia gratis. Non lo e'.
+# ==========================================================================
+
+_BASE_FULL_FAIL = None
+
+
+def _risultato_gonfio(riempimento: str, voci=None):
+    """Un ValidationResult con MAX_ERRORS voci, ogni stringa ENTRO il proprio bound.
+
+    Nessun campo supera il proprio limite: e' esattamente il punto. Il record e'
+    conforme a `valida_contratto_record` con zero violazioni, e solo la
+    serializzazione canonica rivela se sta sotto il tetto.
+    """
+    global _BASE_FULL_FAIL
+    if _BASE_FULL_FAIL is None:
+        _BASE_FULL_FAIL = V._esegui_shadow_core(
+            carica("invalid/pain.enum.json"), contesto(),
+            config=V.ConfigTest(attivo=True, radice_output=None),
+            adattatori=adattatori()).validation_result
+    n = MAX_ERRORS if voci is None else voci
+    posizione = riempimento * MAX_LOCATION_BYTES
+    voce = ValidationErrorEntry(
+        schema_resource_id="pain.schema.json",
+        schema_pointer=posizione,
+        instance_pointer=posizione,
+        instance_location=posizione,
+        location_is_exact=True,
+        keyword=riempimento * MAX_KEYWORD_BYTES,
+        missing_property=None,
+    )
+    return dataclasses.replace(_BASE_FULL_FAIL, errors=tuple([voce] * n), errors_recorded=n)
+
+
+def _byte_serializzati(risultato) -> int:
+    record = V.costruisci_record(risultato, contesto(), "0" * 32, "2026-08-09T00:00:00.000000Z")
+    return len(canonical_json(record).encode("utf-8"))
+
+
+def _somma_byte_campi(risultato) -> int:
+    totale = 0
+    for v in risultato.errors:
+        for s in (v.schema_resource_id, v.schema_pointer, v.instance_pointer,
+                  v.instance_location, v.keyword, v.missing_property or ""):
+            totale += len(s.encode("utf-8"))
+    return totale
+
+
+def sezione_a4(tmp):
+    ascii_ = _risultato_gonfio("a")
+    backslash = _risultato_gonfio("\\")
+
+    # --- A4.3 la prova che la regola e' misurata e non calcolata ----------
+    # Stessi bound di campo, stesso numero di voci, stessa forma. Cambia solo un
+    # carattere del riempimento, e la somma dei campi non se ne accorge.
+    somma_a = _somma_byte_campi(ascii_)
+    somma_b = _somma_byte_campi(backslash)
+    ser_a = _byte_serializzati(ascii_)
+    ser_b = _byte_serializzati(backslash)
+    check("A4.3 la somma dei byte di campo e' identica nei due casi",
+          somma_a == somma_b and somma_a < MAX_RECORD_BYTES, str((somma_a, somma_b)))
+    check("A4.3 riempito ASCII: sotto il tetto — e' lo scenario che l'ADR calcolava",
+          ser_a < MAX_RECORD_BYTES, str(ser_a))
+    check("A4.3 riempito con backslash: OLTRE il tetto, a parita' di byte di campo",
+          ser_b > MAX_RECORD_BYTES, str(ser_b))
+    check("A4.3 entrambi i record sono conformi con ZERO violazioni",
+          valida_contratto_record(V.costruisci_record(
+              ascii_, contesto(), "0" * 32, "2026-08-09T00:00:00.000000Z")) == []
+          and valida_contratto_record(V.costruisci_record(
+              backslash, contesto(), "0" * 32, "2026-08-09T00:00:00.000000Z")) == [],
+          "un record conforme puo' superare il tetto: non e' un backstop teorico")
+
+    # --- A4.1 / A4.2 il percorso reale, non byte fabbricati ---------------
+    radice = os.path.join(tmp, "a4-oltre")
+    ric = V.scrivi_record(backslash, contesto(), radice, adattatori())
+    check("A4.1 oltre il tetto -> WRITE_ERROR / RECORD_TOO_LARGE",
+          ric.status is WriteStatus.WRITE_ERROR
+          and ric.write_reason_code is WriteReasonCode.RECORD_TOO_LARGE,
+          str((ric.status, ric.write_reason_code)))
+    check("A4.1 nessun file pubblicato, verificato elencando la radice",
+          conta_finali(radice) == [] and _pending_in(radice) == [],
+          str(os.listdir(radice) if os.path.isdir(radice) else "radice assente"))
+    check("A4.1 e nessun pending resta indietro: cleanup_status non e' PENDING_CLEANUP",
+          ric.cleanup_status is None, str(ric.cleanup_status))
+
+    radice = os.path.join(tmp, "a4-sotto")
+    ric = V.scrivi_record(ascii_, contesto(), radice, adattatori(id_gen=id_fisso("7" * 32)))
+    check("A4.2 sotto il tetto, stesso percorso reale -> pubblicato",
+          ric.status is WriteStatus.WRITTEN and conta_finali(radice) == ["7" * 32 + ".json"],
+          str((ric.status, ric.write_reason_code)))
+
+    # --- A4.4 la misura e' sul blob, non su una stima --------------------
+    # `passo_dimensione` resta il controllo, ma cio' che gli arriva viene da
+    # `canonical_json(record).encode("utf-8")` e da nient'altro.
+    record = V.costruisci_record(backslash, contesto(), "0" * 32, "2026-08-09T00:00:00.000000Z")
+    blob, codice = V.passo_serializza(record)
+    check("A4.4 il blob misurato e' esattamente la serializzazione canonica UTF-8",
+          codice is None and blob == canonical_json(record).encode("utf-8")
+          and V.passo_dimensione(blob) is WriteReasonCode.RECORD_TOO_LARGE
+          and len(blob) == ser_b)
+    check("A4.4 il tetto resta 131072, invariato", MAX_RECORD_BYTES == 131072)
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -2068,6 +2185,7 @@ def main() -> int:
         sezione_7_9_7_10(tmp)
         sezione_a1(tmp)
         sezione_a2(tmp)
+        sezione_a4(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
