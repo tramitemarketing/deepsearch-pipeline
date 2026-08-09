@@ -20,6 +20,7 @@ from typing import Any
 from ds_validate_contract import (
     FINAL_NAME,
     MAX_RECORD_BYTES,
+    PENDING_NAME,
     AggregateReport,
     Comparison,
     Completeness,
@@ -45,6 +46,13 @@ def _aggrega_con_lettore(radice: str, *, quiescent: bool, apri) -> AggregateRepo
 
     candidati = [n for n in voci if FINAL_NAME.match(n) is not None]
     scoperti = len(candidati)
+
+    # A2 §5 — i pending si CONTANO dal nome e non si aprono mai. La grammatica pending
+    # non puo' coincidere con quella finale, quindi questo conteggio e' disgiunto da
+    # `candidati` per costruzione e non entra in alcun bucket di record. E' un segnale
+    # operativo sulla directory: dice che una pulizia e' rimasta indietro, non che
+    # esista un artefatto in piu'. La quiescenza continua a NON essere inferita da qui.
+    pendenti = len([n for n in voci if PENDING_NAME.match(n) is not None])
     corrotti = 0
     validi = []  # (record_id, record)
 
@@ -105,6 +113,7 @@ def _aggrega_con_lettore(radice: str, *, quiescent: bool, apri) -> AggregateRepo
         duplicate_groups=gruppi_duplicati,
         duplicate_extra_records=extra_duplicati,
         records_counted=len(contati),
+        pending_files=pendenti,
         by_full_outcome=per_esito,
         by_reason_code=per_ragione,
         by_comparison=per_confronto,

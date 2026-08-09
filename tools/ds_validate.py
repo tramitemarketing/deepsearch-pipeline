@@ -46,6 +46,7 @@ from ds_validate_contract import (
     SCHEMA_REF,
     TIMESTAMP_UTC,
     TIMESTAMP_UTC_LEN,
+    CleanupStatus,
     Comparison,
     FullOutcome,
     InvocationError,
@@ -202,8 +203,18 @@ class Pubblicatore:
         os.fsync(fh.fileno())
 
     def pubblica(self, pending: str, finale: str) -> None:
+        """SOLO la pubblicazione. La rimozione del pending e' `rimuovi`, ed e' pulizia.
+
+        Le due operazioni stavano sotto un unico `try`, quindi un `os.unlink` fallito —
+        ACL che negano DELETE, un antivirus o un indicizzatore che tiene un handle:
+        condizioni Windows ordinarie — faceva riportare PUBLISH_FAILED per un record
+        gia' pubblicato e conforme (P0-2). Separarle e' la correzione.
+        """
         os.link(pending, finale)
-        os.unlink(pending)
+
+    def rimuovi(self, percorso: str) -> None:
+        """SOLO la pulizia. Il suo fallimento non e' mai un fallimento di scrittura."""
+        os.unlink(percorso)
 
 
 def _genera_id_produzione() -> str:
@@ -340,9 +351,18 @@ def _valida_contesto(contesto: Any):
     return None
 
 
-_RICEVUTA_NON_ELEGGIBILE = WriteReceipt(
-    status=WriteStatus.NOT_ATTEMPTED, write_reason_code=WriteReasonCode.NOT_ELIGIBLE
-)
+def _ricevuta_non_eleggibile() -> WriteReceipt:
+    """A2 §4 — una NUOVA istanza a ogni chiamata, mai un singleton condiviso.
+
+    Era un globale restituito per identita' dall'API pubblica: chiunque tenesse una
+    ricevuta poteva mutare l'oggetto che ogni chiamata successiva avrebbe restituito, e
+    falsificare la traccia di audit dell'intero processo. Con `cleanup_status` la
+    ricevuta porta stato per-chiamata, il che rende il singleton scorretto e non solo
+    imprudente. `cleanup_status` resta null qui: non e' stato creato alcun pending.
+    """
+    return WriteReceipt(
+        status=WriteStatus.NOT_ATTEMPTED, write_reason_code=WriteReasonCode.NOT_ELIGIBLE
+    )
 
 
 def _errore_invocazione(err: InvocationError) -> ShadowExecution:
@@ -350,7 +370,7 @@ def _errore_invocazione(err: InvocationError) -> ShadowExecution:
         invocation_status=InvocationStatus.INVOCATION_ERROR,
         invocation_error=err,
         validation_result=None,
-        write_receipt=_RICEVUTA_NON_ELEGGIBILE,
+        write_receipt=_ricevuta_non_eleggibile(),
     )
 
 
@@ -400,7 +420,7 @@ def _esegui_shadow_core(
     # passo 3 — OFF: nessun import, nessuna scrittura, nessun effetto
     if config.attivo is not True:
         risultato = _non_valutato(ReasonCode.SHADOW_DISABLED, legacy, riferimento)
-        return ShadowExecution(InvocationStatus.OK, None, risultato, _RICEVUTA_NON_ELEGGIBILE)
+        return ShadowExecution(InvocationStatus.OK, None, risultato, _ricevuta_non_eleggibile())
 
     # passo 4 — mappatura: None oppure non-artifact-root
     if riferimento is None or riferimento not in ARTIFACT_ROOTS:
@@ -430,7 +450,7 @@ def _valida_sottoschema_test(
     risultato = _valuta(
         istanza, contesto, adattatori, target=target, radice_schema=CORE_SCHEMA_ID
     )
-    return ShadowExecution(InvocationStatus.OK, None, risultato, _RICEVUTA_NON_ELEGGIBILE)
+    return ShadowExecution(InvocationStatus.OK, None, risultato, _ricevuta_non_eleggibile())
 
 
 def _non_valutato(codice: ReasonCode, legacy: LegacyOutcome, riferimento) -> ValidationResult:
@@ -924,10 +944,10 @@ def _con_scrittura(risultato, contesto, config, adattatori) -> ShadowExecution:
     return ShadowExecution(InvocationStatus.OK, None, risultato, ricevuta)
 
 
-def _ricevuta_errore(codice: WriteReasonCode, record_id=None) -> WriteReceipt:
+def _ricevuta_errore(codice: WriteReasonCode, record_id=None, cleanup=None) -> WriteReceipt:
     return WriteReceipt(
         status=WriteStatus.WRITE_ERROR, write_reason_code=codice, record_id=record_id,
-        final_name=None,
+        final_name=None, cleanup_status=cleanup,
     )
 
 
@@ -995,53 +1015,80 @@ def passo_pubblica(radice: str, record_id: str, blob: bytes, adattatori) -> Writ
     try:
         adattatori.publisher.prepara_radice(radice)
     except Exception:
+        # Nessun pending e' stato creato: `cleanup_status` resta null.
         return _ricevuta_errore(WriteReasonCode.TEMP_WRITE_FAILED, record_id)
     percorso_pending = os.path.join(radice, nome_pending)
     percorso_finale = os.path.join(radice, nome_finale)
     try:
         fh = adattatori.publisher.apri(percorso_pending)
     except Exception:
+        # L'apertura non e' riuscita: non si puo' affermare che un pending esista, e
+        # tentare comunque la rimozione riporterebbe PENDING_CLEANUP per un file che
+        # non c'e'. Da qui in avanti, invece, il pending esiste.
         return _ricevuta_errore(WriteReasonCode.TEMP_WRITE_FAILED, record_id)
+
+    # La pulizia non puo' avvenire dentro il `finally`: l'espressione di `return` viene
+    # valutata PRIMA che il finally chiuda l'handle, e su Windows la rimozione di un
+    # file ancora aperto fallisce — riporteremmo PENDING_CLEANUP per una condizione che
+    # abbiamo creato noi. Si registra il codice, si chiude, poi si pulisce.
+    codice = None
     try:
         try:
             adattatori.publisher.scrivi(fh, blob)
         except Exception:
-            return _ricevuta_errore(WriteReasonCode.TEMP_WRITE_FAILED, record_id)
-        try:
-            adattatori.publisher.sincronizza(fh)
-        except Exception:
-            return _ricevuta_errore(WriteReasonCode.FLUSH_FSYNC_FAILED, record_id)
+            codice = WriteReasonCode.TEMP_WRITE_FAILED
+        if codice is None:
+            try:
+                adattatori.publisher.sincronizza(fh)
+            except Exception:
+                codice = WriteReasonCode.FLUSH_FSYNC_FAILED
     finally:
         try:
             fh.close()
         except Exception:
             pass
+    if codice is not None:
+        return _ricevuta_errore(codice, record_id, _pulisci(percorso_pending, adattatori))
+
     try:
         adattatori.publisher.pubblica(percorso_pending, percorso_finale)
     except FileExistsError:
-        _rimuovi_silenzioso(percorso_pending)
         return WriteReceipt(
             status=WriteStatus.COLLISION,
             write_reason_code=WriteReasonCode.COLLISION_EXISTING_TARGET,
             record_id=record_id,
             final_name=nome_finale,
+            cleanup_status=_pulisci(percorso_pending, adattatori),
         )
     except Exception:
-        _rimuovi_silenzioso(percorso_pending)
-        return _ricevuta_errore(WriteReasonCode.PUBLISH_FAILED, record_id)
+        return _ricevuta_errore(WriteReasonCode.PUBLISH_FAILED, record_id,
+                                _pulisci(percorso_pending, adattatori))
+
+    # A2 §2 — da questa riga in poi il record E' pubblicato: `os.link` e' atomico e ha
+    # gia' avuto successo. La rimozione del pending e' PULIZIA, e il suo esito non puo'
+    # piu' cambiare lo stato della pubblicazione. `PUBLISH_FAILED` resta riservato al
+    # caso in cui `os.link` stesso fallisce per un motivo che non sia la collisione,
+    # che e' quello che §4.2 dice da sempre che significhi.
     return WriteReceipt(
         status=WriteStatus.WRITTEN,
         write_reason_code=None,
         record_id=record_id,
         final_name=nome_finale,
+        cleanup_status=_pulisci(percorso_pending, adattatori),
     )
 
 
-def _rimuovi_silenzioso(percorso: str) -> None:
+def _pulisci(percorso: str, adattatori) -> CleanupStatus:
+    """Rimuove il pending e RIPORTA l'esito. Non lo ingoia piu'.
+
+    Prima era `_rimuovi_silenzioso`, e il silenzio era il difetto: un pending poteva
+    sopravvivere anche a un WRITE_ERROR senza che nulla lo dicesse.
+    """
     try:
-        os.unlink(percorso)
+        adattatori.publisher.rimuovi(percorso)
     except Exception:
-        pass
+        return CleanupStatus.PENDING_CLEANUP
+    return CleanupStatus.CLEANED
 
 
 def _scrivi(risultato, contesto, radice: str, adattatori) -> WriteReceipt:

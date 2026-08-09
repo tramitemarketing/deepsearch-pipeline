@@ -112,6 +112,20 @@ class WriteStatus(Enum):
     NOT_ATTEMPTED = "NOT_ATTEMPTED"
 
 
+class CleanupStatus(Enum):
+    """Chiuso, ESATTAMENTE DUE valori (A2 §3).
+
+    Vive SOLO nella ricevuta, mai nel record. Una volta che `os.link` e' riuscito il
+    record e' immutabile: scrivergli dentro l'esito della pulizia imporrebbe di
+    ricalcolarne il checksum, distruggendo l'atomicita' che il percorso di scrittura
+    esiste per fornire. Pubblicazione e pulizia sono due assi, e confonderli e'
+    esattamente il difetto P0-2.
+    """
+
+    CLEANED = "CLEANED"
+    PENDING_CLEANUP = "PENDING_CLEANUP"
+
+
 class Completeness(Enum):
     COMPLETE = "COMPLETE"
     UNKNOWN = "UNKNOWN"
@@ -297,6 +311,10 @@ class WriteReceipt:
     write_reason_code: Any = None
     record_id: Any = None
     final_name: Any = None
+    #: A2 §3 — CleanupStatus | None. Non-null ogni volta che un file pending e' stato
+    #: creato, null altrimenti (quindi null per NOT_ATTEMPTED / NOT_ELIGIBLE, dove non
+    #: si e' mai scritto nulla). NON finisce mai nel record persistito.
+    cleanup_status: Any = None
 
 
 @dataclass(frozen=True)
@@ -384,6 +402,10 @@ class AggregateReport:
     duplicate_groups: int
     duplicate_extra_records: int
     records_counted: int
+    #: A2 §5 — quanti file rispettano la grammatica pending nella radice. E' un segnale
+    #: OPERATIVO sulla directory, non evidenza su alcun artefatto: i pending non vengono
+    #: mai aperti, mai analizzati, e non entrano in nessun bucket di record.
+    pending_files: int = 0
     by_full_outcome: dict = field(default_factory=dict)
     by_reason_code: dict = field(default_factory=dict)
     by_comparison: dict = field(default_factory=dict)
@@ -398,6 +420,7 @@ class AggregateReport:
             "duplicate_groups": self.duplicate_groups,
             "duplicate_extra_records": self.duplicate_extra_records,
             "records_counted": self.records_counted,
+            "pending_files": self.pending_files,
             "by_full_outcome": dict(self.by_full_outcome),
             "by_reason_code": dict(self.by_reason_code),
             "by_comparison": dict(self.by_comparison),

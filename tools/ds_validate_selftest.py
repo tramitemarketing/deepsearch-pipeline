@@ -24,6 +24,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ds_validate as V  # noqa: E402
+import ds_validate_concurrency as C  # noqa: E402
 import ds_validate_report as R  # noqa: E402
 from ds_validate_contract import (  # noqa: E402
     ARTIFACT_ROOTS,
@@ -35,6 +36,7 @@ from ds_validate_contract import (  # noqa: E402
     MAX_RECORD_BYTES,
     RECORD_VERSION,
     REDACTED_SEGMENT,
+    CleanupStatus,
     Comparison,
     Completeness,
     FullOutcome,
@@ -1240,9 +1242,11 @@ def worker_scrives_wrapper(radice, record_id, schemi):
 class ApriContato:
     def __init__(self):
         self.byte_letti = 0
+        self.aperture = 0  # A2 §5: quante volte l'aggregatore apre davvero un file
 
     def __call__(self, percorso):
         contatore = self
+        contatore.aperture += 1
 
         class _F:
             def __init__(self):
@@ -1871,6 +1875,180 @@ def sezione_a1(tmp):
 
 
 # ==========================================================================
+# A2 rev — la pubblicazione batte la pulizia (P0-2, U2)
+#
+# Criteri A2 §7. La concorrenza reale fra processi vive in ds_validate_concurrency.py
+# e viene ripiegata qui sotto, cosi' che esista una sola sorgente di verita'.
+# ==========================================================================
+
+
+class _PubblicatorePuliziaGuasta(V.Pubblicatore):
+    """`os.link` riesce, `os.unlink` no. ACL che negano DELETE, antivirus, indicizzatori:
+    condizioni Windows ordinarie, ed e' esattamente la coppia che produceva P0-2."""
+
+    def rimuovi(self, percorso):
+        raise OSError("rimozione negata")
+
+
+class _PubblicatoreScritturaEPuliziaGuaste(_PubblicatorePuliziaGuasta):
+    def scrivi(self, fh, blob):
+        raise OSError("scrittura negata")
+
+
+def _pending_in(radice):
+    if not os.path.isdir(radice):
+        return []
+    return sorted(n for n in os.listdir(radice) if n.endswith(".pending"))
+
+
+def sezione_a2(tmp):
+    risultato = _risultato_per_scrittura(SCHEMI)
+    ctx = contesto(schema_ref=CORE_SCHEMA_ID)
+
+    # --- A2.0 la separazione strutturale che rende P0-2 irripetibile -------
+    # I test comportamentali qui sotto usano doppi scritti per la forma NUOVA
+    # dell'adattatore, e per costruzione non possono esercitare il metodo conflato di
+    # prima. Questa guardia sorveglia proprio la fusione: se qualcuno rimettesse
+    # `os.unlink` dentro `pubblica`, un `unlink` fallito tornerebbe a essere catturato
+    # come fallimento di pubblicazione e P0-2 rinascerebbe, silenziosamente e con tutti
+    # i test comportamentali ancora verdi.
+    def _sorgente(nome):
+        metodo = getattr(V.Pubblicatore, nome, None)
+        return inspect.getsource(metodo) if metodo is not None else ""
+
+    sorgente_pubblica = _sorgente("pubblica")
+    sorgente_rimuovi = _sorgente("rimuovi")
+    check("A2.0 `pubblica` fa SOLO os.link: nessun unlink nella stessa operazione",
+          "os.link(" in sorgente_pubblica and "os.unlink(" not in sorgente_pubblica)
+    check("A2.0 la pulizia e' un'operazione distinta dell'adattatore",
+          "os.unlink(" in sorgente_rimuovi and "os.link(" not in sorgente_rimuovi)
+    check("A2.0 os.replace resta assente dal modulo", "os.replace(" not in inspect.getsource(V))
+
+    # --- A2.1 link OK + pulizia KO -> WRITTEN, mai PUBLISH_FAILED ----------
+    radice = os.path.join(tmp, "a2-pending-cleanup")
+    ric = V.scrivi_record(risultato, ctx, radice,
+                          adattatori(publisher=_PubblicatorePuliziaGuasta(),
+                                     id_gen=id_fisso("a" * 32)))
+    check("A2.1 link riuscito + pulizia fallita -> WRITTEN, non PUBLISH_FAILED",
+          ric.status is WriteStatus.WRITTEN and ric.write_reason_code is None
+          and ric.cleanup_status is CleanupStatus.PENDING_CLEANUP,
+          str((ric.status, ric.write_reason_code, ric.cleanup_status)))
+    finali = conta_finali(radice)
+    conforme = False
+    if finali:
+        with open(os.path.join(radice, finali[0]), "rb") as fh:
+            rec = json.loads(fh.read().decode("utf-8"))
+        conforme = valida_contratto_record(rec) == []
+    check("A2.1 il record finale esiste, e' conforme e il suo checksum torna",
+          finali == ["a" * 32 + ".json"] and conforme, str(finali))
+    check("A2.1 il pending sopravvive, ed e' il solo segno della pulizia mancata",
+          len(_pending_in(radice)) == 1)
+    check("A2.1 il record persistito ha ancora ESATTAMENTE 26 chiavi, senza cleanup",
+          len(rec) == 26 and "cleanup_status" not in rec, str(len(rec)))
+
+    # --- A2.2 il duplicato non e' piu' INDOTTO dalla ricevuta -------------
+    # Con la ricevuta che diceva PUBLISH_FAILED, un chiamante conforme riprovava e
+    # produceva un secondo record per lo stesso tentativo. Ora la ricevuta dice
+    # WRITTEN, quindi non riprova: e' li' che "esattamente una volta" si regge.
+    # Se un chiamante riprovasse comunque, la deduplicazione di §4.13 tiene.
+    ric2 = V.scrivi_record(risultato, ctx, radice,
+                           adattatori(publisher=_PubblicatorePuliziaGuasta(),
+                                      id_gen=id_fisso("b" * 32)))
+    rapporto = R.aggrega(radice, quiescent=True)
+    check("A2.2 un ritentativo dello stesso (invocation_id, attempt) resta UN record contato",
+          ric2.status is WriteStatus.WRITTEN and len(conta_finali(radice)) == 2
+          and rapporto.records_counted == 1 and rapporto.duplicate_groups == 1
+          and rapporto.duplicate_extra_records == 1,
+          str((rapporto.records_counted, rapporto.duplicate_groups)))
+
+    # --- A2.9 l'aggregatore conta i pending dal nome, senza aprirli --------
+    contatore = ApriContato()
+    rapporto = R._aggrega_con_lettore(radice, quiescent=True, apri=contatore)
+    check("A2.9 i pending sono contati", rapporto.pending_files == 2,
+          str(rapporto.pending_files))
+    check("A2.9 i pending non sono mai aperti: aperture == record finali",
+          contatore.aperture == len(conta_finali(radice)), str(contatore.aperture))
+    check("A2.9 i pending non entrano in alcun bucket di record",
+          rapporto.records_discovered == 2 and rapporto.records_valid == 2
+          and sum(rapporto.by_full_outcome.values()) == rapporto.records_counted
+          and R.invarianti_aggregato(rapporto) == [],
+          str(R.invarianti_aggregato(rapporto)))
+    check("A2.9 pending_files compare nel JSON dell'aggregatore",
+          '"pending_files":2' in canonical_json(rapporto.to_dict()))
+
+    # --- A2.3 successo normale -> CLEANED, nessun pending residuo ---------
+    radice = os.path.join(tmp, "a2-pulito")
+    ric = V.scrivi_record(risultato, ctx, radice, adattatori(id_gen=id_fisso("c" * 32)))
+    check("A2.3 successo normale -> WRITTEN + CLEANED, nessun pending",
+          ric.status is WriteStatus.WRITTEN and ric.cleanup_status is CleanupStatus.CLEANED
+          and _pending_in(radice) == [] and len(conta_finali(radice)) == 1,
+          str((ric.status, ric.cleanup_status, _pending_in(radice))))
+
+    # --- A2.4 link fallito per motivo diverso dalla collisione ------------
+    radice = os.path.join(tmp, "a2-publish-ko")
+    ric = V.scrivi_record(risultato, ctx, radice,
+                          adattatori(publisher=PubblicatoreGuasto("pubblica"),
+                                     id_gen=id_fisso("d" * 32)))
+    check("A2.4 link fallito -> WRITE_ERROR / PUBLISH_FAILED, nessun record finale",
+          ric.status is WriteStatus.WRITE_ERROR
+          and ric.write_reason_code is WriteReasonCode.PUBLISH_FAILED
+          and conta_finali(radice) == [],
+          str((ric.status, ric.write_reason_code)))
+    check("A2.4 e la ricevuta dice comunque se il pending e' stato rimosso",
+          ric.cleanup_status is CleanupStatus.CLEANED and _pending_in(radice) == [],
+          str(ric.cleanup_status))
+
+    # --- A2.4-bis un WRITE_ERROR puo' lasciare un pending, e ora lo dice --
+    radice = os.path.join(tmp, "a2-write-ko")
+    ric = V.scrivi_record(risultato, ctx, radice,
+                          adattatori(publisher=_PubblicatoreScritturaEPuliziaGuaste(),
+                                     id_gen=id_fisso("e" * 32)))
+    check("A2.4 TEMP_WRITE_FAILED con pulizia fallita -> PENDING_CLEANUP, non silenzio",
+          ric.status is WriteStatus.WRITE_ERROR
+          and ric.write_reason_code is WriteReasonCode.TEMP_WRITE_FAILED
+          and ric.cleanup_status is CleanupStatus.PENDING_CLEANUP
+          and len(_pending_in(radice)) == 1,
+          str((ric.write_reason_code, ric.cleanup_status)))
+
+    # --- A2.5 collisione: il file preesistente non e' toccato -------------
+    radice = os.path.join(tmp, "a2-collisione")
+    V.scrivi_record(risultato, ctx, radice, adattatori(id_gen=id_fisso("f" * 32)))
+    percorso = os.path.join(radice, "f" * 32 + ".json")
+    with open(percorso, "rb") as fh:
+        prima = sha256_hex(fh.read())
+    ric = V.scrivi_record(risultato, ctx, radice, adattatori(id_gen=id_fisso("f" * 32)))
+    with open(percorso, "rb") as fh:
+        dopo = sha256_hex(fh.read())
+    check("A2.5 collisione -> COLLISION_EXISTING_TARGET, preesistente byte-identico",
+          ric.status is WriteStatus.COLLISION
+          and ric.write_reason_code is WriteReasonCode.COLLISION_EXISTING_TARGET
+          and prima == dopo and _pending_in(radice) == [],
+          str((ric.status, ric.write_reason_code, prima == dopo)))
+
+    # --- A2.6 nessuna ricevuta e' condivisa fra chiamate ------------------
+    a = V.esegui_shadow_produzione({}, contesto())
+    b = V.esegui_shadow_produzione({}, contesto())
+    c = V._esegui_shadow_core({}, contesto(), config=V.ConfigTest(attivo=False, radice_output=None),
+                              adattatori=adattatori())
+    ricevute = [a.write_receipt, b.write_receipt, c.write_receipt]
+    check("A2.6 NOT_ELIGIBLE -> cleanup_status None",
+          all(r.write_reason_code is WriteReasonCode.NOT_ELIGIBLE for r in ricevute)
+          and all(r.cleanup_status is None for r in ricevute))
+    check("A2.6 ogni ricevuta e' una NUOVA istanza, mai un singleton condiviso",
+          len({id(r) for r in ricevute}) == 3
+          and not hasattr(V, "_RICEVUTA_NON_ELEGGIBILE"),
+          str(len({id(r) for r in ricevute})))
+
+    # --- A2.8 le tassonomie non si sono allargate -------------------------
+    check("A2.8 len(WriteReasonCode) == 11, invariato", len(WriteReasonCode) == 11)
+    check("A2.8 CleanupStatus e' chiuso a due valori", len(CleanupStatus) == 2)
+
+    # --- A2.10 concorrenza reale fra processi (file dedicato) -------------
+    for nome, ok, dettaglio in C.esegui(SCHEMI, tmp):
+        check(nome, ok, dettaglio)
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -1889,6 +2067,7 @@ def main() -> int:
         sezione_7_8(tmp)
         sezione_7_9_7_10(tmp)
         sezione_a1(tmp)
+        sezione_a2(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
