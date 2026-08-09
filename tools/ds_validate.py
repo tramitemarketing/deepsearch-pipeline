@@ -616,8 +616,27 @@ def _valuta(istanza, contesto, adattatori, *, target, radice_schema) -> Validati
             codice, legacy, radice_schema, lib, None, None, _durata(inizio, adattatori)
         )
     if radice_schema not in registro.documenti:
+        # A5 — il fingerprint si CONSERVA: a questo punto il registro e' stato costruito
+        # per intero, `_costruisci_registro` e' tornato senza codice d'errore e il valore
+        # e' gia' calcolato. Buttarlo faceva perdere al record l'unica traccia forense di
+        # QUALE chiusura fosse attiva quando la radice e' risultata non autorizzata —
+        # esattamente l'informazione che serve a diagnosticare questo esito.
+        #
+        # `schema_sha256` resta null, e deve restarlo: la radice selezionata non e'
+        # autorizzata e non se ne puo' pubblicare l'hash. I due campi rispondono a due
+        # domande diverse — quale chiusura e' stata caricata, e quale radice e' stata
+        # hashata — e l'invariante 8 e' un'implicazione a UN SOLO VERSO:
+        #
+        #     schema_sha256 != null  =>  registry_fingerprint != null
+        #
+        # Il verso opposto NON vale e non va assunto. Un fingerprint presente dice che
+        # una chiusura e' stata costruita; non afferma che la radice sia stata accettata.
+        # Questo e' l'unico stato che realizza quell'asimmetria: senza di esso
+        # `sha is None <=> fingerprint is None` varrebbe ovunque, e l'invariante sarebbe
+        # una biimplicazione travestita che nessun test puo' falsificare.
         return _errore_validatore(
-            ReasonCode.SCHEMA_ROOT_OUTSIDE_REGISTRY, legacy, radice_schema, lib, None, None,
+            ReasonCode.SCHEMA_ROOT_OUTSIDE_REGISTRY, legacy, radice_schema, lib,
+            None, registro.fingerprint,
             _durata(inizio, adattatori),
         )
 

@@ -2166,6 +2166,108 @@ def sezione_a4(tmp):
 
 
 # ==========================================================================
+# A5 — il fingerprint si conserva quando il registro e' stato costruito
+#
+# L'implementazione calcolava il fingerprint e poi lo buttava sul ramo
+# SCHEMA_ROOT_OUTSIDE_REGISTRY, leggendo C3 come una condizione congiunta sui due
+# campi. Ma li' il registro E' stato costruito per intero. Il record perdeva l'unica
+# traccia di quale chiusura fosse attiva, e l'invariante 8 — un'implicazione a un solo
+# verso — diventava una biimplicazione travestita che nessun test poteva falsificare.
+# ==========================================================================
+
+
+def _e_hex64(v) -> bool:
+    return isinstance(v, str) and len(v) == 64 and all(c in "0123456789abcdef" for c in v)
+
+
+def _byte_della_radice(radice) -> dict:
+    byte = {}
+    for n in sorted(os.listdir(radice)):
+        if n.endswith(".json"):
+            with open(os.path.join(radice, n), "rb") as fh:
+                byte[n] = fh.read()
+    return byte
+
+
+def sezione_a5(tmp):
+    # Una chiusura RIDOTTA che si costruisce senza errori: bootstrap-verdict e' omesso
+    # ma resta un artifact root, quindi la richiesta supera il passo 4 e cade al passo 6
+    # sulla appartenenza al registro. Nessun altro schema lo referenzia, quindi togliergli
+    # il file non incrina la chiusura.
+    sotto = os.path.join(tmp, "a5-registro-ridotto")
+    os.makedirs(sotto, exist_ok=True)
+    schemi = radice_schemi_temporanea(sotto, ometti={BV})
+    atteso = V.calcola_fingerprint_da_byte(_byte_della_radice(schemi))
+    ctx_fuori = contesto(schema_ref=BV)
+
+    # --- A5.1 registro costruito + radice fuori registro ------------------
+    e = V._esegui_shadow_core({}, ctx_fuori,
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=adattatori(schemi))
+    r = e.validation_result
+    check("A5.1 radice fuori dal registro -> VALIDATOR_ERROR con il codice atteso",
+          r.full_outcome is FullOutcome.VALIDATOR_ERROR
+          and r.reason_code is ReasonCode.SCHEMA_ROOT_OUTSIDE_REGISTRY,
+          str(r.reason_code))
+    check("A5.1 schema_sha256 e' null: la radice selezionata non e' autorizzata",
+          r.schema_sha256 is None, str(r.schema_sha256))
+    check("A5.1 registry_fingerprint e' un HEX64 valido, non null",
+          _e_hex64(r.registry_fingerprint), str(r.registry_fingerprint))
+    check("A5.1 ed e' il fingerprint della chiusura EFFETTIVAMENTE costruita",
+          r.registry_fingerprint == atteso, str(r.registry_fingerprint))
+
+    # --- A5.2 stessa chiusura, radice valida -> stesso fingerprint --------
+    e2 = V._esegui_shadow_core(carica("valid/pain.ok.json"), contesto(),
+                               config=V.ConfigTest(attivo=True, radice_output=None),
+                               adattatori=adattatori(schemi))
+    r2 = e2.validation_result
+    check("A5.2 una validazione riuscita sulla stessa chiusura da' lo STESSO fingerprint",
+          r2.registry_fingerprint == r.registry_fingerprint,
+          str((r.registry_fingerprint, r2.registry_fingerprint)))
+    check("A5.2 e li' schema_sha256 non e' null, perche' la radice e' autorizzata",
+          _e_hex64(r2.schema_sha256), str(r2.schema_sha256))
+
+    # --- A5.3 dipendenza mancante -> entrambi null ------------------------
+    e3 = V._esegui_shadow_core({}, contesto(),
+                               config=V.ConfigTest(attivo=True, radice_output=None),
+                               adattatori=adattatori(importer=ImporterStrumentato(fallisce=True)))
+    r3 = e3.validation_result
+    check("A5.3 dipendenza mancante -> entrambi null: li' il registro non e' mai nato",
+          r3.reason_code is ReasonCode.DEPENDENCY_MISSING
+          and r3.schema_sha256 is None and r3.registry_fingerprint is None,
+          str((r3.schema_sha256, r3.registry_fingerprint)))
+
+    # --- A5.4 l'invariante 8 non e' piu' una tautologia -------------------
+    # Il verso dichiarato regge su tutti gli stati; il verso opposto e' FALSIFICATO
+    # da A5.1. Senza quello stato i due campi sarebbero stati null insieme ovunque, e
+    # un'invariante che nessuno stato puo' violare non e' un'invariante testata.
+    stati = [("fuori-registro", r), ("validazione-riuscita", r2), ("dipendenza-mancante", r3)]
+    check("A5.4 invariante 8 (sha != null => fingerprint != null) regge su tutti gli stati",
+          all(not (s.schema_sha256 is not None and s.registry_fingerprint is None)
+              for _n, s in stati))
+    check("A5.4 il verso opposto e' falsificato: esiste fingerprint != null con sha null",
+          any(s.schema_sha256 is None and s.registry_fingerprint is not None
+              for _n, s in stati),
+          "senza questo stato l'implicazione sarebbe una biimplicazione travestita")
+
+    # Lo stato discriminante deve essere PERSISTIBILE, non solo rappresentabile.
+    radice = os.path.join(tmp, "a5-record")
+    ric = V.scrivi_record(r, ctx_fuori, radice, adattatori(schemi, id_gen=id_fisso("5" * 32)))
+    finali = conta_finali(radice)
+    su_disco = None
+    if finali:
+        with open(os.path.join(radice, finali[0]), "rb") as fh:
+            su_disco = json.loads(fh.read().decode("utf-8"))
+    check("A5.4 il record che porta lo stato asimmetrico e' conforme e viene pubblicato",
+          ric.status is WriteStatus.WRITTEN and su_disco is not None
+          and valida_contratto_record(su_disco) == [],
+          str(ric.write_reason_code))
+    check("A5.4 e sul disco i due campi restano com'erano: null e HEX64",
+          su_disco is not None and su_disco["schema_sha256"] is None
+          and _e_hex64(su_disco["registry_fingerprint"]))
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -2186,6 +2288,7 @@ def main() -> int:
         sezione_a1(tmp)
         sezione_a2(tmp)
         sezione_a4(tmp)
+        sezione_a5(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
