@@ -643,6 +643,15 @@ def _valuta(istanza, contesto, adattatori, *, target, radice_schema) -> Validati
     sha = sha256_hex(registro.byte_grezzi[radice_schema])
     fingerprint = registro.fingerprint
 
+    # P0-3 — preflight della chiusura, PRIMA che un verdetto esista. Una chiusura che
+    # non risolve per intero non puo' produrre ne' FULL_PASS ne' FULL_FAIL: la
+    # capacita' non ha lo schema che dichiarerebbe di aver applicato. Rule H.4.
+    if not chiusura_risolve(registro.documenti):
+        return _errore_validatore(
+            ReasonCode.REF_UNRESOLVABLE, legacy, radice_schema, lib, sha, fingerprint,
+            _durata(inizio, adattatori),
+        )
+
     if target is None:
         schema_radice = registro.documenti[radice_schema]
     else:
@@ -659,6 +668,16 @@ def _valuta(istanza, contesto, adattatori, *, target, radice_schema) -> Validati
     except lib.unresolvable:
         return _errore_validatore(
             ReasonCode.REF_UNRESOLVABLE, legacy, radice_schema, lib, sha, fingerprint,
+            _durata(inizio, adattatori),
+        )
+    except _PercorsoNonRisolto:
+        # P0-4 — esplicito, non piu' assorbito dall'except generico qui sotto. Prima
+        # un percorso non risolto degradava un FULL_FAIL legittimo a
+        # INTERNAL_VALIDATION_ERROR con zero voci: l'errore c'era, la sua posizione no,
+        # e il verdetto spariva insieme alla posizione. L'esito resta lo stesso, ma ora
+        # e' una decisione dichiarata invece di una cattura accidentale.
+        return _errore_validatore(
+            ReasonCode.INTERNAL_VALIDATION_ERROR, legacy, radice_schema, lib, sha, fingerprint,
             _durata(inizio, adattatori),
         )
     except Exception:
@@ -750,65 +769,135 @@ def _segui_ref(riferimento, risorsa_corrente, documenti):
     return risorsa, puntatore, nodo
 
 
-def _analizza_percorso(radice_id, schema_radice, documenti, percorso_schema):
+def _riferimenti(nodo, fuori: list) -> None:
+    """Raccoglie ogni valore di `$ref` presente nel documento, a qualsiasi profondita'."""
+    if isinstance(nodo, dict):
+        if "$ref" in nodo:
+            fuori.append(nodo["$ref"])
+        for v in nodo.values():
+            _riferimenti(v, fuori)
+    elif isinstance(nodo, list):
+        for v in nodo:
+            _riferimenti(v, fuori)
+
+
+def chiusura_risolve(documenti: dict) -> bool:
+    """P0-3 — preflight: OGNI `$ref` del registro risolve DENTRO il registro.
+
+    Si esegue prima che un verdetto venga formato, e indipendentemente dall'istanza.
+    Un `$ref` rotto sotto `properties.payload` non veniva mai seguito da un'istanza
+    priva di `payload`, e la capacita' dichiarava valido un artefatto senza averne
+    risolto lo schema: `FULL_PASS` con una chiusura incompleta. La raggiungibilita' di
+    un riferimento rotto non puo' dipendere dalla forma dell'istanza — Rule H.4.
+
+    La risoluzione passa da `_segui_ref`, che consulta soltanto i documenti gia'
+    caricati: un `$ref` http, file:// o UNC non e' "esterno da recuperare", e' un
+    riferimento che il registro chiuso non contiene. Nessuna rete, nessun retrieve.
+    """
+    for identita, documento in documenti.items():
+        trovati = []
+        _riferimenti(documento, trovati)
+        for riferimento in trovati:
+            try:
+                _segui_ref(riferimento, identita, documenti)
+            except _PercorsoNonRisolto:
+                return False
+    return True
+
+
+_ASSENTE = object()
+_MAX_CANDIDATI = 8
+_MAX_SALTI_REF = 32
+
+
+def _passo_locale(nodo, segmenti, i):
+    """Un passo di cammino DENTRO il nodo corrente: (nodo, pezzo, dichiarato, consumati)."""
+    s = segmenti[i]
+    ultimo = i == len(segmenti) - 1
+    try:
+        if s == "properties" and not ultimo:
+            nome = segmenti[i + 1]
+            return nodo["properties"][nome], "/properties/" + _esc(str(nome)), True, 2
+        if s == "items" and not ultimo:
+            return nodo["items"], "/items", True, 1
+        if s == "prefixItems" and not ultimo:
+            idx = segmenti[i + 1]
+            return nodo["prefixItems"][idx], "/prefixItems/" + str(idx), True, 2
+        if s == "additionalProperties" and not ultimo:
+            return nodo["additionalProperties"], "/additionalProperties", False, 1
+        if s == "patternProperties" and not ultimo:
+            pat = segmenti[i + 1]
+            return nodo["patternProperties"][pat], "/patternProperties/" + _esc(str(pat)), False, 2
+        return nodo[s], "/" + _esc(str(s)), None, 1
+    except Exception:
+        raise _PercorsoNonRisolto()
+
+
+def _candidati(risorsa, nodo, puntatore, dichiarati, segmenti, i, documenti, saldo, fuori):
+    """Enumera le risoluzioni possibili del percorso di schema.
+
+    `jsonschema` NON mette `$ref` in `absolute_schema_path`: dopo un nodo che porta un
+    `$ref`, il segmento successivo puo' appartenere al bersaglio del riferimento oppure
+    a un sibling locale che condivide la stessa chiave. Sono due risoluzioni entrambe
+    ben formate, e la vecchia guardia ne sceglieva sempre una — quella locale — anche
+    quando l'errore veniva dall'altra. E' cosi' che `evidence-pack` riportava
+    `/properties/payload/properties/claims/items/required`, un array che contiene
+    `["promoted_by"]`, per una `id` mancante che vive in `core.schema.json#/$defs/Claim`.
+
+    Qui si enumerano entrambe e si lascia decidere al chiamante, che ha in mano il
+    valore di schema che ha davvero fallito.
+    """
+    if len(fuori) >= _MAX_CANDIDATI or saldo[0] <= 0:
+        return
+    if i >= len(segmenti):
+        fuori.append((risorsa, puntatore, list(dichiarati), nodo))
+        return
+
+    # Ramo locale per primo: senza ambiguita' riproduce esattamente il cammino storico.
+    try:
+        nodo2, pezzo, dichiarato, passi = _passo_locale(nodo, segmenti, i)
+    except _PercorsoNonRisolto:
+        pass
+    else:
+        avanti = list(dichiarati)
+        if dichiarato is not None:
+            avanti.append(dichiarato)
+        _candidati(risorsa, nodo2, puntatore + pezzo, avanti, segmenti, i + passi,
+                   documenti, saldo, fuori)
+
+    # Ramo del riferimento: si segue il `$ref` e si riprova lo STESSO segmento.
+    if isinstance(nodo, dict) and "$ref" in nodo:
+        saldo[0] -= 1
+        try:
+            r2, p2, n2 = _segui_ref(nodo["$ref"], risorsa, documenti)
+        except _PercorsoNonRisolto:
+            return
+        _candidati(r2, n2, p2, dichiarati, segmenti, i, documenti, saldo, fuori)
+
+
+def _analizza_percorso(radice_id, schema_radice, documenti, percorso_schema,
+                       valore_atteso=_ASSENTE):
     """Ritorna (risorsa, puntatore, dichiarati) camminando il percorso di schema.
 
     `dichiarati[i]` dice se il segmento i-esimo del percorso di ISTANZA e' una
     chiave dichiarata dallo schema in quella posizione (o un indice di array).
+
+    `valore_atteso` e' il `validator_value` dell'errore: il valore di schema che ha
+    effettivamente fallito. Quando due risoluzioni sono entrambe ben formate, e' cio'
+    che le distingue — il nodo terminale corretto E' quel valore. §4.6 chiede che
+    `schema_resource_id` sia la risorsa che contiene davvero la parola chiave, e questa
+    e' l'unica informazione disponibile che lo determina.
     """
-    risorsa = radice_id
-    nodo = schema_radice
-    puntatore = ""
-    dichiarati = []
-    segmenti = list(percorso_schema)
-    i = 0
-    while i < len(segmenti):
-        s = segmenti[i]
-        while isinstance(nodo, dict) and "$ref" in nodo and not _ha_chiave(nodo, s):
-            risorsa, puntatore, nodo = _segui_ref(nodo["$ref"], risorsa, documenti)
-        ultimo = i == len(segmenti) - 1
-        try:
-            if s == "properties" and not ultimo:
-                nome = segmenti[i + 1]
-                nodo = nodo["properties"][nome]
-                puntatore += "/properties/" + _esc(str(nome))
-                dichiarati.append(True)
-                i += 2
-                continue
-            if s == "items" and not ultimo:
-                nodo = nodo["items"]
-                puntatore += "/items"
-                dichiarati.append(True)
-                i += 1
-                continue
-            if s == "prefixItems" and not ultimo:
-                idx = segmenti[i + 1]
-                nodo = nodo["prefixItems"][idx]
-                puntatore += "/prefixItems/" + str(idx)
-                dichiarati.append(True)
-                i += 2
-                continue
-            if s == "additionalProperties" and not ultimo:
-                nodo = nodo["additionalProperties"]
-                puntatore += "/additionalProperties"
-                dichiarati.append(False)
-                i += 1
-                continue
-            if s == "patternProperties" and not ultimo:
-                pat = segmenti[i + 1]
-                nodo = nodo["patternProperties"][pat]
-                puntatore += "/patternProperties/" + _esc(str(pat))
-                dichiarati.append(False)
-                i += 2
-                continue
-            nodo = nodo[s]
-        except _PercorsoNonRisolto:
-            raise
-        except Exception:
-            raise _PercorsoNonRisolto()
-        puntatore += "/" + _esc(str(s))
-        i += 1
-    return risorsa, puntatore, dichiarati
+    fuori = []
+    _candidati(radice_id, schema_radice, "", [], list(percorso_schema), 0,
+               documenti, [_MAX_SALTI_REF], fuori)
+    if not fuori:
+        raise _PercorsoNonRisolto()
+    if valore_atteso is not _ASSENTE and len(fuori) > 1:
+        esatti = [c for c in fuori if c[3] == valore_atteso]
+        if len(esatti) == 1:
+            return esatti[0][0], esatti[0][1], esatti[0][2]
+    return fuori[0][0], fuori[0][1], fuori[0][2]
 
 
 def costruisci_posizioni(percorso_istanza, dichiarati):
@@ -913,8 +1002,12 @@ def _raccogli(iteratore, radice_id, schema_radice, documenti):
     voci = []
     scartate = 0
     for errore in considerati:
+        # Il valore di schema che ha fallito e' cio' che distingue due risoluzioni
+        # entrambe ben formate quando un `$ref` ha sibling locali (P0-4).
         risorsa, puntatore, dichiarati = _analizza_percorso(
-            radice_id, schema_radice, documenti, getattr(errore, "absolute_schema_path", [])
+            radice_id, schema_radice, documenti,
+            getattr(errore, "absolute_schema_path", []),
+            getattr(errore, "validator_value", _ASSENTE),
         )
         ptr_ist, posizione, esatta = costruisci_posizioni(
             getattr(errore, "absolute_path", []), dichiarati

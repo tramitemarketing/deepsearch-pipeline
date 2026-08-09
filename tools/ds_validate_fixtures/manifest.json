@@ -1,132 +1,11 @@
 {
   "manifest_version": "1.0.0",
-  "fixture_count": 50,
+  "fixture_count": 52,
   "entries": [
     {
-      "path": "valid/bootstrap-verdict.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "bootstrap-verdict.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/competitor-report.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "competitor-report.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/evidence-pack.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "evidence-pack.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/gate-decision.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "gate-decision.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/market-report.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "market-report.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/pain.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/redteam-report.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "redteam-report.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/scorecard.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "scorecard.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/seen-pain.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "seen-pain.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/trigger-report.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "trigger-report.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/venture-blueprint.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "venture-blueprint.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "valid/verification-report.ok.json",
-      "kind": "validation_instance",
-      "target_ref": "verification-report.schema.json",
-      "expected_full_outcome": "FULL_PASS"
-    },
-    {
-      "path": "invalid/gate-decision.const.json",
-      "kind": "validation_instance",
-      "target_ref": "gate-decision.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/gate-decision.oneof.json",
-      "kind": "validation_instance",
-      "target_ref": "gate-decision.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.array-shape.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.enum.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.false-assurance.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.missing-envelope.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.nested-type.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.pattern.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
-    },
-    {
-      "path": "invalid/pain.required-multi.json",
-      "kind": "validation_instance",
-      "target_ref": "pain.schema.json",
-      "expected_full_outcome": "FULL_FAIL"
+      "path": "canary/environment.canary.json",
+      "kind": "test_data",
+      "usage": "Elenco dei canary segreti da cercare in record, report, stdout e stderr, e dei metadati autorizzati e rifiutati usati dai test di privacy."
     },
     {
       "path": "canary/instance.canary.json",
@@ -249,6 +128,72 @@
       "expected_full_outcome": "FULL_PASS"
     },
     {
+      "path": "invalid/evidence-pack.claim-id-missing.json",
+      "kind": "validation_instance",
+      "target_ref": "evidence-pack.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/evidence-pack.claim-id-type.json",
+      "kind": "validation_instance",
+      "target_ref": "evidence-pack.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/gate-decision.const.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/gate-decision.oneof.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.array-shape.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.enum.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.false-assurance.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.missing-envelope.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.nested-type.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.pattern.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.required-multi.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
       "path": "schema-broken/collide-a.schema.json",
       "kind": "schema_fixture",
       "expected_full_outcome": "VALIDATOR_ERROR",
@@ -297,9 +242,76 @@
       "expected_reason_code": "SCHEMA_UNREADABLE"
     },
     {
-      "path": "canary/environment.canary.json",
-      "kind": "test_data",
-      "usage": "Elenco dei canary segreti da cercare in record, report, stdout e stderr, e dei metadati autorizzati e rifiutati usati dai test di privacy."
+      "path": "valid/bootstrap-verdict.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "bootstrap-verdict.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/competitor-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "competitor-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/evidence-pack.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "evidence-pack.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/gate-decision.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/market-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "market-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/pain.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/redteam-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "redteam-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/scorecard.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "scorecard.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/seen-pain.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "seen-pain.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/trigger-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "trigger-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/venture-blueprint.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "venture-blueprint.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/verification-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "verification-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
     }
   ]
 }

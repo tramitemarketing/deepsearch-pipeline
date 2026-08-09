@@ -44,6 +44,7 @@ from ds_validate_contract import (  # noqa: E402
     InvocationReasonCode,
     InvocationStatus,
     LegacyOutcome,
+    REASON_CODES_VALIDATOR_ERROR,
     ReasonCode,
     TestValidationTarget,
     ValidationContext,
@@ -65,6 +66,11 @@ SCHEMI = os.path.join(RADICE_REPO, "schemas")
 
 ARTEFATTO = "a" * 64
 CANARY_ID = "canary.inv-0001"
+
+#: sentinella per il parametro `istanza` di `esegui_schema_rotto`: distingue "non
+#: passata" da un'istanza legittimamente vuota `{}`, che dopo P0-3 e' il caso da
+#: esercitare e non piu' quello da evitare.
+_DEFAULT_ISTANZA = object()
 
 
 # ==========================================================================
@@ -737,7 +743,7 @@ def sezione_fixture(tmp):
     return codici_visti
 
 
-def esegui_schema_rotto(tmp, percorso):
+def esegui_schema_rotto(tmp, percorso, istanza=_DEFAULT_ISTANZA):
     nome = percorso.split("/")[-1]
     byte = byte_fixture(percorso)
     sotto = os.path.join(tmp, "rotto-" + nome)
@@ -758,9 +764,14 @@ def esegui_schema_rotto(tmp, percorso):
         descrittore = carica(percorso)
         radice = radice_schemi_temporanea(sotto, ometti={descrittore["omit_from_registry"]})
         rif = descrittore["schema_ref"]
-    # istanza con `payload` presente: senza di essa un $ref sotto `properties.payload`
-    # non verrebbe mai seguito e il caso negativo non sarebbe discriminante.
-    e = V._esegui_shadow_core({"payload": {}}, contesto(schema_ref=rif),
+    # L'istanza predefinita porta `payload`, perche' PRIMA di P0-3 senza di essa un
+    # `$ref` sotto `properties.payload` non veniva mai seguito e il caso negativo non
+    # era discriminante. Dopo il preflight della chiusura non serve piu': la
+    # raggiungibilita' non dipende dall'istanza, ed e' proprio cio' che la sezione
+    # P0-3 verifica passando `{}`.
+    if istanza is _DEFAULT_ISTANZA:
+        istanza = {"payload": {}}
+    e = V._esegui_shadow_core(istanza, contesto(schema_ref=rif),
                               config=V.ConfigTest(attivo=True, radice_output=None),
                               adattatori=adattatori(radice))
     return e.validation_result
@@ -1478,16 +1489,36 @@ def sezione_7_14():
     for cartella in ("valid", "invalid", "defs", "schema-broken", "canary"):
         for n in sorted(os.listdir(os.path.join(FIXTURE, cartella))):
             su_disco.append(cartella + "/" + n)
-    check("7.14 il manifest contiene esattamente i 50 percorsi allowlistati",
-          len(percorsi) == 50 and percorsi == sorted(su_disco),
+    # A3 — l'allowlist emendata: 52 fixture, non piu' 50. Le due aggiunte sono i
+    # negativi di `evidence-pack`, senza i quali P0-4 non era distinguibile: uno schema
+    # con la sola fixture VALIDA che passa non sa dire se e' stato "validato bene"
+    # oppure "non validato affatto".
+    check("7.14 il manifest contiene esattamente i 52 percorsi allowlistati",
+          len(percorsi) == 52 and percorsi == sorted(su_disco),
           str(set(percorsi) ^ set(su_disco)))
     check("7.14 contratto del manifest rispettato", valida_manifest(manifesto) == [],
           str(valida_manifest(manifesto)))
     from collections import Counter
     conteggi = Counter(v["kind"] for v in manifesto["entries"])
-    check("7.14 totali per kind 22/19/8/1",
-          conteggi == {"validation_instance": 22, "subschema_instance": 19,
+    check("7.14 totali per kind 24/19/8/1",
+          conteggi == {"validation_instance": 24, "subschema_instance": 19,
                        "schema_fixture": 8, "test_data": 1}, str(dict(conteggi)))
+    per_cartella = Counter(v["path"].split("/")[0] for v in manifesto["entries"])
+    check("7.14 conteggi per directory: valid 12, invalid 11, defs 19, schema-broken 8, canary 2",
+          per_cartella == {"valid": 12, "invalid": 11, "defs": 19,
+                           "schema-broken": 8, "canary": 2}, str(dict(per_cartella)))
+
+    # A3 — il totale autorizzato e' un LETTERALE, non una deduzione: 5 file di codice
+    # + 1 manifest + 52 fixture = 58. Ogni differenza va spiegata, non assorbita.
+    codice = sorted(n for n in os.listdir(QUI)
+                    if n.startswith("ds_validate") and n.endswith(".py"))
+    atteso_codice = ["ds_validate.py", "ds_validate_concurrency.py", "ds_validate_contract.py",
+                     "ds_validate_report.py", "ds_validate_selftest.py"]
+    check("7.14 i file di codice autorizzati sono esattamente 5", codice == atteso_codice,
+          str(set(codice) ^ set(atteso_codice)))
+    check("7.14 l'allowlist totale e' esattamente 58 file",
+          len(codice) + 1 + len(percorsi) == 58,
+          str(len(codice)) + "+1+" + str(len(percorsi)))
     ambiente = [v for v in manifesto["entries"]
                 if v["path"] == "canary/environment.canary.json"][0]
     check("7.14 environment.canary.json e' test_data senza target ne' esiti",
@@ -2268,6 +2299,164 @@ def sezione_a5(tmp):
 
 
 # ==========================================================================
+# P0-3 / P0-4 — preflight della chiusura e attribuzione del percorso
+# ==========================================================================
+
+
+def _ultimo_segmento(puntatore: str) -> str:
+    if not puntatore:
+        return ""
+    pezzo = puntatore.split("/")[-1]
+    return pezzo.replace("~1", "/").replace("~0", "~")
+
+
+def _coerenza_voce(voce, documenti) -> str:
+    """§7.16 — la voce descrive un nodo che ESISTE e che contiene davvero cio' che dice.
+
+    E' il controllo che avrebbe preso P0-4 il giorno in cui e' stato scritto: un
+    puntatore che indirizza `["promoted_by"]` mentre riporta `missing_property: id`
+    non e' un dettaglio cosmetico, e' una prova sbagliata.
+    """
+    documento = documenti.get(voce.schema_resource_id)
+    if documento is None:
+        return "risorsa non registrata: " + voce.schema_resource_id
+    try:
+        nodo = deref_puntatore(documento, voce.schema_pointer)
+    except Exception:
+        return "puntatore non dereferenziabile in " + voce.schema_resource_id
+    if _ultimo_segmento(voce.schema_pointer) != voce.keyword:
+        return "il puntatore non termina sulla parola chiave riportata: " + voce.keyword
+    if voce.missing_property is not None:
+        if voce.keyword != "required":
+            return "missing_property senza keyword=required"
+        if not isinstance(nodo, list) or voce.missing_property not in nodo:
+            return "missing_property non e' membro del required indirizzato"
+    return ""
+
+
+def sezione_p0_3_p0_4(tmp):
+    documenti = documenti_schemi()
+
+    # --- P0-3: ogni schema rotto -> VALIDATOR_ERROR con QUALSIASI istanza ---
+    manifesto = carica("manifest.json")
+    rotti = [v["path"] for v in manifesto["entries"] if v["kind"] == "schema_fixture"]
+    for percorso in rotti:
+        for etichetta, istanza in (("istanza vuota {}", {}),
+                                   ("istanza che attraversa il ramo", {"payload": {}})):
+            r = esegui_schema_rotto(tmp, percorso, istanza)
+            check("P0-3 " + percorso + " con " + etichetta + " -> VALIDATOR_ERROR",
+                  r.full_outcome is FullOutcome.VALIDATOR_ERROR
+                  and r.reason_code in REASON_CODES_VALIDATOR_ERROR
+                  and r.errors == (),
+                  str(r.full_outcome) + "/" + str(r.reason_code))
+
+    # Il caso che produceva P0-3: `$ref` irrisolvibile sotto `properties.payload`, e
+    # un'istanza priva di `payload` che non lo attraversa mai. Prima: FULL_PASS.
+    for fixture in ("schema-broken/ref-external.schema.json",
+                    "schema-broken/ref-unregistered.schema.json"):
+        r = esegui_schema_rotto(tmp, fixture, {})
+        check("P0-3 " + fixture + " con {} -> REF_UNRESOLVABLE, mai FULL_PASS",
+              r.reason_code is ReasonCode.REF_UNRESOLVABLE
+              and r.full_outcome is not FullOutcome.FULL_PASS,
+              str(r.full_outcome) + "/" + str(r.reason_code))
+
+    # Il preflight non dipende nemmeno dalla radice selezionata: una chiusura rotta
+    # altrove fa fallire una validazione radicata su uno schema integro.
+    sotto = os.path.join(tmp, "p03-altra-radice")
+    os.makedirs(sotto, exist_ok=True)
+    schemi = radice_schemi_temporanea(
+        sotto, sostituzioni={"pain.schema.json": byte_fixture(
+            "schema-broken/ref-unregistered.schema.json")})
+    e = V._esegui_shadow_core(carica("valid/gate-decision.ok.json"),
+                              contesto(schema_ref="gate-decision.schema.json"),
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=adattatori(schemi))
+    check("P0-3 la chiusura si verifica per intero, non solo dalla radice selezionata",
+          e.validation_result.reason_code is ReasonCode.REF_UNRESOLVABLE,
+          str(e.validation_result.reason_code))
+    check("P0-3 nessuna chiamata di rete durante il preflight", CHIAMATE_RETE["n"] == 0)
+
+    # --- §4.10: la riga VALIDATOR_ERROR della matrice, finalmente coperta ---
+    radice = os.path.join(tmp, "p03-emissione")
+    sotto2 = os.path.join(tmp, "p03-emissione-schemi")
+    os.makedirs(sotto2, exist_ok=True)
+    schemi2 = radice_schemi_temporanea(
+        sotto2, sostituzioni={"pain.schema.json": byte_fixture(
+            "schema-broken/ref-external.schema.json")})
+    e = V._esegui_shadow_core({}, contesto(),
+                              config=V.ConfigTest(attivo=True, radice_output=radice),
+                              adattatori=adattatori(schemi2))
+    check("P0-3 la riga VALIDATOR_ERROR di §4.10 e' esercitata con l'esito giusto",
+          e.validation_result.full_outcome is FullOutcome.VALIDATOR_ERROR
+          and e.write_receipt.status is WriteStatus.WRITTEN
+          and len(conta_finali(radice)) == 1,
+          str(e.validation_result.full_outcome))
+
+    # --- P0-4: le due fixture negative di evidence-pack --------------------
+    ctx_ep = contesto(schema_ref="evidence-pack.schema.json")
+    r = V._esegui_shadow_core(carica("invalid/evidence-pack.claim-id-type.json"), ctx_ep,
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=adattatori()).validation_result
+    check("P0-4 violazione di tipo sotto claims[].id -> FULL_FAIL con una voce",
+          r.full_outcome is FullOutcome.FULL_FAIL and len(r.errors) == 1,
+          str(r.full_outcome) + "/" + str(r.reason_code) + " voci=" + str(len(r.errors)))
+
+    r = V._esegui_shadow_core(carica("invalid/evidence-pack.claim-id-missing.json"), ctx_ep,
+                              config=V.ConfigTest(attivo=True, radice_output=None),
+                              adattatori=adattatori()).validation_result
+    voci = [v for v in r.errors if v.keyword == "required"]
+    v = voci[0] if len(voci) == 1 else None
+    check("P0-4 `id` mancante -> FULL_FAIL", r.full_outcome is FullOutcome.FULL_FAIL)
+    check("P0-4 schema_resource_id e' la risorsa che contiene davvero la parola chiave",
+          v is not None and v.schema_resource_id == CORE_SCHEMA_ID,
+          repr(None if v is None else v.schema_resource_id))
+    check("P0-4 schema_pointer indirizza /$defs/Claim/required, non il sibling locale",
+          v is not None and v.schema_pointer == "/$defs/Claim/required",
+          repr(None if v is None else v.schema_pointer))
+    # Il deref va tentato, non assunto: su un puntatore mal attribuito solleva, e un
+    # controllo che fa cadere la suite invece di fallire non e' un controllo.
+    contenuto = None
+    if v is not None:
+        try:
+            contenuto = deref_puntatore(documenti.get(v.schema_resource_id, {}),
+                                        v.schema_pointer)
+        except Exception:
+            contenuto = None
+    check("P0-4 e quel required contiene davvero `id`",
+          v is not None and v.missing_property == "id"
+          and isinstance(contenuto, list) and "id" in contenuto,
+          repr(None if v is None else (v.schema_resource_id, v.missing_property, contenuto)))
+
+    # --- §7.16: la proprieta' su TUTTO il corpus --------------------------
+    entrate = [x for x in manifesto["entries"]
+               if x["kind"] in ("validation_instance", "subschema_instance")]
+    voci_totali = 0
+    incoerenti = []
+    for voce_manifest in entrate:
+        percorso = voce_manifest["path"]
+        istanza = carica(percorso)
+        if voce_manifest["kind"] == "validation_instance":
+            r = V._esegui_shadow_core(
+                istanza, contesto(schema_ref=voce_manifest["target_ref"]),
+                config=V.ConfigTest(attivo=True, radice_output=None),
+                adattatori=adattatori()).validation_result
+        else:
+            r = V._valida_sottoschema_test(
+                istanza, contesto(schema_ref=CORE_SCHEMA_ID),
+                target=TestValidationTarget[voce_manifest["target_ref"]],
+                adattatori=adattatori()).validation_result
+        for v in r.errors:
+            voci_totali += 1
+            problema = _coerenza_voce(v, documenti)
+            if problema:
+                incoerenti.append(percorso + ": " + problema)
+    check("§7.16 ogni voce del corpus indirizza un nodo che contiene cio' che riporta",
+          incoerenti == [], str(incoerenti[:3]))
+    check("§7.16 la proprieta' e' stata esercitata su un numero non banale di voci",
+          voci_totali >= 20, str(voci_totali))
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -2289,6 +2478,7 @@ def main() -> int:
         sezione_a2(tmp)
         sezione_a4(tmp)
         sezione_a5(tmp)
+        sezione_p0_3_p0_4(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
