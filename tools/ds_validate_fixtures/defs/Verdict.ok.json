@@ -1,0 +1,19 @@
+{
+  "verdict": "PARK",
+  "reasons": [
+    {
+      "code": "G3",
+      "text": "la perdita economica ricorrente e' sostenuta da una fonte T1 verificata",
+      "claim_ids": [
+        "C-shard01-001"
+      ],
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "severity": "HARD"
+    }
+  ],
+  "missing_to_decide": [
+    "listino pubblico del vendor dominante"
+  ]
+}

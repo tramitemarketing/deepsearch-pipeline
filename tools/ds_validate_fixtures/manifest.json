@@ -1,0 +1,305 @@
+{
+  "manifest_version": "1.0.0",
+  "fixture_count": 50,
+  "entries": [
+    {
+      "path": "valid/bootstrap-verdict.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "bootstrap-verdict.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/competitor-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "competitor-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/evidence-pack.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "evidence-pack.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/gate-decision.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/market-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "market-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/pain.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/redteam-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "redteam-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/scorecard.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "scorecard.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/seen-pain.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "seen-pain.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/trigger-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "trigger-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/venture-blueprint.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "venture-blueprint.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/verification-report.ok.json",
+      "kind": "validation_instance",
+      "target_ref": "verification-report.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "invalid/gate-decision.const.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/gate-decision.oneof.json",
+      "kind": "validation_instance",
+      "target_ref": "gate-decision.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.array-shape.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.enum.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.false-assurance.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.missing-envelope.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.nested-type.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.pattern.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/pain.required-multi.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "canary/instance.canary.json",
+      "kind": "validation_instance",
+      "target_ref": "pain.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/AntiHallucinationAnswer.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_ANTI_HALLUCINATION_ANSWER",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/AntiHallucinationAnswer.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_ANTI_HALLUCINATION_ANSWER",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Claim.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Claim.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Envelope.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_ENVELOPE",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Envelope.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_ENVELOPE",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/KillAnalysis.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_KILL_ANALYSIS",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/KillAnalysis.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_KILL_ANALYSIS",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Numeric.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_NUMERIC",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Numeric.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_NUMERIC",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Query.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_QUERY",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Query.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_QUERY",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Source.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_SOURCE",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Source.format-invalid.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_SOURCE",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Source.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_SOURCE",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/UnreachableSource.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_UNREACHABLE_SOURCE",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/UnreachableSource.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_UNREACHABLE_SOURCE",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Verdict.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_VERDICT",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Verdict.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_VERDICT",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "schema-broken/collide-a.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_ID_COLLISION"
+    },
+    {
+      "path": "schema-broken/collide-b.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_ID_COLLISION"
+    },
+    {
+      "path": "schema-broken/id-basename-mismatch.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_ID_COLLISION"
+    },
+    {
+      "path": "schema-broken/meta-invalid.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_META_INVALID"
+    },
+    {
+      "path": "schema-broken/ref-external.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "REF_UNRESOLVABLE"
+    },
+    {
+      "path": "schema-broken/ref-unregistered.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "REF_UNRESOLVABLE"
+    },
+    {
+      "path": "schema-broken/root-outside.pointer.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_ROOT_OUTSIDE_REGISTRY"
+    },
+    {
+      "path": "schema-broken/unreadable.schema.json",
+      "kind": "schema_fixture",
+      "expected_full_outcome": "VALIDATOR_ERROR",
+      "expected_reason_code": "SCHEMA_UNREADABLE"
+    },
+    {
+      "path": "canary/environment.canary.json",
+      "kind": "test_data",
+      "usage": "Elenco dei canary segreti da cercare in record, report, stdout e stderr, e dei metadati autorizzati e rifiutati usati dai test di privacy."
+    }
+  ]
+}

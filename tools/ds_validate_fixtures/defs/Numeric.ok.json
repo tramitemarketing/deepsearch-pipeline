@@ -1,0 +1,20 @@
+{
+  "label": "Perdita annua per impresa",
+  "value": 12400.0,
+  "unit": "EUR/anno",
+  "currency": "EUR",
+  "year": 2025,
+  "geo": "IT",
+  "state": "ESTIMATED",
+  "source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "input_source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "is_assumption": false,
+  "value_min": null,
+  "value_max": null,
+  "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+  "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+}

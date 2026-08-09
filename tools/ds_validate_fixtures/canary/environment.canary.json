@@ -1,0 +1,20 @@
+{
+  "segreti": {
+    "valore_istanza": "CANARY-VALORE-ISTANZA-7f3a",
+    "chiave_dinamica": "CANARY-CHIAVE-DINAMICA-91bd",
+    "prompt": "CANARY-PROMPT-2c55",
+    "authorization": "CANARY-AUTHORIZATION-b0e1",
+    "ambiente": "CANARY-AMBIENTE-4d72",
+    "percorso_assoluto": "CANARY-PERCORSO-ASSOLUTO-8a19",
+    "testo_eccezione": "CANARY-ECCEZIONE-FORZATA-5e6c"
+  },
+  "metadati_autorizzati": {
+    "invocation_id": "canary.inv-0001",
+    "run_id": "20260808-1200",
+    "role": "pain-finder",
+    "stage": "pain"
+  },
+  "metadati_rifiutati": {
+    "invocation_id": "..\\CANARY-RIFIUTATO-3f2b"
+  }
+}

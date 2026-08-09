@@ -1,0 +1,352 @@
+{
+  "agent": "pain-finder",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "shard": {
+      "sector": "metalmeccanica",
+      "geo": "IT-Lombardia",
+      "angle": "adempimenti"
+    },
+    "pains": [
+      {
+        "id": "P-001",
+        "statement": "Le PMI metalmeccaniche riconciliano a mano gli adempimenti mensili su fogli separati",
+        "job_to_be_done": "chiudere il mese senza scadenze mancate",
+        "icp": {
+          "sector": "metalmeccanica",
+          "company_size": "10-49",
+          "user_role": "responsabile amministrativo"
+        },
+        "recurrence": {
+          "frequency": "mensile",
+          "state": "VERIFIED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "economic_loss": {
+          "label": "Perdita annua per impresa",
+          "value": 12400.0,
+          "unit": "EUR/anno",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+          "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+        },
+        "loss_mechanism": "ore amministrative ripetute piu' sanzioni per scadenze mancate",
+        "current_workaround": {
+          "description": "foglio di calcolo condiviso aggiornato a mano dal responsabile amministrativo",
+          "state": "VERIFIED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "already_spending": {
+          "is_spending": true,
+          "spend_form": "consulenza_esterna",
+          "amount": {
+            "label": "Spesa annua per consulenza",
+            "value": 4800.0,
+            "unit": "EUR/anno",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          },
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "behaviour_traces": [
+          {
+            "actor": "impresa metalmeccanica di Brescia",
+            "kind": "annuncio_lavoro",
+            "actor_class": "domanda",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ]
+          }
+        ],
+        "evidence_seeds": [
+          {
+            "angle": "statistica_ufficiale",
+            "what_to_look_for": "ore medie dedicate agli adempimenti per classe dimensionale",
+            "candidate_source": "ISTAT"
+          }
+        ],
+        "preliminary_sources": [
+          "S-20260808-1200-0001"
+        ],
+        "dedup_key": "riconciliazione adempimenti|10-49|metalmeccanica lombardia",
+        "self_kill_flags": []
+      },
+      {
+        "id": "P-002",
+        "statement": "Le PMI metalmeccaniche riconciliano a mano gli adempimenti mensili su fogli separati",
+        "job_to_be_done": "chiudere il mese senza scadenze mancate",
+        "icp": {
+          "sector": "metalmeccanica",
+          "company_size": "10-49",
+          "geo": "IT",
+          "buyer_role": "CFO",
+          "user_role": "responsabile amministrativo"
+        },
+        "recurrence": {
+          "frequency": "mensile",
+          "state": "VERIFIED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "economic_loss": {
+          "label": "Perdita annua per impresa",
+          "value": 12400.0,
+          "unit": "EUR/anno",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+          "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+        },
+        "loss_mechanism": "ore amministrative ripetute piu' sanzioni per scadenze mancate",
+        "current_workaround": {
+          "description": "foglio di calcolo condiviso aggiornato a mano dal responsabile amministrativo",
+          "state": "VERIFIED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "already_spending": {
+          "is_spending": true,
+          "spend_form": "consulenza_esterna",
+          "amount": {
+            "label": "Spesa annua per consulenza",
+            "value": 4800.0,
+            "unit": "EUR/anno",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          },
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ]
+        },
+        "behaviour_traces": [
+          {
+            "actor": "impresa metalmeccanica di Brescia",
+            "kind": "annuncio_lavoro",
+            "actor_class": "domanda",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ]
+          }
+        ],
+        "evidence_seeds": [
+          {
+            "angle": "statistica_ufficiale",
+            "what_to_look_for": "ore medie dedicate agli adempimenti per classe dimensionale",
+            "candidate_source": "ISTAT"
+          }
+        ],
+        "preliminary_sources": [
+          "S-20260808-1200-0001"
+        ],
+        "dedup_key": "riconciliazione adempimenti|10-49|metalmeccanica lombardia",
+        "self_kill_flags": []
+      }
+    ],
+    "rejected_during_screening": [
+      {
+        "statement": "difficolta' generica nel trovare personale qualificato",
+        "reason_code": "NON_SPECIFICO",
+        "reason": "non riconducibile a un job ricorrente misurabile"
+      }
+    ],
+    "claims": [
+      {
+        "id": "C-shard01-001",
+        "statement": {
+          "subject": "imprese italiane con 10-49 addetti del settore metalmeccanico",
+          "observed": "dedicano ore mensili alla riconciliazione manuale degli adempimenti",
+          "quantity": {
+            "label": "Ore mensili dedicate",
+            "value": 5.2,
+            "unit": "ore/mese",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "VERIFIED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": null,
+            "display_string": "12.400 EUR/anno per impresa"
+          },
+          "period": "2025",
+          "geo": "IT"
+        },
+        "state": "VERIFIED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "estimation_formula": null,
+        "stale_warning": false,
+        "contradicted_by": [],
+        "evidence": [
+          {
+            "source_id": "S-20260808-1200-0001",
+            "snippet": "Le imprese con 10-49 addetti dedicano in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti.",
+            "snippet_source": "FETCHED",
+            "verbatim_quote": "in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti"
+          }
+        ],
+        "evidence_kind": "PUBBLICAZIONE",
+        "promotion_rule_met": "1xT1"
+      }
+    ]
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}

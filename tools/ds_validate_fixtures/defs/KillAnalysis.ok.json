@@ -1,0 +1,8 @@
+{
+  "kill_basis": "ASSENZA",
+  "kill_attribution": "MONDO",
+  "ramo_attivato": 5,
+  "stop_reason_osservato": "COMPLETED",
+  "kill_emettibile": true,
+  "predicato_falsificabile": "esiste un vendor italiano con API pubblica su questo job"
+}

@@ -1,0 +1,46 @@
+{
+  "id": "C-x-1",
+  "statement": {
+    "subject": "imprese italiane con 10-49 addetti del settore metalmeccanico",
+    "observed": "dedicano ore mensili alla riconciliazione manuale degli adempimenti",
+    "quantity": {
+      "label": "Ore mensili dedicate",
+      "value": 5.2,
+      "unit": "ore/mese",
+      "currency": "EUR",
+      "year": 2025,
+      "geo": "IT",
+      "state": "VERIFIED",
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "input_source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "is_assumption": false,
+      "value_min": null,
+      "value_max": null,
+      "formula": null,
+      "display_string": "12.400 EUR/anno per impresa"
+    },
+    "period": "2025",
+    "geo": "IT"
+  },
+  "state": "FORSE",
+  "source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "estimation_formula": null,
+  "stale_warning": false,
+  "contradicted_by": [],
+  "evidence": [
+    {
+      "source_id": "S-20260808-1200-0001",
+      "snippet": "Le imprese con 10-49 addetti dedicano in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti.",
+      "snippet_source": "FETCHED",
+      "verbatim_quote": "in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti"
+    }
+  ],
+  "evidence_kind": "PUBBLICAZIONE",
+  "promotion_rule_met": "1xT1"
+}

@@ -1,0 +1,43 @@
+{
+  "gate": 3,
+  "run_id": "20260808-1200",
+  "decided_by": "orchestratore",
+  "timestamp": "2026-08-08T12:00:00Z",
+  "condizione_comune": {
+    "claim_verified_minimi": 3,
+    "nota_libera": "il gate 3 consolida i due canali di evidenza"
+  },
+  "verdetti": [
+    {
+      "pain_id": "P-001",
+      "verdetto": "PASS",
+      "reason_code": "G3-OK",
+      "kill_analysis": null,
+      "evidence_route": "PUBBLICAZIONE",
+      "profondita_raggiunta": 3,
+      "claim_verified_accumulati": 4,
+      "motivazione": "quattro claim verificati su due canali indipendenti",
+      "missing_to_decide": []
+    },
+    {
+      "pain_id": "P-002",
+      "verdetto": "KILL",
+      "reason_code": "K5",
+      "kill_analysis": {
+        "kill_basis": "FORSE"
+      },
+      "evidence_route": "ASSENZA",
+      "profondita_raggiunta": 3,
+      "claim_verified_accumulati": 0,
+      "motivazione": "nessuna prova di spesa gia' in atto dopo due canali esauriti",
+      "missing_to_decide": [],
+      "azione_sbloccante": {
+        "descrizione": "reperire un listino pubblico del rimedio esistente",
+        "costo_stimato_ricerche": 2,
+        "agente_necessario": "competitor-analyst",
+        "fuori_scrivania": false
+      },
+      "retry_after": "2026-09-08"
+    }
+  ]
+}

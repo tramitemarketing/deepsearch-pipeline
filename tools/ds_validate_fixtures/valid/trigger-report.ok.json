@@ -1,0 +1,216 @@
+{
+  "agent": "trigger-finder",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "pain_id": "P-001",
+    "triggers": [
+      {
+        "type": "scadenza_adempimento",
+        "description": "obbligo di comunicazione trimestrale introdotto dalla circolare 2026",
+        "date_or_window": "2026-10-31",
+        "legal_reference": "circolare 14/E 2026",
+        "who_is_affected": "imprese con almeno 10 addetti",
+        "forcing_function": "sanzione amministrativa in caso di omessa comunicazione",
+        "penalty": {
+          "label": "Sanzione minima",
+          "value": 2000.0,
+          "unit": "EUR",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "VERIFIED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": null,
+          "display_string": "12.400 EUR/anno per impresa"
+        },
+        "days_to_deadline": 84,
+        "buy_within_30_days": false,
+        "state": "VERIFIED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ]
+      }
+    ],
+    "counter_evidence": [
+      {
+        "id": "C-shard01-002",
+        "statement": {
+          "subject": "imprese italiane con 10-49 addetti del settore metalmeccanico",
+          "observed": "dedicano ore mensili alla riconciliazione manuale degli adempimenti",
+          "quantity": {
+            "label": "Ore mensili dedicate",
+            "value": 5.2,
+            "unit": "ore/mese",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "VERIFIED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": null,
+            "display_string": "12.400 EUR/anno per impresa"
+          },
+          "period": "2025",
+          "geo": "IT"
+        },
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "estimation_formula": null,
+        "stale_warning": false,
+        "contradicted_by": [],
+        "evidence": [
+          {
+            "source_id": "S-20260808-1200-0001",
+            "snippet": "Le imprese con 10-49 addetti dedicano in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti.",
+            "snippet_source": "FETCHED",
+            "verbatim_quote": "in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti"
+          }
+        ],
+        "evidence_kind": "PUBBLICAZIONE"
+      }
+    ],
+    "seasonality": {
+      "peak_months": [
+        "ottobre",
+        "novembre"
+      ],
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ]
+    },
+    "verdict": {
+      "verdict": "PASS",
+      "reasons": [
+        {
+          "code": "G3",
+          "text": "la perdita economica ricorrente e' sostenuta da una fonte T1 verificata",
+          "claim_ids": [
+            "C-shard01-001"
+          ],
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "severity": "HARD"
+        }
+      ]
+    },
+    "q1_answer": {
+      "question_id": "Q1",
+      "answer": "La fonte primaria e' la rilevazione ISTAT 2025 sugli adempimenti amministrativi.",
+      "grounded": true,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "answered_by": "evidence-researcher"
+    }
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}

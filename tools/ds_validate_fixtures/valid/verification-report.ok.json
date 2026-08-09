@@ -1,0 +1,135 @@
+{
+  "agent": "source-verifier",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "checks": [
+      {
+        "claim_id": "C-shard01-001",
+        "source_id": "S-20260808-1200-0001",
+        "result": "CONFIRMED",
+        "url_resolves": true,
+        "date_matches": true,
+        "tier_matches": true,
+        "actual_snippet": "in media 5,2 ore al mese agli adempimenti amministrativi ricorrenti",
+        "discrepancy": "",
+        "suggested_downgrade": "NONE"
+      },
+      {
+        "claim_id": "C-shard01-002",
+        "source_id": "S-20260808-1200-0002",
+        "result": "SOURCE_UNREACHABLE",
+        "url_resolves": false,
+        "date_matches": null,
+        "tier_matches": null,
+        "actual_snippet": "",
+        "discrepancy": "pagina dietro paywall",
+        "suggested_downgrade": "TO_ESTIMATED"
+      }
+    ],
+    "summary": {
+      "n_checked": 2,
+      "n_confirmed": 1,
+      "pass_rate": 0.5,
+      "fabricated_sources": [],
+      "agents_with_issues": [
+        {
+          "agent": "evidence-researcher",
+          "n_issues": 1,
+          "worst_result": "SOURCE_UNREACHABLE"
+        }
+      ]
+    }
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}

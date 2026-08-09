@@ -1,0 +1,402 @@
+{
+  "agent": "venture-architect",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "pain_id": "P-001",
+    "concept_name": "Scadenzario Metalmeccanico",
+    "one_liner": "Il calendario degli adempimenti che chiude il mese al posto dell'amministrazione",
+    "problem_restated": "la riconciliazione manuale delle scadenze costa ore e sanzioni",
+    "mvp": {
+      "scope_30_days": [
+        {
+          "capability": "calendario delle scadenze per classe dimensionale",
+          "justifying_claim_ids": [
+            "C-shard01-001"
+          ],
+          "build_days": 12
+        },
+        {
+          "capability": "notifiche con anticipo configurabile",
+          "justifying_claim_ids": [
+            "C-shard01-001"
+          ],
+          "build_days": 8
+        }
+      ],
+      "explicitly_out_of_scope": [
+        "invio telematico delle comunicazioni",
+        "contabilita' generale"
+      ],
+      "first_value_moment": "la prima scadenza intercettata prima del termine",
+      "manual_before_automated": [
+        "aggiornamento del calendario normativo a mano"
+      ]
+    },
+    "pricing": {
+      "tiers": [
+        {
+          "name": "Starter",
+          "price": {
+            "label": "Prezzo Starter",
+            "value": 49.0,
+            "unit": "EUR/mese",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          },
+          "included": [
+            "calendario",
+            "notifiche email"
+          ],
+          "target_segment": "5-9 addetti"
+        },
+        {
+          "name": "Pro",
+          "price": {
+            "label": "Prezzo Pro",
+            "value": 99.0,
+            "unit": "EUR/mese",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          },
+          "included": [
+            "calendario",
+            "notifiche",
+            "deleghe interne"
+          ],
+          "target_segment": "10-49 addetti"
+        },
+        {
+          "name": "Business",
+          "price": {
+            "label": "Prezzo Business",
+            "value": 199.0,
+            "unit": "EUR/mese",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          },
+          "included": [
+            "tutto Pro",
+            "multi-sede"
+          ],
+          "target_segment": "50-249 addetti"
+        }
+      ],
+      "anchor": "il costo di mezza giornata di consulenza esterna al mese",
+      "anchor_claim_ids": [
+        "C-shard01-001"
+      ],
+      "path_to_target_mrr": {
+        "clients_needed": {
+          "label": "Clienti necessari",
+          "value": 100.0,
+          "unit": "clienti",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+          "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+        },
+        "mix_assumption": "70 percento Pro, 20 percento Starter, 10 percento Business",
+        "months": 12,
+        "monthly_new_clients_required": {
+          "label": "Nuovi clienti al mese",
+          "value": 8.0,
+          "unit": "clienti/mese",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+          "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+        }
+      }
+    },
+    "gtm": {
+      "beachhead": "metalmeccanica lombarda 10-49 addetti",
+      "channels": [
+        {
+          "channel": "associazioni di categoria territoriali",
+          "why_it_reaches_this_icp": "aggregano esattamente questa classe dimensionale",
+          "supporting_claim_ids": [
+            "C-shard01-001"
+          ],
+          "cost_model": "quota associativa piu' evento",
+          "estimated_cac": {
+            "label": "CAC canale associazioni",
+            "value": 350.0,
+            "unit": "EUR",
+            "currency": "EUR",
+            "year": 2025,
+            "geo": "IT",
+            "state": "ESTIMATED",
+            "source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "input_source_ids": [
+              "S-20260808-1200-0001"
+            ],
+            "is_assumption": false,
+            "value_min": null,
+            "value_max": null,
+            "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+            "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+          }
+        }
+      ],
+      "trigger_hook": "la scadenza trimestrale introdotta dalla circolare 2026",
+      "first_10_customers_plan": [
+        "dieci incontri diretti presso associazioni territoriali"
+      ],
+      "aggregators": [
+        {
+          "name": "associazione industriali provinciale",
+          "reach_description": "circa 400 imprese associate",
+          "supporting_claim_ids": [
+            "C-shard01-001"
+          ]
+        }
+      ]
+    },
+    "ai_usage": [
+      {
+        "where": "classificazione delle circolari in scadenze",
+        "why_ai_and_not_rules": "il testo delle circolari non ha struttura stabile",
+        "failure_mode": "scadenza classificata nel trimestre sbagliato",
+        "human_in_the_loop": true
+      }
+    ],
+    "integrations": [
+      {
+        "system": "gestionale verticale locale",
+        "necessity": "IMPORTANTE",
+        "feasibility": "FILE_EXPORT",
+        "risk_note": "nessuna API pubblica",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ]
+      }
+    ],
+    "roadmap": [
+      {
+        "horizon": "0-30gg",
+        "objective": "MVP con calendario e notifiche",
+        "success_metric": "10 imprese attive",
+        "kill_metric": "meno di 3 imprese attive"
+      },
+      {
+        "horizon": "30-90gg",
+        "objective": "deleghe interne e multi-sede",
+        "success_metric": "40 imprese attive",
+        "kill_metric": "churn superiore al 20 percento"
+      }
+    ],
+    "moat": [
+      {
+        "type": "dati_proprietari_accumulati",
+        "description": "storico delle scadenze normative per classe dimensionale",
+        "time_to_build": "12 mesi",
+        "defensibility_honest_assessment": "replicabile da chi ha accesso alle stesse fonti pubbliche"
+      }
+    ],
+    "design_constraints_respected": [
+      "nessun hardware",
+      "nessuna vendita enterprise"
+    ],
+    "unit_economics_assumptions": {
+      "churn_annuo_pct": {
+        "label": "Churn annuo",
+        "value": 12.0,
+        "unit": "percento",
+        "currency": "EUR",
+        "year": 2025,
+        "geo": "IT",
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "input_source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "is_assumption": false,
+        "value_min": null,
+        "value_max": null,
+        "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+        "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+      },
+      "churn_rationale": "verticali comparabili con contratto annuale",
+      "stagionalita": "picco di rinnovi a ottobre",
+      "cac_per_canale": [
+        {
+          "label": "CAC canale associazioni",
+          "value": 350.0,
+          "unit": "EUR",
+          "currency": "EUR",
+          "year": 2025,
+          "geo": "IT",
+          "state": "ESTIMATED",
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "input_source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "is_assumption": false,
+          "value_min": null,
+          "value_max": null,
+          "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+          "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+        }
+      ]
+    }
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}

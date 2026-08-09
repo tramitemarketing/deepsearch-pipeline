@@ -1,0 +1,216 @@
+{
+  "agent": "ranking-agent",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "ranking": [
+      {
+        "rank": 1,
+        "pain_id": "P-001",
+        "concept_name": "Scadenzario Metalmeccanico",
+        "dimensions": [
+          {
+            "id": "economic_pain",
+            "score": 8.0,
+            "weight": 0.2,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "urgency",
+            "score": 7.0,
+            "weight": 0.15,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "bootstrap_fit",
+            "score": 9.0,
+            "weight": 0.15,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "distribution",
+            "score": 6.0,
+            "weight": 0.15,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "competition_gap",
+            "score": 7.0,
+            "weight": 0.15,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "mvp_speed",
+            "score": 8.0,
+            "weight": 0.1,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          },
+          {
+            "id": "evidence_strength",
+            "score": 6.0,
+            "weight": 0.1,
+            "justification": "punteggio motivato dalle evidenze raccolte sul canale statistico",
+            "evidence_ids": [
+              "C-shard01-001"
+            ]
+          }
+        ],
+        "weighted_sum": 7.4,
+        "confidence_multiplier": 0.85,
+        "confidence_inputs": {
+          "grounded_questions_ratio": 0.8,
+          "verified_claims_ratio": 0.6,
+          "spot_check_pass_rate": 1.0
+        },
+        "final_score": 6.29,
+        "grounded_questions": {
+          "count": "4/5",
+          "detail": [
+            {
+              "question_id": "Q1",
+              "grounded": true,
+              "answered_by": "trigger-finder"
+            },
+            {
+              "question_id": "Q5",
+              "grounded": false,
+              "answered_by": "red-team"
+            }
+          ]
+        },
+        "confidence_label": "Medio",
+        "confidence_label_rationale": "una domanda su cinque resta non ancorata",
+        "publishable": true,
+        "tiebreakers_applied": [],
+        "budget_normalization": {
+          "searches_spent": 6,
+          "searches_expected": 8,
+          "raw_evidence_strength": 5.0,
+          "normalized": true
+        }
+      }
+    ],
+    "excluded": [
+      {
+        "pain_id": "P-002",
+        "concept_name": "Registro Sanzioni",
+        "final_score": 3.1,
+        "outcome": "PARKED",
+        "missing_to_decide": [
+          "listino pubblico del vendor dominante"
+        ],
+        "reason": "evidenza di spesa assente dopo due canali"
+      }
+    ],
+    "empty_output_declaration": null
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}

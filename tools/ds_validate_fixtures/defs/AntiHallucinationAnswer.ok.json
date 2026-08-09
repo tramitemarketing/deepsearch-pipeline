@@ -1,0 +1,9 @@
+{
+  "question_id": "Q1",
+  "answer": "La fonte primaria e' la rilevazione ISTAT 2025 sugli adempimenti amministrativi.",
+  "grounded": true,
+  "source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "answered_by": "evidence-researcher"
+}

@@ -1,0 +1,6 @@
+{
+  "kind": "root_selection",
+  "schema_ref": "pain.schema.json",
+  "omit_from_registry": "pain.schema.json",
+  "expected_reason_code": "SCHEMA_ROOT_OUTSIDE_REGISTRY"
+}

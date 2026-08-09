@@ -1,0 +1,249 @@
+{
+  "agent": "bootstrap-filter",
+  "run_id": "20260808-1200",
+  "pain_id": "P-001",
+  "status": "OK",
+  "budget_used": {
+    "searches": 6,
+    "searches_limit": 8,
+    "fetches": 4,
+    "fetches_limit": 6,
+    "harvests": 1,
+    "harvests_limit": 2
+  },
+  "stop_reason": "COMPLETED",
+  "payload": {
+    "pain_id": "P-001",
+    "dimensions": [
+      {
+        "constraint": "max_founders_3",
+        "result": "PASS",
+        "reasoning": "il perimetro tecnico e' realizzabile da due persone",
+        "claim_ids": [
+          "C-shard01-001"
+        ],
+        "blocking": false
+      },
+      {
+        "constraint": "max_days_to_mvp_90",
+        "result": "PASS",
+        "reasoning": "l'MVP e' un raccoglitore di scadenze con notifiche",
+        "claim_ids": [
+          "C-shard01-001"
+        ],
+        "blocking": true
+      },
+      {
+        "constraint": "no_regulated_liability",
+        "result": "UNKNOWN",
+        "reasoning": "non e' chiaro se la firma della comunicazione richieda un intermediario abilitato",
+        "claim_ids": [],
+        "blocking": true
+      }
+    ],
+    "build_plan_feasibility": {
+      "hardest_technical_dependency": "acquisizione del calendario normativo aggiornato",
+      "data_access_required": "fonte pubblica delle scadenze",
+      "third_party_api_risk": "nessuna API pubblica stabile",
+      "regulatory_liability": "da verificare"
+    },
+    "unit_economics": {
+      "arpa_annual": {
+        "label": "ARPA annuo",
+        "value": 1200.0,
+        "unit": "EUR/anno",
+        "currency": "EUR",
+        "year": 2025,
+        "geo": "IT",
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "input_source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "is_assumption": false,
+        "value_min": null,
+        "value_max": null,
+        "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+        "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+      },
+      "cac_estimate": {
+        "label": "CAC",
+        "value": 350.0,
+        "unit": "EUR",
+        "currency": "EUR",
+        "year": 2025,
+        "geo": "IT",
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "input_source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "is_assumption": false,
+        "value_min": null,
+        "value_max": null,
+        "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+        "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+      },
+      "cac_to_arpa": {
+        "label": "CAC/ARPA",
+        "value": 0.29,
+        "unit": "rapporto",
+        "currency": "EUR",
+        "year": 2025,
+        "geo": "IT",
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "input_source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "is_assumption": false,
+        "value_min": null,
+        "value_max": null,
+        "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+        "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+      },
+      "payback_months": {
+        "label": "Payback",
+        "value": 3.5,
+        "unit": "mesi",
+        "currency": "EUR",
+        "year": 2025,
+        "geo": "IT",
+        "state": "ESTIMATED",
+        "source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "input_source_ids": [
+          "S-20260808-1200-0001"
+        ],
+        "is_assumption": false,
+        "value_min": null,
+        "value_max": null,
+        "formula": "ore_perse_anno (62) x costo_orario_amministrativo (200 EUR)",
+        "display_string": "Stima non verificata: 12.400 EUR/anno per impresa"
+      }
+    },
+    "verdict": {
+      "verdict": "PARK",
+      "reasons": [
+        {
+          "code": "G3",
+          "text": "la perdita economica ricorrente e' sostenuta da una fonte T1 verificata",
+          "claim_ids": [
+            "C-shard01-001"
+          ],
+          "source_ids": [
+            "S-20260808-1200-0001"
+          ],
+          "severity": "HARD"
+        }
+      ],
+      "missing_to_decide": [
+        "listino pubblico del vendor dominante"
+      ]
+    },
+    "q3_answer": {
+      "question_id": "Q3",
+      "answer": "La fonte primaria e' la rilevazione ISTAT 2025 sugli adempimenti amministrativi.",
+      "grounded": true,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "answered_by": "evidence-researcher"
+    },
+    "supplement_requests": [
+      {
+        "what": "verificare l'obbligo di intermediario abilitato",
+        "assigned_to": "evidence-researcher",
+        "blocks_verdict": true
+      }
+    ]
+  },
+  "new_sources": [
+    {
+      "id": "S-20260808-1200-0001",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T1",
+      "access_status": "OK",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    },
+    {
+      "id": "S-20260808-1200-0002",
+      "url": "https://www.istat.it/statistiche/adempimenti-pmi",
+      "publisher": "ISTAT",
+      "title": "Adempimenti amministrativi delle imprese italiane",
+      "published_date": "2025-11",
+      "accessed_at": "2026-08-05",
+      "tier": "T3",
+      "access_status": "PAYWALL",
+      "stale": false,
+      "months_old": 9,
+      "retrieved_by": "evidence-researcher",
+      "language": "it",
+      "data_year": 2025,
+      "evidence_kind": "PUBBLICAZIONE",
+      "snippet_lang": "it",
+      "snippet_is_translation": false
+    }
+  ],
+  "queries_run": [
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "statistica_ufficiale",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0001"
+      ],
+      "yield": "USEFUL",
+      "harvest": false
+    },
+    {
+      "raw_query": "adempimenti fiscali ricorrenti PMI italiane costo annuo",
+      "normalized_query": "adempimenti fiscali ricorrenti pmi italiane costo annuo",
+      "angle": "normativa",
+      "n_results": 8,
+      "source_ids": [
+        "S-20260808-1200-0002"
+      ],
+      "yield": "PARTIAL",
+      "harvest": false
+    }
+  ],
+  "unreachable_sources": [
+    {
+      "what": "listino pubblico del principale gestionale verticale",
+      "url_or_target": "https://esempio-vendor.it/prezzi",
+      "why": "PAYWALL",
+      "impact": "avrebbe confermato o smentito il prezzo di riferimento del rimedio esistente",
+      "source_id": "S-20260808-1200-0002"
+    },
+    {
+      "what": "bilanci depositati dei tre competitor minori",
+      "url_or_target": "registro imprese",
+      "why": "BUDGET_EXHAUSTED",
+      "impact": "avrebbe quantificato la quota di mercato residua"
+    }
+  ],
+  "self_check": {
+    "invarianti_violati": [],
+    "note": "nessuna violazione dichiarata"
+  }
+}
