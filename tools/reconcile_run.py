@@ -53,6 +53,174 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RX_SRC = re.compile(r"\bS-[0-9]{8}(?:-[0-9]{4})?-[0-9]{4}\b")
 
 
+def radice_telemetria():
+    """
+    Root del ledger M0.2: due livelli sopra ROOT, fuori dal repository.
+
+    La variabile d'ambiente e' il seam dei test, e non e' un'opzione di
+    configurazione: e' l'unico modo per cui una prova puo' scrivere restando dentro
+    la propria directory temporanea. Senza di essa la root sta due livelli sopra
+    ROOT, e nella copia usa-e-getta dei test quei due livelli cadono FUORI da cio'
+    che rmtree rimuove — la telemetria di prova sopravviverebbe fra un caso e
+    l'altro, o finirebbe nella root vera.
+
+    Il nome si legge letterale di proposito: SC-22 sorveglia le letture di
+    os.environ mediate da una variabile, ed e' un controllo che va lasciato
+    lavorare sul caso che gli compete (le chiavi dei provider) senza avvicinarglisi.
+    """
+    v = os.environ.get("DEEPSEARCH_TELEMETRY_ROOT")
+    if v:
+        return v
+    return os.path.join(os.path.dirname(os.path.dirname(ROOT)), "runtime", "telemetry")
+
+
+NON_STRUM = "NOT_INSTRUMENTED"
+IGNOTO = "UNKNOWN"
+LEDGER_M02 = "m0.2-ledger.jsonl"
+SIDECAR_M02 = "00-telemetry-write.json"
+
+
+def config_m0_2():
+    """
+    La configurazione necessaria a interpretare le grandezze di lavoro.
+
+    Le grandezze contano cio' che gli agenti hanno prodotto. A interpretarle serve
+    sapere con quale modello ciascun agente ha girato, chi era delegabile a un
+    provider esterno e chi vi girava davvero — la mappa attiva, che e' quella che il
+    run legge. Il resto di config/ descrive il metodo, non il lavoro di questo run.
+
+    Si LEGGE soltanto: config/ non e' fra i percorsi che questo slice tocca.
+
+    Due assenze diverse, due etichette diverse, e la distinzione non e' pedanteria:
+    se il file non si legge il valore non e' determinabile in modo affidabile
+    (UNKNOWN); se il file si legge ma la chiave non c'e', manca il campo
+    (NOT_INSTRUMENTED). Nessuno dei due caso e' zero, e nessuno e' una mappa vuota:
+    una mappa vuota qui e' un dato: significa 'nessun agente delegato'.
+
+    La conformita' all'allowlist e' STRUTTURALE, non misurata sull'input: cio' che
+    esce e' o il valore di una delle tre sorgenti ammesse, o una delle due etichette.
+    Mai altro, quale che sia la forma del file. Per ciascuna sorgente assenza e
+    malformazione si separano — chiave che manca -> NOT_INSTRUMENTED, chiave presente
+    ma nulla o del tipo sbagliato -> UNKNOWN — e il tipo atteso e' UNO per chiave: str
+    per `modello`, list per `delegabili`, dict per `attivo_per_agente`.
+
+    Non si coerce: un `modello` numerico, booleano o a sua volta oggetto e' UNKNOWN e
+    non la propria serializzazione, perche' fabbricare '3' da 3 scriverebbe nel ledger
+    un valore semanticamente falso al posto di dichiarare che non e' interpretabile.
+    La stringa vuota resta invece un dato, per la stessa ragione per cui lo sono la
+    lista vuota e la mappa vuota: vuoto non e' assenza.
+
+    Di ogni voce di per_agente si legge la sola proprieta' `modello`: nessun ramo
+    restituisce la voce, ne' una sua altra parte. Sotto `provider` si leggono le due
+    sole chiavi ammesse: `deepseek`, gli endpoint e i nomi delle variabili di
+    credenziale non sono toccati ne' per .get ne' per iterazione.
+    """
+    p = os.path.join(ROOT, "config", "deepsearch.config.json")
+    try:
+        with open(p, encoding="utf-8") as f:
+            c = json.load(f)
+    except Exception:
+        return {"modelli_per_agente": IGNOTO, "provider_delegabili": IGNOTO,
+                "provider_attivo_per_agente": IGNOTO}, "configurazione illeggibile"
+
+    def modello_di(voce):
+        # solo il modello: il resto della voce e' la prosa che spiega perche', e
+        # nel ledger sarebbe rumore che non aiuta a interpretare alcun conteggio.
+        # I tre soli ritorni possibili sono una stringa `modello`, IGNOTO, NON_STRUM.
+        if not isinstance(voce, dict):
+            return IGNOTO
+        if "modello" not in voce:
+            return NON_STRUM
+        m = voce["modello"]
+        return m if isinstance(m, str) else IGNOTO
+
+    if not isinstance(c, dict):
+        c = {}
+    mod = c.get("modelli")
+    per_ag = mod.get("per_agente") if isinstance(mod, dict) else None
+    if isinstance(per_ag, dict):
+        modelli = {k: modello_di(v) for k, v in sorted(per_ag.items())}
+    else:
+        modelli = NON_STRUM
+
+    prov = c.get("provider")
+    if not isinstance(prov, dict):
+        prov = {}
+    if "delegabili" in prov:
+        d = prov["delegabili"]
+        deleg = sorted(d) if isinstance(d, list) else IGNOTO
+    else:
+        deleg = NON_STRUM
+    if "attivo_per_agente" in prov:
+        a = prov["attivo_per_agente"]
+        attivo = dict(sorted(a.items())) if isinstance(a, dict) else IGNOTO
+    else:
+        attivo = NON_STRUM
+    return {
+        "modelli_per_agente": modelli,
+        "provider_delegabili": deleg,
+        "provider_attivo_per_agente": attivo,
+    }, None
+
+
+def riga_m0_2(run_id, lavoro):
+    """
+    Una riga per run. La chiave di identita' e di idempotenza e' run_id.
+
+    Nulla qui puo' variare fra due esecuzioni sullo stesso run: nessun istante di
+    scrittura, nessun contatore, nessun identificatore generato. E' il requisito
+    'doppia esecuzione -> ledger byte-identico', ed e' un vincolo sulla FORMA prima
+    che sul meccanismo: un timestamp lo renderebbe impossibile da soddisfare.
+    """
+    cfg, guasto = config_m0_2()
+    return {
+        "run_id": run_id,
+        "lavoro": lavoro,
+        "configurazione": cfg,
+        "non_strumentato": {
+            "coverage_consumo": NON_STRUM,
+            "denominatore_coverage": NON_STRUM,
+            "total_count": NON_STRUM,
+            "costo_monetario": NON_STRUM,
+            "identificatori_query": NON_STRUM,
+        },
+    }, guasto
+
+
+def run_gia_nel_ledger(percorso, run_id):
+    """Rilettura con chiave run_id: e' l'idempotenza, e con questa grana e' tutta
+    qui. Una riga illeggibile non conta come presenza — non si puo' affermare che
+    contenga questo run."""
+    if not os.path.exists(percorso):
+        return False
+    with open(percorso, encoding="utf-8") as f:
+        for l in f:
+            if not l.strip():
+                continue
+            try:
+                o = json.loads(l)
+            except Exception:
+                continue
+            if isinstance(o, dict) and o.get("run_id") == run_id:
+                return True
+    return False
+
+
+def scrivi_ledger_m0_2(run_id, lavoro):
+    """Ritorna (esito, guasto_configurazione). Non intercetta le eccezioni: chi
+    chiama e' la guardia, e tenerle separate e' cio' che rende la guardia
+    verificabile."""
+    radice = radice_telemetria()
+    percorso = os.path.join(radice, LEDGER_M02)
+    riga, guasto = riga_m0_2(run_id, lavoro)
+    if run_gia_nel_ledger(percorso, run_id):
+        return "gia_presente", guasto
+    os.makedirs(radice, exist_ok=True)
+    with open(percorso, "a", encoding="utf-8") as g:
+        g.write(json.dumps(riga, ensure_ascii=False) + "\n")
+    return "riuscita", guasto
+
+
 def carica_ledger(p, chiave):
     visti, righe = set(), 0
     if os.path.exists(p):
@@ -90,7 +258,43 @@ def claim_di(nodo):
             yield from claim_di(v)
 
 
-def riconcilia(run_dir, consolida=False):
+FRASE_ERRORE = {
+    "destinazione_non_scrivibile": "destinazione non scrivibile",
+    "errore_interno": "errore interno del writer",
+}
+
+
+def codice_errore(e):
+    """Due codici, non tre. Due sono le classi che si distinguono senza indovinare:
+    la destinazione non si apre, oppure e' successo altro. Coniarne di piu' per casi
+    mai osservati sarebbe inventare una tassonomia."""
+    return "destinazione_non_scrivibile" if isinstance(e, OSError) else "errore_interno"
+
+
+def messaggio_sanitizzato(cod, e):
+    """Frase fissa per codice, piu' al massimo il NOME della classe d'eccezione.
+
+    Mai str(e), mai un percorso, mai un frammento di dato: cosi' 'eccezione non
+    sanitizzata' e' escluso per costruzione e non per diligenza di chi scrive.
+    """
+    return FRASE_ERRORE[cod] + " - " + type(e).__name__
+
+
+def scrivi_sidecar_m0_2(run_dir, dati):
+    """Scrive SOLO 00-telemetry-write.json, e solo dentro un run che esiste gia'.
+
+    Non crea la directory del run: se non c'e', non c'e' nulla di cui questo file
+    sia il sidecar, e crearla sarebbe fabbricare un run. Nessun altro artefatto
+    gia' presente sotto runs/<run_id>/ viene letto, toccato o riscritto.
+    """
+    if not os.path.isdir(run_dir):
+        raise NotADirectoryError("run assente")
+    with open(os.path.join(run_dir, SIDECAR_M02), "w", encoding="utf-8") as g:
+        json.dump(dati, g, ensure_ascii=False)
+        g.write("\n")
+
+
+def riconcilia(run_dir, consolida=False, telemetria=False):
     run_id = os.path.basename(os.path.normpath(run_dir))
     sl = os.path.join(ROOT, "state", "source-ledger.jsonl")
     ql = os.path.join(ROOT, "state", "query-ledger.jsonl")
@@ -185,8 +389,77 @@ def riconcilia(run_dir, consolida=False):
         if len(senza_origine) > 25:
             print(f"    ... e altri {len(senza_origine)-25}")
 
+    if telemetria:
+        # Ramo proprio della modalita' M0.2, e sta QUI per due ragioni: le grandezze
+        # sono complete alla riga sopra, e da qui il ramo e' raggiungibile senza
+        # passare per i due append di --consolida, che restano dove sono e come sono.
+        #
+        # Due scostamenti dall'enumerazione delle undici grandezze eps-1, entrambi
+        # voluti, e dichiarati qui perche' nessun altro documento li registra:
+        #
+        #   - degli «orfani E PERCENTUALE» si scrive il solo conteggio. La
+        #     percentuale e' ri-derivabile da orfani/source_id_citati da chiunque
+        #     legga la riga; aggiungerla come campo cambierebbe la forma della riga
+        #     senza aggiungere un'informazione che non ci sia gia'.
+        #   - delle «righe dei due ledger PRIMA E DOPO» si scrive il solo PRIMA.
+        #     In questa modalita' il «dopo» NON ESISTE: M0.2 non appende ai ledger
+        #     di state/, quindi non c'e' alcun secondo conteggio da osservare, e
+        #     scriverne uno — fosse pure ripetendo il primo — significherebbe
+        #     fabbricare un dato mai misurato. E' esattamente cio' che G-3 vieta.
+        lavoro = {
+            "artefatti_letti": n_art,
+            "source_id_citati": len(citati),
+            "gia_nel_source_ledger": len(citati & id_nel_ledger),
+            "orfani": len(orfani),
+            "orfani_recuperabili": len(recuperabili),
+            "orfani_irraggiungibili_dichiarate": len(dichiarate_irr),
+            "orfani_senza_origine": len(senza_origine),
+            "query_dichiarate": len(query_dichiarate),
+            "query_mai_consolidate": len(q_mancanti),
+            "claim_verified_solo_irraggiungibili": len(verified_solo_irr),
+            "righe_source_ledger": n_src,
+            "righe_query_ledger": n_q,
+        }
+        # Guardia fail-open. Il fallimento della telemetria non converte un run
+        # riuscito in fallito, non riusa gli exit code del verdetto, e non e' reso
+        # come zero: e' uno stato della scrittura, e ha il proprio canale.
+        esito, cod, msg = "riuscita", None, None
+        try:
+            esito, guasto_cfg = scrivi_ledger_m0_2(run_id, lavoro)
+            if guasto_cfg:
+                print(f"  telemetria m0.2:{guasto_cfg}", file=sys.stderr)
+        except Exception as e:
+            esito = "fallita"
+            cod = codice_errore(e)
+            msg = messaggio_sanitizzato(cod, e)
+            print(f"  telemetria m0.2:ledger non scritto - {msg}", file=sys.stderr)
+
+        dati = {"run_id": run_id, "esito_scrittura": esito}
+        if esito == "fallita":
+            dati["errore_codice"] = cod
+            dati["errore_messaggio"] = msg
+        try:
+            scrivi_sidecar_m0_2(run_dir, dati)
+        except Exception as e:
+            # Ultimo canale: se anche il sidecar non si scrive, resta stderr, e il
+            # run non si ferma. E' il ripiego che copre il caso residuo.
+            print(f"  telemetria m0.2:sidecar non scritto - "
+                  f"{messaggio_sanitizzato(codice_errore(e), e)}. Il run prosegue.",
+                  file=sys.stderr)
+        print(f"\n  telemetria m0.2:esito scrittura = {esito}")
+
     if not consolida:
-        print("\n  Diagnosi soltanto: non ho scritto niente.")
+        # La guardia resta quella di sempre — «senza --consolida non si appende ai
+        # ledger di state/» — e il ritorno con essa. Cambia la SOLA prima riga, e
+        # solo quando la modalita' M0.2 e' attiva: in quel caso il ledger M0.2 e il
+        # sidecar sono appena stati scritti, e «non ho scritto niente» sarebbe falso
+        # proprio nelle ultime parole che l'orchestratore legge. Le tre righe che
+        # seguono valgono invariate in entrambe le modalita'.
+        if telemetria:
+            print("\n  Diagnosi, piu' la sola telemetria M0.2 (esito qui sopra): ai ledger di")
+            print("  state/ non ho scritto niente.")
+        else:
+            print("\n  Diagnosi soltanto: non ho scritto niente.")
         print("  Con --consolida appendo ai ledger SOLO cio' che un agente ha davvero incontrato:")
         print("  quello che ha raccolto, e quello che ha tentato e non ha potuto aprire.")
         print("  Le citazioni senza origine non vengono mai inventate: restano scoperte.\n")
@@ -224,4 +497,4 @@ if __name__ == "__main__":
             print("nessun run trovato"); sys.exit(2)
         a = [r[-1]]
     d = a[0] if os.path.isabs(a[0]) else os.path.join(ROOT, a[0])
-    sys.exit(riconcilia(d, "--consolida" in sys.argv))
+    sys.exit(riconcilia(d, "--consolida" in sys.argv, "--telemetry-m0.2" in sys.argv))

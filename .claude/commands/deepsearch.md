@@ -964,9 +964,16 @@ leggere campi tipizzati, non parsare frasi.
 
 ### Passo 1-bis — Riconciliazione degli artefatti con i ledger
 
-```bash
-python3 tools/reconcile_run.py runs/<run_id>
-```
+**La riconciliazione non si esegue qui.** Dalla modalita' `m0.2` in poi essa avviene **una volta
+sola**, al Passo 4, dentro il ramo `VALIDO senza violazioni`, e ne sono prodotti in quel punto la
+diagnosi, l'esito e il sidecar. **Qui non si esegue alcun comando.**
+
+Cio' che segue **descrive come leggere quella diagnosi** quando la produrra' il Passo 4, e resta la
+definizione di che cosa distingue una fonte **recuperabile** da una **senza origine**.
+
+**Conseguenza sull'ordine, da conoscere prima di chiudere:** poiche' la diagnosi arriva **dopo** il
+cancello, il declassamento a `HYPOTHESIS` prescritto sotto **non e' piu' eseguibile nel punto in cui
+questa sezione lo colloca**.
 
 Ogni agente restituisce le fonti che ha raccolto in `new_sources` e le query in `queries_run`, e
 **tu** le appendi ai ledger: e' scritto in §1 sotto "proprieta' dei ledger". Se una wave salta quel
@@ -1024,7 +1031,18 @@ confrontata con il verdetto. Questa esecuzione, **e nessun'altra**, autorizza la
 `state/`:
 
 <!-- ancora: scrittura-state -->
-- **VALIDO senza violazioni** → esegui §10 e scrivi in `state/`.
+- **VALIDO senza violazioni** → esegui §10 e scrivi in `state/`. E qui, una volta sola, esegui la
+  riconciliazione in modalita' telemetria `m0.2` — il flag va DOPO il percorso del run:
+
+  ```bash
+  python3 tools/reconcile_run.py runs/<run_id> --telemetry-m0.2
+  ```
+
+  Stampa la diagnosi del Passo 1-bis e, su stdout, la riga `telemetria m0.2:esito scrittura = ...`
+  — cercala per quella stringa esatta, senza spazio dopo i due punti: **non e' l'ultima riga
+  stampata**, dopo di essa restano le righe di chiusura della diagnosi.
+  Riporta quell'esito nelle note di esecuzione come lo hai letto, insieme a cio' che lo strumento
+  abbia eventualmente scritto su stderr. E' l'esito di QUESTA esecuzione: non se ne fa una seconda.
 - **altrimenti** → **non scrivere in `state/`**. Un run degradato che aggiorna la memoria propaga il
   proprio guasto a tutti i run successivi, e nessuno se ne accorgera' perche' il guasto arrivera'
   travestito da dato storico.
