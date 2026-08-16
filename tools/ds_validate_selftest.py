@@ -366,6 +366,22 @@ def worker_guasto_prima_di_pubblicare(radice_output, record_id, radice_schemi):
 
 RISULTATI = []
 
+#: `DEC-14` — i criteri non ESEGUITI su questa piattaforma. Non entrano in
+#: `RISULTATI`, perche' non sono ne' superati ne' falliti: sono un terzo esito, e il
+#: riepilogo li conta a parte. Un criterio non eseguito e' un fatto da riportare.
+NON_APPLICABILI = []
+
+#: nome del criterio -> "passed" | "failed" | "not_applicable"
+CRITERI_ESITI = {}
+
+#: Casi che questa piattaforma non sa COSTRUIRE: dichiarati, contati e stampati,
+#: mai dedotti. Non e' la guardia di `DEC-14`, che vale per `T8b` e per nient'altro
+#: e conta i CRITERI registrati: qui non c'e' alcun criterio, `CRITERI_ESITI` non si
+#: muove e i tre contatori dei criteri differiti restano quelli di prima. Entra
+#: invece nel totale dei CONTROLLI, come `NON_APPLICABILI`: un caso non eseguito e'
+#: un fatto da riportare — mai un vuoto, mai un verde.
+NON_ESEGUITI = []
+
 
 def check(nome, condizione, dettaglio=""):
     RISULTATI.append((nome, bool(condizione), dettaglio if not condizione else ""))
@@ -2457,6 +2473,1186 @@ def sezione_p0_3_p0_4(tmp):
 
 
 # ==========================================================================
+# R2.1-6 — i 24 criteri differiti dentro la suite (`DEC-13`), con la
+# contabilita' a tre contatori di `DEC-14`
+#
+# Il commit `e508b0b` non toccava questo file: i 562 controlli erano la suite
+# PREESISTENTE, e nessuno dei 24 criteri `[AD]`/`[CI]` di `E1` rev6 §9 e di `E2` rev3
+# §7 era asserito. E' la causa comune dei cinque difetti trovati dalla review: sono
+# sopravvissuti a una suite verde perche' la suite non poteva vederli. Da `R2.1` in
+# poi un criterio `[AD]` non asserito qui **non esiste come copertura** (`DEC-13`).
+#
+# `DEC-14`: ogni criterio registrato finisce in ESATTAMENTE uno dei tre contatori —
+# `passed`, `failed`, `not_applicable` — e i tre sommano ai registrati. Un criterio
+# non eseguito e' un fatto da riportare, non un vuoto.
+# ==========================================================================
+
+#: I 24: 12 `[AD]` piu' 1 `[CI]` di `E1` rev6 §9.7, e 11 `[AD]` di `E2` rev3 §7.
+CRITERI_REGISTRATI = (
+    "K5", "K6", "K7", "K8a", "K9", "K10", "K10b", "K10e", "K13", "K14", "K15",
+    "K25", "K27",
+    "T1", "T2", "T3", "T4", "T5", "T6", "T8a", "T8b", "T15", "T16", "T18",
+)
+
+DIALETTO = "https://json-schema.org/draft/2020-12/schema"
+
+#: `E2` rev3 §2 — i 17 campi persistiti in ambito: 16 a livello record piu'
+#: `errors[].schema_resource_id`. I quattro enum (`full_outcome`, `comparison`,
+#: `legacy_outcome`, `reason_code`) restano fuori perche' governati
+#: dall'appartenenza, e le cinque posizioni di `ENTRY_KEYS` per `A1`/`D-4`.
+CAMPI_RECORD_IN_AMBITO = (
+    "record_version", "record_id", "invocation_id", "mode", "run_id", "role",
+    "stage", "artifact_id", "timestamp_utc", "python_version", "validator_version",
+    "referencing_version", "schema_ref", "schema_sha256", "registry_fingerprint",
+    "checksum",
+)
+
+
+def criterio(nome, condizione, dettaglio=""):
+    """Registra l'esito di un criterio differito, ed e' anche un controllo della suite."""
+    CRITERI_ESITI[nome] = "passed" if condizione else "failed"
+    check("R2.1-6 criterio " + nome, condizione, dettaglio)
+
+
+def criterio_non_applicabile(nome, ragione):
+    """`DEC-14` — guardia di PIATTAFORMA esplicita, con la ragione scritta.
+
+    Non e' un `try/except` che assorbe, e non e' un verde implicito: l'esito
+    `NOT_APPLICABLE_WINDOWS` e' dichiarato e contato a parte. Vale per `T8b` e per
+    nient'altro: se un secondo criterio risultasse non applicabile su questa
+    piattaforma, ci si ferma e lo si segnala (`14-…` §5.3), non si allarga la guardia.
+    """
+    CRITERI_ESITI[nome] = "not_applicable"
+    NON_APPLICABILI.append((nome, ragione))
+
+
+# --- utilita' comuni ai criteri -------------------------------------------
+
+
+def _registro(tmp, nome, sostituzioni=None, aggiunte=None, ometti=None) -> str:
+    sotto = os.path.join(tmp, "r21-" + nome)
+    os.makedirs(sotto, exist_ok=True)
+    return radice_schemi_temporanea(sotto, sostituzioni=sostituzioni,
+                                    aggiunte=aggiunte, ometti=ometti)
+
+
+def _esito(schemi, istanza, schema_ref="pain.schema.json"):
+    return V._esegui_shadow_core(
+        istanza, contesto(schema_ref=schema_ref),
+        config=V.ConfigTest(attivo=True, radice_output=None),
+        adattatori=adattatori(schemi)).validation_result
+
+
+def _doc(extra, ident="pain.schema.json") -> bytes:
+    documento = {"$id": ident, "$schema": DIALETTO}
+    documento.update(extra)
+    return json.dumps(documento).encode("utf-8")
+
+
+def _firma(r):
+    """Esito osservabile, confrontabile fra due registri."""
+    return (r.full_outcome, r.reason_code, len(r.errors),
+            tuple((v.schema_resource_id, v.schema_pointer, v.instance_location,
+                   v.keyword) for v in r.errors))
+
+
+def _documenti_di(schemi) -> dict:
+    fuori = {}
+    for n in sorted(os.listdir(schemi)):
+        if n.endswith(".json"):
+            with open(os.path.join(schemi, n), "rb") as fh:
+                fuori[n] = json.loads(fh.read().decode("utf-8"))
+    return fuori
+
+
+def _schema_registro(nome):
+    with open(os.path.join(SCHEMI, nome), "rb") as fh:
+        return json.loads(fh.read().decode("utf-8"))
+
+
+def _record_conforme(record_id="0" * 32, **kw):
+    """Un record `FULL_FAIL` reale, conforme e con voci: la base delle sonde di `E2`."""
+    risultato = V._esegui_shadow_core(
+        carica("invalid/pain.enum.json"), contesto(),
+        config=V.ConfigTest(attivo=True, radice_output=None),
+        adattatori=adattatori()).validation_result
+    return V.costruisci_record(risultato, contesto(**kw), record_id,
+                               "2026-08-09T00:00:00.000000Z")
+
+
+def _ricalcola_checksum(record):
+    r = json.loads(json.dumps(record))
+    r.pop("checksum", None)
+    r["checksum"] = checksum_record(r)
+    return r
+
+
+def _scrivi_record_grezzo(radice, record):
+    """Scrive un record SENZA passare dal writer: serve a sondare l'aggregatore."""
+    os.makedirs(radice, exist_ok=True)
+    percorso = os.path.join(radice, str(record["record_id"]) + ".json")
+    with open(percorso, "wb") as fh:
+        fh.write(canonical_json(record).encode("utf-8"))
+    return percorso
+
+
+# --- E1 rev6 §9 — 12 [AD] + 1 [CI] ----------------------------------------
+
+
+def _criterio_K5(tmp):
+    schemi = _registro(tmp, "K5", {"pain.schema.json": _doc(
+        {"type": "array", "items": {"$dynamicRef": "#NONESISTE"}})})
+    esiti = [_esito(schemi, ist) for ist in ([], [1])]
+    criterio("K5", all(r.reason_code is ReasonCode.REF_UNRESOLVABLE for r in esiti),
+             str([str(r.reason_code) for r in esiti]))
+
+
+def _criterio_K6(tmp):
+    """`[CI]` — falsifica un preflight che pretenda di risolvere il BINDING.
+
+    `core` dichiara il `$dynamicAnchor T` di fallback, `pain` lo ridichiara con
+    `type: string` e `scorecard` con `type: integer`. La closure risolve staticamente
+    per entrambe le radici; l'esito dipende dalla radice e dall'istanza, cioe' da cio'
+    che il preflight non puo' conoscere. Un preflight che affermasse il binding
+    dovrebbe emettere un esito qui, e non lo fa.
+    """
+    core = _schema_registro(CORE_SCHEMA_ID)
+    core["$defs"]["ListaDinamica"] = {"type": "array", "items": {"$dynamicRef": "#T"}}
+    core["$defs"]["AncoraDinamica"] = {"$dynamicAnchor": "T"}
+    rif = {"$ref": CORE_SCHEMA_ID + "#/$defs/ListaDinamica"}
+    schemi = _registro(tmp, "K6", {
+        CORE_SCHEMA_ID: json.dumps(core).encode("utf-8"),
+        "pain.schema.json": _doc(
+            dict(rif, **{"$defs": {"T": {"$dynamicAnchor": "T", "type": "string"}}})),
+        "scorecard.schema.json": _doc(
+            dict(rif, **{"$defs": {"T": {"$dynamicAnchor": "T", "type": "integer"}}}),
+            ident="scorecard.schema.json"),
+    })
+    passa = [_esito(schemi, ["s"], "pain.schema.json"),
+             _esito(schemi, [1], "scorecard.schema.json")]
+    fallisce = [_esito(schemi, [1], "pain.schema.json"),
+                _esito(schemi, ["s"], "scorecard.schema.json")]
+    criterio("K6",
+             V.chiusura_risolve(_documenti_di(schemi)) is True
+             and all(r.full_outcome is FullOutcome.FULL_PASS for r in passa)
+             and all(r.full_outcome is not FullOutcome.FULL_PASS for r in fallisce),
+             str([str(r.full_outcome) for r in passa + fallisce]))
+
+
+def _catena(lunghezza):
+    defs = {}
+    for j in range(lunghezza):
+        defs["r%d" % j] = ({"$ref": "#/$defs/r%d" % (j + 1)}
+                           if j + 1 < lunghezza else {"type": "string"})
+    return _doc({"$ref": "#/$defs/r0", "$defs": defs})
+
+
+def _criterio_K7(tmp):
+    esiti = {}
+    for lunghezza in (1, 32, 64, 200):
+        schemi = _registro(tmp, "K7-%d" % lunghezza,
+                           {"pain.schema.json": _catena(lunghezza)})
+        r = _esito(schemi, 123)
+        esiti[lunghezza] = (r.full_outcome, r.reason_code, len(r.errors),
+                            r.errors[0].schema_pointer if r.errors else None)
+    atteso = {lunghezza: (FullOutcome.FULL_FAIL, None, 1,
+                          "/$defs/r%d/type" % (lunghezza - 1)) for lunghezza in esiti}
+    criterio("K7", esiti == atteso, str(esiti))
+
+
+def _criterio_K8a(tmp):
+    schemi = _registro(tmp, "K8a", {"pain.schema.json": _doc(
+        {"type": "array",
+         "items": {"$ref": CORE_SCHEMA_ID + "#/$defs/Claim/required/0"}})})
+    esiti = [_esito(schemi, ist) for ist in ([], [1], {})]
+    criterio("K8a", all(r.reason_code is ReasonCode.REF_UNRESOLVABLE for r in esiti),
+             str([str(r.reason_code) for r in esiti]))
+
+
+#: `K9` — gli otto costrutti che `M7` misura, tutti in `market-report.schema.json`,
+#: che la radice `pain.schema.json` non raggiunge. Sono le otto cause di spegnimento
+#: globale che `E1` rev6 §3.4 toglie: occorrenze in posizione DATI, un nome di
+#: proprieta', una parola chiave ignota, un frammento percent-encoded e una risorsa
+#: embedded. Nessuna e' un riferimento, o e' un riferimento che risolve.
+COSTRUTTI_K9 = {
+    "const": {"Z": {"const": {"$ref": "#/$defs/NONESISTE"}}},
+    "default": {"Z": {"default": {"$ref": "#/$defs/NONESISTE"}}},
+    "examples": {"Z": {"examples": [{"$ref": "#/$defs/NONESISTE"}]}},
+    "enum": {"Z": {"enum": [{"$ref": "#/$defs/NONESISTE"}]}},
+    "nome-di-proprieta": {"Z": {"type": "object",
+                                "properties": {"$ref": {"type": "string"}}}},
+    "parola-chiave-ignota": {"Z": {"xIgnota": {"$ref": "#/$defs/NONESISTE"}}},
+    "frammento-percent": {"Z": {"$ref": "#/%24defs/Y"}, "Y": {"type": "string"}},
+    "risorsa-embedded": {"Z": {"$ref": "emb.schema.json"},
+                         "W": {"$id": "emb.schema.json", "type": "string"}},
+}
+
+
+def _criterio_K9(tmp):
+    intatto = _firma(_esito(_registro(tmp, "K9-intatto"), {}))
+    divergenti = []
+    for nome, aggiunte in sorted(COSTRUTTI_K9.items()):
+        documento = _schema_registro("market-report.schema.json")
+        documento.setdefault("$defs", {}).update(json.loads(json.dumps(aggiunte)))
+        schemi = _registro(tmp, "K9-" + nome, {
+            "market-report.schema.json": json.dumps(documento).encode("utf-8")})
+        if _firma(_esito(schemi, {})) != intatto:
+            divergenti.append(nome)
+    criterio("K9", len(COSTRUTTI_K9) == 8 and divergenti == [], str(divergenti))
+
+
+SIGMA1 = {"type": "array", "items": {"$dynamicRef": "#T"},
+          "$defs": {"T": {"$dynamicAnchor": "T", "type": "string"}}}
+SIGMA2 = {"type": "array", "items": {"$dynamicRef": "#tt"},
+          "$defs": {"T": {"$dynamicAnchor": "T", "type": "string"}}}
+SIGMA3 = {"type": "array", "items": {"$ref": "#/$defs/T"},
+          "$defs": {"T": {"type": "string"}}}
+
+
+def _criterio_K10(tmp):
+    r1 = _esito(_registro(tmp, "K10-s1", {"pain.schema.json": _doc(SIGMA1)}), [1])
+    r3 = _esito(_registro(tmp, "K10-s3", {"pain.schema.json": _doc(SIGMA3)}), [1])
+    criterio("K10",
+             r1.full_outcome is FullOutcome.FULL_FAIL and len(r1.errors) == 1
+             and r3.full_outcome is FullOutcome.FULL_FAIL and len(r3.errors) == 1
+             and r1.errors[0].instance_location == r3.errors[0].instance_location
+             and r1.errors[0].instance_pointer == r3.errors[0].instance_pointer
+             and r1.errors[0].location_is_exact is r3.errors[0].location_is_exact,
+             str((str(r1.full_outcome), len(r1.errors),
+                  None if not r1.errors else r1.errors[0].instance_location)))
+
+
+def _criterio_K10b(tmp):
+    r = _esito(_registro(tmp, "K10b", {"pain.schema.json": _doc(SIGMA1)}), [1, 2])
+    criterio("K10b",
+             r.full_outcome is FullOutcome.FULL_FAIL and len(r.errors) == 2,
+             str((str(r.full_outcome), len(r.errors))))
+
+
+def _criterio_K10e(tmp):
+    schemi = _registro(tmp, "K10e", {"pain.schema.json": _doc(SIGMA2)})
+    esiti = [_esito(schemi, ist) for ist in ([], ["s"], [1])]
+    criterio("K10e", all(r.reason_code is ReasonCode.REF_UNRESOLVABLE for r in esiti),
+             str([str(r.reason_code) for r in esiti]))
+
+
+#: `K13`/`K14` — le otto combinazioni di `M2`: due risorse per quattro dialetti.
+DIALETTI_K13 = ("https://json-schema.org/draft/2019-09/schema",
+                "http://json-schema.org/draft-07/schema#",
+                None,
+                "https://esempio.invalido/dialetto-inventato")
+
+
+def _registro_dialetto(tmp, etichetta, risorsa, dialetto, indice):
+    documento = _schema_registro(risorsa)
+    if dialetto is None:
+        documento.pop("$schema", None)
+    else:
+        documento["$schema"] = dialetto
+    return _registro(tmp, "%s-%s-%d" % (etichetta, risorsa.split(".")[0], indice),
+                     {risorsa: json.dumps(documento).encode("utf-8")})
+
+
+def _criteri_K13_K14(tmp):
+    for etichetta, istanza in (("K13", carica("valid/pain.ok.json")),
+                               ("K14", carica("invalid/pain.enum.json"))):
+        esiti = []
+        for risorsa in (CORE_SCHEMA_ID, "pain.schema.json"):
+            for indice, dialetto in enumerate(DIALETTI_K13):
+                schemi = _registro_dialetto(tmp, etichetta, risorsa, dialetto, indice)
+                esiti.append(_esito(schemi, istanza).reason_code)
+        criterio(etichetta,
+                 len(esiti) == 8
+                 and all(c is ReasonCode.SCHEMA_META_INVALID for c in esiti),
+                 str([str(c) for c in esiti]))
+
+
+def _criterio_K15(tmp):
+    """Risorsa embedded con `$id` proprio e SENZA `$schema`: eredita il dialetto."""
+    schemi = _registro(tmp, "K15", {"pain.schema.json": _doc(
+        {"type": "object", "properties": {"k": {"$ref": "emb.schema.json"}},
+         "$defs": {"E": {"$id": "emb.schema.json", "type": "string"}}})})
+    r = _esito(schemi, {})
+    criterio("K15",
+             r.full_outcome is FullOutcome.FULL_PASS and r.reason_code is None,
+             str((str(r.full_outcome), str(r.reason_code))))
+
+
+def _criterio_K25(tmp):
+    """`chiusura_risolve` NON solleva mai: visita iterativa, non la pila di chiamate.
+
+    Non promette alcuna profondita': afferma una proprieta' dell'implementazione. Dal
+    percorso pubblico l'esito resta `SCHEMA_META_INVALID`, perche' `F5` cade prima.
+    """
+    nodo = {"type": "object"}
+    for _ in range(900):
+        nodo = {"type": "object", "properties": {"p": nodo}}
+    schemi = _registro(tmp, "K25", {"pain.schema.json": _doc(nodo)})
+    pubblico = _esito(schemi, {}).reason_code
+    try:
+        diretta = V.chiusura_risolve(_documenti_di(schemi))
+        sollevata = None
+    except Exception as exc:  # noqa: BLE001 — e' esattamente cio' che si nega
+        diretta, sollevata = None, type(exc).__name__
+    criterio("K25",
+             sollevata is None and diretta is True
+             and pubblico is ReasonCode.SCHEMA_META_INVALID,
+             str((sollevata, diretta, str(pubblico))))
+
+
+def _criterio_K27():
+    """`_MAX_CANDIDATI` non lega sul corpus `valid/` + `invalid/`.
+
+    Se legasse, l'attribuzione tornerebbe a dipendere dall'ordine di enumerazione: e'
+    il difetto `P0-4`. La seconda meta' di `K27` — il tetto come CAUSA di degrado —
+    resta a `R3`.
+    """
+    manifesto = carica("manifest.json")
+    entrate = [v for v in manifesto["entries"]
+               if v["kind"] == "validation_instance"
+               and v["path"].split("/")[0] in ("valid", "invalid")]
+    V._STRUMENTAZIONE["ampiezza_massima"] = 0
+    for voce in entrate:
+        V._esegui_shadow_core(
+            carica(voce["path"]), contesto(schema_ref=voce["target_ref"]),
+            config=V.ConfigTest(attivo=True, radice_output=None),
+            adattatori=adattatori())
+    osservato = V._STRUMENTAZIONE["ampiezza_massima"]
+    criterio("K27",
+             len(entrate) == 23 and 0 < osservato < V._MAX_CANDIDATI,
+             "fixture=%d ampiezza_massima=%d tetto=%d"
+             % (len(entrate), osservato, V._MAX_CANDIDATI))
+
+
+# --- E2 rev3 §7 — 11 [AD] -------------------------------------------------
+
+
+def _criterio_T1():
+    accettati = []
+    for campo in CAMPI_RECORD_IN_AMBITO:
+        record = _record_conforme()
+        record[campo] = str(record[campo]) + "\n"
+        if campo != "checksum":
+            record = _ricalcola_checksum(record)
+        if valida_contratto_record(record) == []:
+            accettati.append(campo)
+    record = _record_conforme()
+    record["errors"][0]["schema_resource_id"] += "\n"
+    if valida_contratto_record(_ricalcola_checksum(record)) == []:
+        accettati.append("errors[].schema_resource_id")
+    criterio("T1", len(CAMPI_RECORD_IN_AMBITO) + 1 == 17 and accettati == [],
+             str(accettati))
+
+
+def _criterio_T2(tmp):
+    record = _record_conforme()
+    record["errors"][0]["schema_resource_id"] += "\n"
+    record = _ricalcola_checksum(record)
+    radice = os.path.join(tmp, "r21-T2")
+    _scrivi_record_grezzo(radice, record)
+    rapporto = R.aggrega(radice, quiescent=True)
+    criterio("T2",
+             rapporto.records_discovered == 1 and rapporto.records_valid == 0
+             and rapporto.records_corrupt == 1 and rapporto.records_counted == 0
+             and R.invarianti_aggregato(rapporto) == [],
+             str((rapporto.records_discovered, rapporto.records_valid,
+                  rapporto.records_corrupt, rapporto.records_counted)))
+
+
+def _criterio_T3(tmp):
+    radice = os.path.join(tmp, "r21-T3")
+    for indice, invocazione in enumerate(("inv-x", "inv-x", "inv-x\n")):
+        record = _record_conforme(record_id=str(indice) * 32,
+                                  invocation_id=invocazione)
+        _scrivi_record_grezzo(radice, _ricalcola_checksum(record))
+    rapporto = R.aggrega(radice, quiescent=True)
+    criterio("T3",
+             rapporto.records_discovered == 3 and rapporto.records_valid == 2
+             and rapporto.records_corrupt == 1 and rapporto.records_counted == 1
+             and rapporto.duplicate_groups == 1
+             and R.invarianti_aggregato(rapporto) == [],
+             str((rapporto.records_discovered, rapporto.records_valid,
+                  rapporto.records_corrupt, rapporto.records_counted)))
+
+
+def _criterio_T4(tmp):
+    record = _record_conforme()
+    record["record_id"] = "0" * 32 + "\n"
+    record = _ricalcola_checksum(record)
+    respinto = valida_contratto_record(record) != []
+    radice = os.path.join(tmp, "r21-T4")
+    os.makedirs(radice, exist_ok=True)
+    with open(os.path.join(radice, "0" * 32 + ".json"), "wb") as fh:
+        fh.write(canonical_json(record).encode("utf-8"))
+    rapporto = R.aggrega(radice, quiescent=True)
+    criterio("T4",
+             respinto and rapporto.records_discovered == 1
+             and rapporto.records_valid == 0 and rapporto.records_corrupt == 1,
+             str((respinto, rapporto.records_discovered, rapporto.records_valid,
+                  rapporto.records_corrupt)))
+
+
+def _criterio_T5():
+    """Il confine PUBBLICO e il nucleo di test devono respingere allo stesso modo."""
+    sporco = contesto(artifact_id=ARTEFATTO + "\n")
+    pubblico = V.esegui_shadow_produzione({}, sporco)
+    nucleo = V._esegui_shadow_core({}, sporco,
+                                   config=V.ConfigTest(attivo=True, radice_output=None),
+                                   adattatori=adattatori())
+    def _respinto(ese):
+        return (ese.invocation_status is InvocationStatus.INVOCATION_ERROR
+                and ese.invocation_error.reason_code
+                is InvocationReasonCode.CONTEXT_INVALID
+                and ese.invocation_error.field == "artifact_id")
+    criterio("T5", _respinto(pubblico) and _respinto(nucleo),
+             str((str(pubblico.invocation_status), str(nucleo.invocation_status))))
+
+
+def _criterio_T6(tmp):
+    radice = os.path.join(tmp, "r21-T6")
+    ese = V._esegui_shadow_core({}, contesto(schema_ref="pain.schema.json\n"),
+                                config=V.ConfigTest(attivo=True, radice_output=radice),
+                                adattatori=adattatori())
+    scritti = os.listdir(radice) if os.path.isdir(radice) else []
+    criterio("T6",
+             ese.invocation_status is InvocationStatus.INVOCATION_ERROR
+             and ese.invocation_error.reason_code
+             is InvocationReasonCode.CONTEXT_INVALID
+             and ese.invocation_error.field == "schema_ref"
+             and scritti == [],
+             str((str(ese.invocation_status), scritti)))
+
+
+def _criterio_T8a():
+    finale = "0" * 32 + ".json"
+    pendente = "0" * 32 + "." + "0" * 8 + ".pending"
+    from ds_validate_contract import FINAL_NAME, PENDING_NAME  # noqa: PLC0415
+    criterio("T8a",
+             FINAL_NAME.match(finale) is not None
+             and PENDING_NAME.match(pendente) is not None
+             and FINAL_NAME.match(finale + "\n") is None
+             and PENDING_NAME.match(pendente + "\n") is None,
+             "le grammatiche di nome file devono distinguere il newline finale")
+
+
+def _criterio_T8b(tmp):
+    """`DEC-14` — su Windows un nome con newline non e' creabile (`OSError`).
+
+    Non e' un verde implicito e non e' un'omissione: l'esito e' dichiarato
+    `NOT_APPLICABLE_WINDOWS` e contato a parte. Su POSIX il criterio ESEGUE.
+    """
+    if os.name == "nt":
+        criterio_non_applicabile(
+            "T8b", "nome di file con newline finale non creabile su Windows (OSError)")
+        return
+    radice = os.path.join(tmp, "r21-T8b")
+    os.makedirs(radice, exist_ok=True)
+    with open(os.path.join(radice, "0" * 32 + ".json\n"), "wb") as fh:
+        fh.write(b"{}")
+    rapporto = R.aggrega(radice, quiescent=True)
+    criterio("T8b",
+             rapporto.records_discovered == 1 and rapporto.records_corrupt == 1
+             and rapporto.records_valid == 0
+             and R.invarianti_aggregato(rapporto) == [],
+             str((rapporto.records_discovered, rapporto.records_corrupt)))
+
+
+#: `E2` rev3 §3.4 — le nove grammatiche COSTANTI in ambito, con un token valido per
+#: ciascuna. Il decimo call site e' il letterale in linea di `ds_validate.py`, che
+#: solo `D2(b)` trova. La mappa e' indicizzata per TESTO del pattern: una grammatica
+#: nuova non vi compare, e `T15` fallisce — che e' il punto del criterio.
+TOKEN_VALIDI = {
+    r"^[A-Za-z0-9._-]{1,64}\Z": "token-valido",
+    r"^[0-9a-f]{8}\Z": "0" * 8,
+    r"^[0-9a-f]{32}\Z": "0" * 32,
+    r"^[0-9a-f]{64}\Z": "0" * 64,
+    r"^[A-Za-z0-9-]{1,48}\.schema\.json\Z": "pain.schema.json",
+    r"^[0-9A-Za-z.+_-]{1,32}\Z": "1.0.0",
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z": "2026-08-09T00:00:00.000000Z",
+    r"^[0-9a-f]{32}\.json\Z": "0" * 32 + ".json",
+    r"^[0-9a-f]{32}\.[0-9a-f]{8}\.pending\Z": "0" * 32 + "." + "0" * 8 + ".pending",
+}
+
+#: Fuori ambito per `E2` rev3 §4.1: `CONTROL_CHARS` e' una RICERCA, non un'ancora, e
+#: `_RX_REQUIRED` analizza un messaggio di `jsonschema`, non un token persistito.
+PATTERN_FUORI_AMBITO = (r"[\x00-\x1f\x7f]",
+                        r"^'(?P<p>.+)' is a required property$")
+
+MODULI_D2 = ("ds_validate.py", "ds_validate_contract.py", "ds_validate_report.py")
+
+
+def _pattern_da_vars():
+    """`D2(a)` — ogni `re.Pattern` raggiungibile da `vars(modulo)`, dedup per `id()`."""
+    import re as _re  # noqa: PLC0415
+    visti, fuori = set(), []
+    for modulo in (V, __import__("ds_validate_contract"), R):
+        for valore in vars(modulo).values():
+            if isinstance(valore, _re.Pattern) and id(valore) not in visti:
+                visti.add(id(valore))
+                fuori.append(valore)
+    return fuori
+
+
+def _letterali_da_ast():
+    """`D2(b)` — ogni `re.<f>(<letterale>, …)` nell'`ast` dei sorgenti.
+
+    Cattura le regex mai legate a un nome: e' l'estrattore che trova il letterale in
+    linea sul confine pubblico, che `D2(a)` da solo perderebbe.
+    """
+    fuori = []
+    for nome in MODULI_D2:
+        with open(os.path.join(QUI, nome), "rb") as fh:
+            albero = ast.parse(fh.read().decode("utf-8"))
+        for nodo in ast.walk(albero):
+            if (isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute)
+                    and isinstance(nodo.func.value, ast.Name)
+                    and nodo.func.value.id == "re" and nodo.args
+                    and isinstance(nodo.args[0], ast.Constant)
+                    and isinstance(nodo.args[0].value, str)):
+                fuori.append((nome, nodo.func.attr, nodo.args[0].value))
+    return fuori
+
+
+def _criterio_T15():
+    import re as _re  # noqa: PLC0415
+    oggetti = _pattern_da_vars()
+    testi_a = [p.pattern for p in oggetti
+               if p.pattern not in PATTERN_FUORI_AMBITO]
+    letterali = _letterali_da_ast()
+    in_linea = [(f, fn, t) for f, fn, t in letterali
+                if fn != "compile" and t not in PATTERN_FUORI_AMBITO]
+
+    problemi = []
+    if len(oggetti) != 11:
+        problemi.append("D2(a) ha restituito %d oggetti Pattern, attesi 11" % len(oggetti))
+    if len(testi_a) != 9:
+        problemi.append("grammatiche costanti in ambito: %d, attese 9" % len(testi_a))
+    if len(in_linea) != 1:
+        problemi.append("letterali in linea in ambito: %d, atteso 1" % len(in_linea))
+
+    # La PROPRIETA', non la forma: `fullmatch(...)` e `\Z` la soddisfano identicamente.
+    for testo in testi_a + [t for _f, _fn, t in in_linea]:
+        campione = TOKEN_VALIDI.get(testo)
+        if campione is None:
+            problemi.append("grammatica in ambito senza campione: " + testo)
+            continue
+        compilata = _re.compile(testo)
+        if compilata.match(campione) is None:
+            problemi.append("il token valido non e' accettato: " + testo)
+        if compilata.match(campione + "\n") is not None:
+            problemi.append("token e token+newline classificati UGUALMENTE: " + testo)
+    criterio("T15", problemi == [], str(problemi[:3]))
+
+
+def _criterio_T16(tmp):
+    """La directory di `E2` rev3 §5.1: 6 voci, e la partizione che preserva `AGG:1`."""
+    radice = os.path.join(tmp, "r21-T16")
+    _scrivi_record_grezzo(radice, _record_conforme(record_id="1" * 32))
+    for nome, contenuto in (("1" * 32 + "." + "2" * 8 + ".pending", b"{}"),
+                            ("note.txt", b"x"), ("README", b"x"),
+                            ("aaaa.json", b"x")):
+        with open(os.path.join(radice, nome), "wb") as fh:
+            fh.write(contenuto)
+    os.makedirs(os.path.join(radice, "sottodirectory"), exist_ok=True)
+    rapporto = R.aggrega(radice, quiescent=True)
+    criterio("T16",
+             rapporto.records_discovered == 4 and rapporto.records_valid == 1
+             and rapporto.records_corrupt == 3 and rapporto.records_counted == 1
+             and rapporto.pending_files == 1
+             and R.invarianti_aggregato(rapporto) == [],
+             str((rapporto.records_discovered, rapporto.records_valid,
+                  rapporto.records_corrupt, rapporto.records_counted,
+                  rapporto.pending_files)))
+
+
+class _VoceIndeterminabile:
+    """Una voce di directory il cui TIPO non e' determinabile: `is_file` solleva."""
+
+    def __init__(self, voce, bersaglio):
+        self._voce = voce
+        self._bersaglio = bersaglio
+        self.name = voce.name
+        self.path = voce.path
+
+    def is_file(self, *a, **kw):
+        if self.name == self._bersaglio:
+            raise OSError("tipo della voce non determinabile")
+        return self._voce.is_file(*a, **kw)
+
+    def is_dir(self, *a, **kw):
+        return self._voce.is_dir(*a, **kw)
+
+
+def _criterio_T18(tmp):
+    """LIVELLO DI ACCESSO: **monkeypatching** di `os.scandir`, dichiarato.
+
+    Il caso non e' raggiungibile dal contenuto di una directory: la domanda sul TIPO
+    della voce deve sollevare `OSError`. `os.path.isfile` inghiottiva quell'errore e
+    restituiva `False`, quindi la voce spariva — silenzio invece di `corrupt`.
+
+    Si sondano ENTRAMBE le superfici con cui il tipo puo' essere chiesto — `os.scandir`
+    e `os.path.isfile` — perche' il criterio riguarda la voce indeterminabile, non
+    l'API scelta per interrogarla: sondarne una sola lo renderebbe verde per il solo
+    fatto che l'implementazione usa l'altra.
+    """
+    # La voce indeterminabile porta un record VALIDO. E' cio' che rende il criterio
+    # falsificabile: se la domanda sul tipo viene ignorata, il file viene aperto e
+    # contato `valid`, e l'asserzione cade. Con un contenuto gia' corrotto il criterio
+    # sarebbe verde per la ragione sbagliata.
+    radice = os.path.join(tmp, "r21-T18")
+    _scrivi_record_grezzo(radice, _record_conforme(record_id="3" * 32))
+    rotto = "4" * 32 + ".json"
+    _scrivi_record_grezzo(radice, _record_conforme(record_id="4" * 32))
+
+    vero_scandir = os.scandir
+    vero_isfile = os.path.isfile
+
+    def _isfile(percorso):
+        if os.path.basename(percorso) == rotto:
+            raise OSError("tipo della voce non determinabile")
+        return vero_isfile(percorso)
+
+    class _Scandir:
+        def __init__(self, it):
+            self._it = it
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            try:
+                self._it.__exit__(*a)
+            except Exception:  # noqa: BLE001
+                pass
+            return False
+
+        def __iter__(self):
+            for voce in self._it:
+                yield _VoceIndeterminabile(voce, rotto)
+
+    os.scandir = lambda percorso: _Scandir(vero_scandir(percorso))
+    os.path.isfile = _isfile
+    try:
+        rapporto = R.aggrega(radice, quiescent=True)
+    finally:
+        os.scandir = vero_scandir
+        os.path.isfile = vero_isfile
+    criterio("T18",
+             rapporto.records_discovered == 2 and rapporto.records_valid == 1
+             and rapporto.records_corrupt == 1 and rapporto.records_counted == 1
+             and R.invarianti_aggregato(rapporto) == [],
+             str((rapporto.records_discovered, rapporto.records_valid,
+                  rapporto.records_corrupt, rapporto.records_counted)))
+
+
+def sezione_r21_criteri(tmp):
+    _criterio_K5(tmp)
+    _criterio_K6(tmp)
+    _criterio_K7(tmp)
+    _criterio_K8a(tmp)
+    _criterio_K9(tmp)
+    _criterio_K10(tmp)
+    _criterio_K10b(tmp)
+    _criterio_K10e(tmp)
+    _criteri_K13_K14(tmp)
+    _criterio_K15(tmp)
+    _criterio_K25(tmp)
+    _criterio_K27()
+    _criterio_T1()
+    _criterio_T2(tmp)
+    _criterio_T3(tmp)
+    _criterio_T4(tmp)
+    _criterio_T5()
+    _criterio_T6(tmp)
+    _criterio_T8a()
+    _criterio_T8b(tmp)
+    _criterio_T15()
+    _criterio_T16(tmp)
+    _criterio_T18(tmp)
+
+
+def sezione_contabilita_criteri():
+    """L'asserzione META di `DEC-14`: i tre contatori SOMMANO ai registrati.
+
+    Senza questa riga `DEC-14` sarebbe una convenzione di stampa; con essa e' un
+    vincolo che la suite impone a se stessa, e fallisce se qualcuno lascia cadere un
+    criterio registrato in silenzio.
+    """
+    registrati = list(CRITERI_REGISTRATI)
+    check("R2.1-6 i criteri registrati sono 24, senza ripetizioni",
+          len(registrati) == 24 and len(set(registrati)) == 24, str(len(registrati)))
+    mancanti = [n for n in registrati if n not in CRITERI_ESITI]
+    estranei = [n for n in CRITERI_ESITI if n not in registrati]
+    check("R2.1-6 ogni criterio registrato ha un esito, e nessun esito e' estraneo",
+          mancanti == [] and estranei == [], str((mancanti, estranei)))
+    conteggi = {stato: sum(1 for v in CRITERI_ESITI.values() if v == stato)
+                for stato in ("passed", "failed", "not_applicable")}
+    check("R2.1-6 DEC-14: passed + failed + not_applicable == registrati",
+          sum(conteggi.values()) == len(registrati),
+          str(conteggi) + " != " + str(len(registrati)))
+    check("R2.1-6 DEC-14: la guardia di piattaforma vale per T8b e per nient'altro",
+          sorted(n for n, v in CRITERI_ESITI.items() if v == "not_applicable")
+          == (["T8b"] if os.name == "nt" else []),
+          str(sorted(n for n, v in CRITERI_ESITI.items() if v == "not_applicable")))
+    return conteggi
+
+
+# ==========================================================================
+# R2.1-1 … R2.1-5 — il test proprio di ciascun punto
+#
+# Sono i casi che il packet nomina uno per uno, con l'esito misurato sul commit
+# contro cui devono fallire. Non sono i 24 criteri differiti: quelli stanno sopra e
+# hanno la loro contabilita'. Qui c'e' cio' che i cinque difetti hanno rotto.
+# ==========================================================================
+
+
+def _punto_R21_1(tmp):
+    """`A2` — `$schema` di tipo non stringa. Nessun hash prima del tipo.
+
+    Su `e508b0b` un `$schema` lista o oggetto faceva uscire un `TypeError` non
+    catturato da alcuna superficie pubblica: `in` su un `frozenset` chiama `hash()`.
+    Il padre classificava gli stessi input `SCHEMA_META_INVALID`, quindi il commit
+    peggiorava un caso mentre ne correggeva quattro.
+    """
+    non_stringa = [("lista", ["x"]), ("oggetto", {"a": 1}), ("numero", 7),
+                   ("nullo", None), ("booleano", True),
+                   ("annidato", {"$ref": "core.schema.json"})]
+    stringhe_non_supportate = [
+        ("uri-inventato", "https://esempio.invalido/dialetto"),
+        ("2019-09", "https://json-schema.org/draft/2019-09/schema"),
+        ("draft-07", "http://json-schema.org/draft-07/schema#"),
+    ]
+    def _codici(gruppo, prefisso):
+        fuori = {}
+        for etichetta, valore in gruppo:
+            documento = {"$id": "pain.schema.json", "$schema": valore,
+                         "type": "object"}
+            schemi = _registro(tmp, prefisso + etichetta,
+                               {"pain.schema.json": json.dumps(documento).encode("utf-8")})
+            try:
+                fuori[etichetta] = _esito(schemi, {}).reason_code
+            except Exception as exc:  # noqa: BLE001 — e' esattamente cio' che si nega
+                fuori[etichetta] = "ECCEZIONE:" + type(exc).__name__
+        return fuori
+
+    # I due gruppi restano separati perche' discriminano contro commit diversi: il
+    # primo e' la regressione del commit, il secondo e' cio' che il commit ha corretto
+    # e che non deve tornare indietro.
+    esiti = _codici(non_stringa, "p1-t-")
+    check("R2.1-1 nessuna operazione di hash prima del tipo: ogni `$schema` non "
+          "stringa -> SCHEMA_META_INVALID, nessuna eccezione in uscita",
+          all(c is ReasonCode.SCHEMA_META_INVALID for c in esiti.values()),
+          str({k: str(v) for k, v in esiti.items()}))
+    esiti = _codici(stringhe_non_supportate, "p1-s-")
+    check("R2.1-1 e ogni dialetto dichiarato ma non supportato resta "
+          "SCHEMA_META_INVALID",
+          all(c is ReasonCode.SCHEMA_META_INVALID for c in esiti.values()),
+          str({k: str(v) for k, v in esiti.items()}))
+
+    # E l'assenza di `$schema` resta l'esito di sempre: `F4` prima di `F5`.
+    documento = {"$id": "pain.schema.json", "type": "object"}
+    schemi = _registro(tmp, "p1-assente",
+                       {"pain.schema.json": json.dumps(documento).encode("utf-8")})
+    check("R2.1-1 `$schema` assente su una risorsa registrata -> SCHEMA_META_INVALID",
+          _esito(schemi, {}).reason_code is ReasonCode.SCHEMA_META_INVALID)
+
+
+#: `R2.1-2` — la costruzione della clausola sul binding: due risorse con
+#: `$dynamicAnchor` OMONIMO. Il binding di runtime usa quello di `pain`; la
+#: risoluzione STATICA di `#T` da `lib` porterebbe a `lib`. Un test che accettasse
+#: `lib.schema.json` certificherebbe il difetto.
+def _lib_pain(tipo_lib, sotto_chiave=True):
+    interno = {"$dynamicRef": "#T"}
+    corpo = ({"type": "object", "properties": {"k": interno}} if sotto_chiave
+             else {"type": "array", "items": interno})
+    lib = json.dumps({"$id": "lib.schema.json", "$schema": DIALETTO,
+                      "$defs": {"L": corpo,
+                                "T": {"$dynamicAnchor": "T", "type": tipo_lib}}}
+                     ).encode("utf-8")
+    pain = _doc({"$ref": "lib.schema.json#/$defs/L",
+                 "$defs": {"T": {"$dynamicAnchor": "T", "type": "string"}}})
+    return lib, pain
+
+
+def _punto_R21_2(tmp):
+    """`A1` — provenance di `$dynamicRef`, e `DEC-12` sui due assi indipendenti."""
+    # (a) `S10`: la posizione d'ISTANZA non e' toccata dal degrado di schema, e
+    # l'attribuzione ora esiste. La controprova `S11` con `$ref` da le stesse
+    # posizioni: e' cio' che dimostra che la differenza era la parola chiave.
+    s10 = _doc({"type": "object", "properties": {"k": {"$dynamicRef": "#T"}},
+                "$defs": {"T": {"$dynamicAnchor": "T", "type": "string"}}})
+    s11 = _doc({"type": "object", "properties": {"k": {"$ref": "#/$defs/T"}},
+                "$defs": {"T": {"type": "string"}}})
+    schemi_s10 = _registro(tmp, "p2-s10", {"pain.schema.json": s10})
+    documenti = _documenti_di(schemi_s10)
+    r10 = _esito(schemi_s10, {"k": 1})
+    r11 = _esito(_registro(tmp, "p2-s11", {"pain.schema.json": s11}), {"k": 1})
+    posizioni = [(v.instance_pointer, v.instance_location, v.location_is_exact)
+                 for v in (r10.errors + r11.errors)]
+    check("R2.1-2 `S10` con `$dynamicRef`: FULL_FAIL, e la posizione d'istanza e' "
+          "quella della controprova `S11` con `$ref` — DEC-12",
+          r10.full_outcome is FullOutcome.FULL_FAIL and len(r10.errors) == 1
+          and len(r11.errors) == 1 and posizioni == [("/k", "/k", True)] * 2,
+          str((str(r10.full_outcome), posizioni)))
+    check("R2.1-2 `S10` attribuisce la parola chiave alla risorsa che la contiene",
+          len(r10.errors) == 1 and _coerenza_voce(r10.errors[0], documenti) == "",
+          "" if not r10.errors else _coerenza_voce(r10.errors[0], documenti))
+
+    # (b) `Sigma1`: risorsa e puntatore devono indirizzare il nodo reale.
+    schemi_s1 = _registro(tmp, "p2-sigma1", {"pain.schema.json": _doc(SIGMA1)})
+    documenti_s1 = _documenti_di(schemi_s1)
+    r1 = _esito(schemi_s1, [1])
+    check("R2.1-2 `Sigma1`: schema_resource_id e schema_pointer indirizzano davvero "
+          "la parola chiave che ha fallito",
+          len(r1.errors) == 1 and _coerenza_voce(r1.errors[0], documenti_s1) == "",
+          "" if not r1.errors else _coerenza_voce(r1.errors[0], documenti_s1))
+
+    # (c) cross-risorsa DISAMBIGUABILE: il binding di runtime vive in `pain`, e la
+    # risoluzione statica porterebbe a `lib`. L'atteso non e' «un'attribuzione»: e'
+    # che la capacita' NON attribuisca a `lib.schema.json`.
+    lib, pain = _lib_pain("number", sotto_chiave=False)
+    r = _esito(_registro(tmp, "p2-cross-diverso", {"pain.schema.json": pain},
+                         aggiunte={"lib.schema.json": lib}), [1])
+    attribuite = [v.schema_resource_id for v in r.errors]
+    check("R2.1-2 cross-risorsa: mai attribuito a `lib.schema.json`, la risorsa che "
+          "solo la risoluzione STATICA indicherebbe",
+          r.full_outcome is FullOutcome.FULL_FAIL and len(r.errors) == 1
+          and "lib.schema.json" not in attribuite,
+          str(attribuite))
+    check("R2.1-2 cross-risorsa: attribuito alla risorsa del binding di RUNTIME, con "
+          "il puntatore che vi indirizza",
+          len(r.errors) == 1 and r.errors[0].schema_resource_id == "pain.schema.json"
+          and r.errors[0].schema_pointer == "/$defs/T/type",
+          str([(v.schema_resource_id, v.schema_pointer) for v in r.errors]))
+
+    # (d) cross-risorsa NON dimostrabile: due binding compatibili col
+    # `validator_value`. Si degrada per `DEC-8` — e per `DEC-12` la posizione
+    # d'istanza resta esatta. E' il residuo che il packet nomina.
+    lib, pain = _lib_pain("string", sotto_chiave=True)
+    r = _esito(_registro(tmp, "p2-cross-ambiguo", {"pain.schema.json": pain},
+                         aggiunte={"lib.schema.json": lib}), {"k": 1})
+    v = r.errors[0] if len(r.errors) == 1 else None
+    check("R2.1-2 binding non dimostrabile -> si degrada, non si indovina: "
+          "schema_pointer vuoto, instance_pointer `/k`, location_is_exact vera",
+          r.full_outcome is FullOutcome.FULL_FAIL and v is not None
+          and v.schema_resource_id != "lib.schema.json" and v.schema_pointer == ""
+          and v.instance_pointer == "/k" and v.instance_location == "/k"
+          and v.location_is_exact is True,
+          str(None if v is None else (v.schema_resource_id, v.schema_pointer,
+                                      v.instance_pointer, v.location_is_exact)))
+    check("R2.1-2 e il record degradato resta CONFORME al contratto",
+          v is not None and V.voce_conforme(v))
+
+
+def _punto_R21_3(tmp):
+    """`A3a` — `contentSchema`, e sbagliava in ENTRAMBE le direzioni."""
+    c20 = _doc({"type": "object",
+                "properties": {"b": {"type": "string",
+                                     "contentSchema": {"$ref": "#/$defs/NONESISTE"}}}})
+    schemi = _registro(tmp, "p3-c20", {"pain.schema.json": c20})
+    codici = [_esito(schemi, ist).reason_code for ist in ({}, {"b": 1}, {"b": "x"})]
+    check("R2.1-3 `C20` un `$ref` irrisolvibile sotto `contentSchema` non si nasconde "
+          "piu': REF_UNRESOLVABLE, indipendente dall'istanza",
+          all(c is ReasonCode.REF_UNRESOLVABLE for c in codici),
+          str([str(c) for c in codici]))
+
+    c21 = _doc({"type": "object",
+                "properties": {"b": {"type": "string",
+                                     "contentSchema": {"$anchor": "CS",
+                                                       "type": "object"}}},
+                "items": {"$ref": "#CS"}})
+    r = _esito(_registro(tmp, "p3-c21", {"pain.schema.json": c21}), {})
+    check("R2.1-3 `C21` un `$anchor` dichiarato dentro `contentSchema` risolve: il "
+          "preflight non rifiuta cio' che il resolver del dialetto risolve (R-FID)",
+          r.reason_code is not ReasonCode.REF_UNRESOLVABLE, str(r.reason_code))
+
+
+def _punto_R21_4(tmp):
+    """`A3b` — risorse embedded con `$id`: per puntatore e per anchor interno."""
+    c22 = _doc({"type": "object", "properties": {"k": {"$ref": "sub.schema.json"}},
+                "$defs": {"E": {"$id": "sub.schema.json", "type": "string"}}})
+    c23 = _doc({"type": "object", "properties": {"k": {"$ref": "sub.schema.json#B"}},
+                "$defs": {"E": {"$id": "sub.schema.json",
+                                "$defs": {"B": {"$anchor": "B", "type": "string"}}}}})
+    codici = []
+    for etichetta, documento in (("c22", c22), ("c23", c23)):
+        codici.append(_esito(_registro(tmp, "p4-" + etichetta,
+                                       {"pain.schema.json": documento}), {}).reason_code)
+    check("R2.1-4 `C22`/`C23` una risorsa embedded risolve, per puntatore e per anchor",
+          all(c is not ReasonCode.REF_UNRESOLVABLE for c in codici),
+          str([str(c) for c in codici]))
+
+    # Il registro resta CHIUSO: un `$id` embedded che non esiste non si recupera.
+    fuori = _doc({"type": "object",
+                  "properties": {"k": {"$ref": "mai-registrata.schema.json"}}})
+    check("R2.1-4 il registro resta chiuso: un `$id` mai registrato non si recupera",
+          _esito(_registro(tmp, "p4-fuori", {"pain.schema.json": fuori}), {}).reason_code
+          is ReasonCode.REF_UNRESOLVABLE)
+
+    # Un `$id` embedded che collide con un'identita' registrata resta un errore di
+    # identita': due bersagli per lo stesso nome, e nessuno dei due si sceglie in
+    # silenzio.
+    collide = _doc({"type": "object",
+                    "$defs": {"E": {"$id": CORE_SCHEMA_ID, "type": "string"}}})
+    check("R2.1-4 un `$id` embedded che collide con un'identita' registrata resta un "
+          "errore di identita'",
+          _esito(_registro(tmp, "p4-collisione",
+                           {"pain.schema.json": collide}), {}).reason_code
+          is ReasonCode.SCHEMA_ID_COLLISION)
+
+
+def _ragione_link_non_creabile(exc) -> str:
+    """Ragione DICHIARATA quando la piattaforma non sa creare un link simbolico.
+
+    Isolata dal registro globale perche' sia esercitabile senza sporcarlo: su
+    Windows con Developer Mode e su POSIX il link E' creabile, quindi il ramo che
+    la usa non viene mai preso e senza questa funzione la sua correttezza non
+    sarebbe provata da nulla.
+
+    Non si stampa `str(exc)`: il testo di sistema di `os.symlink` incorpora i due
+    percorsi ASSOLUTI, e la riga 6 di questo modulo vieta tanto il percorso
+    assoluto quanto il testo di un'eccezione. Il codice numerico non e' ne' l'uno
+    ne' l'altro, ma da solo sarebbe ambiguo: `winerror` ed `errno` sono due spazi
+    di nomi DISTINTI che collidono — `1` vale `EPERM` come `errno` e non e' un
+    `winerror` — quindi la numerazione va NOMINATA. `winerror` ha la precedenza
+    perche' sulla stessa eccezione Windows valgono `1314` e `22`, e solo il primo
+    dice la causa; il confronto e' con `None` e non per verita', cosi' un codice
+    `0` viene riportato invece di scivolare sull'altra numerazione.
+    """
+    win = getattr(exc, "winerror", None)
+    err = getattr(exc, "errno", None)
+    if win is not None:
+        codice = " winerror " + str(win)
+    elif err is not None:
+        codice = " errno " + str(err)
+    else:
+        codice = ""
+    return ("link simbolico non creabile su questa piattaforma ("
+            + type(exc).__name__ + codice
+            + "): il caso resta da eseguire su POSIX")
+
+
+def _punto_R21_5(tmp, *, symlink=None):
+    """`A5`, seconda meta': un link simbolico non e' un file regolare.
+
+    LIVELLO DI ACCESSO: **filesystem reale**, nessun monkeypatching. `T18` copre
+    l'altra meta' del punto — la voce il cui TIPO non e' determinabile, che conta
+    `corrupt` — e per arrivarci deve sostituire `os.scandir`, perche' quel caso non
+    e' costruibile con una directory vera. Questo lo e'.
+
+    La regola applicata e' quella di `E2` rev3 **§5.2**: «le voci che non sono file
+    regolari — directory, e link simbolici che non risolvono a un file regolare
+    sotto `follow_symlinks=False` — non sono ne' scoperte ne' pending». §5.3 e'
+    citata per il solo MECCANISMO (`os.scandir` che fornisce
+    `is_file(follow_symlinks=False)` senza `stat` per voce); la sua prosa sui costi
+    dice invece che i link simbolici finirebbero `corrupt`, e su questo punto §5.2 e
+    §5.3 di `E2` rev3 non concordano. Il codice di produzione implementa §5.2, e
+    questo caso asserisce §5.2. La discordanza e' segnalata, non risolta qui.
+
+    Il bersaglio vive FUORI dalla radice aggregata: dentro sarebbe un file regolare
+    a pieno titolo, e nessun contatore saprebbe piu' distinguere il link dal proprio
+    bersaglio. Resta comunque dentro `tmp`, cosi' la pulizia di `7.15` non ha nulla
+    da inseguire fuori dalla directory temporanea. Il nome del link rispetta
+    `FINAL_NAME` e il bersaglio e' un record VALIDO: se il link fosse contato come
+    file regolare verrebbe aperto, letto e contato `valid`, e l'asserzione cade. Con
+    un bersaglio gia' corrotto il caso sarebbe verde per la ragione sbagliata.
+
+    Il record regolare accanto al link e' il TESTIMONE: senza di lui una radice
+    illeggibile — `voci = []` — darebbe gli stessi zeri, e il caso passerebbe senza
+    aver visto niente. I due record portano `invocation_id` diversi per tenere
+    discriminante anche la clausola `records_counted == 1`: a `invocation_id` uguali
+    la deduplicazione riassorbe il link nel gruppo del testimone e quel solo numero
+    tornerebbe `1` anche con il link seguito (misurato: `2, 2, 0, 1`). Le altre
+    clausole cadrebbero comunque, ma un'asserzione le cui parti non discriminano
+    tutte e' un'asserzione che si sta gia' sfaldando.
+
+    `symlink` esiste per un solo motivo: permettere a
+    `_punto_R21_5_ramo_dichiarato` di esercitare il ramo di rifiuto SENZA
+    sostituire `os.symlink` nel modulo `os`. Nella corsa normale resta `None` e
+    il punto usa `os.symlink`, quindi la strada di produzione del caso e'
+    esattamente quella di prima.
+    """
+    base = os.path.join(tmp, "r21-5-symlink")
+    radice = os.path.join(base, "records")
+    deposito = os.path.join(base, "bersaglio")
+    _scrivi_record_grezzo(radice, _record_conforme(record_id="6" * 32,
+                                                   invocation_id="inv-r215-reg"))
+    bersaglio = _scrivi_record_grezzo(
+        deposito, _record_conforme(record_id="5" * 32, invocation_id="inv-r215-lnk"))
+    collegamento = os.path.join(radice, "5" * 32 + ".json")
+
+    try:
+        (symlink if symlink is not None else os.symlink)(bersaglio, collegamento)
+    except (OSError, NotImplementedError, AttributeError) as exc:
+        # Il `try` avvolge la SOLA creazione del link, e nient'altro: non puo'
+        # assorbire il fallimento dell'asserzione, che non e' ancora stata scritta.
+        # La discriminante e' la CAPACITA', non la piattaforma: su Windows con
+        # Developer Mode attivo il link e' creabile, e una guardia su `os.name`
+        # salterebbe un caso perfettamente eseguibile — cioe' mentirebbe.
+        NON_ESEGUITI.append(
+            ("R2.1-5 link simbolico non contato come file regolare",
+             _ragione_link_non_creabile(exc)))
+        return
+
+    rapporto = R.aggrega(radice, quiescent=True)
+    check("R2.1-5 un link simbolico con nome conforme, che punta a un record "
+          "VALIDO fuori radice, non conta come file regolare",
+          rapporto.records_discovered == 1 and rapporto.records_valid == 1
+          and rapporto.records_corrupt == 0 and rapporto.records_counted == 1
+          and rapporto.pending_files == 0
+          and R.invarianti_aggregato(rapporto) == [],
+          str((rapporto.records_discovered, rapporto.records_valid,
+               rapporto.records_corrupt, rapporto.records_counted,
+               rapporto.pending_files, R.invarianti_aggregato(rapporto))))
+
+
+def _punto_R21_5_ramo_dichiarato(tmp):
+    """Il ramo «link non creabile» di `_punto_R21_5`, esercitato davvero.
+
+    LIVELLO DI ACCESSO: **iniezione della sola `os.symlink` nel punto**, piu'
+    istanze di eccezione sintetiche per l'etichetta. Nessun monkeypatching
+    globale — `os.symlink` non viene mai sostituita nel modulo `os` — e nessuna
+    alterazione PERSISTENTE dei registri: `NON_ESEGUITI` viene riportato alla
+    lunghezza di partenza, e si verifica che `RISULTATI` e `CRITERI_ESITI` non si
+    siano mossi.
+
+    Serve perche' su entrambe le piattaforme di gate il link e' creabile: il ramo
+    non viene mai preso, il quinto contatore vale `0` in tutti e due i verbali, e
+    la sua correttezza resterebbe altrimenti asserita da nulla.
+
+    Le eccezioni sintetiche portano `winerror` per ASSEGNAZIONE su una
+    sottoclasse, non per la forma a cinque argomenti di `OSError`: quella e'
+    speciale solo su Windows — misurato, su POSIX lascia `winerror` a `None` —
+    e renderebbe questo caso divergente fra le due piattaforme.
+    """
+    class _ConWinerror(OSError):
+        pass
+
+    con_win = _ConWinerror(22, "messaggio di sistema")
+    con_win.winerror = 1314
+    con_win.filename = os.path.join(tmp, "assoluto-a.json")
+    con_win.filename2 = os.path.join(tmp, "assoluto-b.json")
+
+    forme = (con_win, OSError(1, "operazione non permessa"), OSError(),
+             NotImplementedError(), AttributeError())
+    righe = [_ragione_link_non_creabile(e) for e in forme]
+    attese = ("_ConWinerror winerror 1314", "PermissionError errno 1", "(OSError)",
+              "(NotImplementedError)", "(AttributeError)")
+    check("R2.1-5 la ragione del ramo NOMINA la numerazione del codice e degrada "
+          "al solo tipo quando non ce n'e' alcuna",
+          all(a in r for a, r in zip(attese, righe))
+          # nessun percorso assoluto, nessun testo di sistema, in nessuna forma
+          and not any(tmp in r or "messaggio di sistema" in r
+                      or "operazione non permessa" in r for r in righe),
+          str(righe))
+
+    prima_ne, prima_ris = len(NON_ESEGUITI), len(RISULTATI)
+    prima_cri = dict(CRITERI_ESITI)
+
+    def _rifiuta(_sorgente, _destinazione):
+        raise con_win
+
+    _punto_R21_5(os.path.join(tmp, "ramo"), symlink=_rifiuta)
+    aggiunte = NON_ESEGUITI[prima_ne:]
+    del NON_ESEGUITI[prima_ne:]          # registro globale RIPRISTINATO
+
+    check("R2.1-5 sul ramo dichiarato non nasce alcun `check`, i criteri non si "
+          "muovono, e resta esattamente una voce dichiarata",
+          len(aggiunte) == 1
+          and aggiunte[0][0] == "R2.1-5 link simbolico non contato come file regolare"
+          and "winerror 1314" in aggiunte[0][1]
+          and len(RISULTATI) == prima_ris
+          and CRITERI_ESITI == prima_cri
+          and len(NON_ESEGUITI) == prima_ne,
+          str((len(aggiunte), len(RISULTATI) - prima_ris,
+               CRITERI_ESITI == prima_cri, len(NON_ESEGUITI) - prima_ne)))
+
+
+def _punto_E2_5_3_costo(tmp):
+    """`E2` rev3 §5.3, blockquote: «una sola passata, nessuna `stat` per voce».
+
+    LIVELLO DI ACCESSO: **contatori sulle superfici `os` di livello Python**,
+    installati per la sola durata di UNA aggregazione e rimossi in `finally`.
+
+    PERIMETRO DICHIARATO, e va letto per quello che e'. Si conta cio' che transita
+    dal MODULO `os`, **non le syscall**: `DirEntry.is_file()` e' implementata in C
+    e non passa da `os.stat`, quindi nessun contatore Python puo' vederla. Il
+    conteggio effettivo richiederebbe `strace` — strumento esterno, solo POSIX,
+    fuori dal perimetro di `DEC-13`. Questo caso asserisce dunque la SCELTA
+    IMPLEMENTATIVA — una enumerazione, nessuna interrogazione per voce dal livello
+    Python — e non il costo reale. La meta' di §5.3 sul costo resta aperta.
+
+    La superficie e' pero' interamente enumerabile, ed e' cio' che rende
+    l'asserzione non vuota: `_aggrega_con_lettore` usa `os.scandir` una volta,
+    `os.path.join` (stringhe) e `open` per i candidati, e nient'altro. La forma
+    pre-`R2.1` — `os.listdir` piu' `os.path.isfile` per voce — darebbe
+    `scandir 0`, `listdir 1`, `per_voce N`: tutte e tre le clausole cadono.
+    """
+    radice = os.path.join(tmp, "e2-5-3-costo")
+    for cifra in ("1", "2", "3"):
+        _scrivi_record_grezzo(radice, _record_conforme(
+            record_id=cifra * 32, invocation_id="inv-costo-" + cifra))
+
+    conta = {"scandir": 0, "listdir": 0, "per_voce": 0}
+    veri = {"scandir": os.scandir, "listdir": os.listdir, "stat": os.stat,
+            "lstat": os.lstat, "isfile": os.path.isfile}
+
+    def _conta(chiave, nome):
+        def _avvolta(*a, **k):
+            conta[chiave] += 1
+            return veri[nome](*a, **k)
+        return _avvolta
+
+    os.scandir = _conta("scandir", "scandir")
+    os.listdir = _conta("listdir", "listdir")
+    os.stat = _conta("per_voce", "stat")
+    os.lstat = _conta("per_voce", "lstat")
+    os.path.isfile = _conta("per_voce", "isfile")
+    try:
+        rapporto = R.aggrega(radice, quiescent=True)
+    finally:
+        # Il ripristino sta in `finally` e non dopo il `try`: se `R.aggrega`
+        # sollevasse, le cinque superfici resterebbero avvolte per tutto il resto
+        # della corsa — cioe' proprio quell'alterazione PERSISTENTE dei registri
+        # globali che questo caso doveva evitare. Il residuo non farebbe rumore:
+        # i contatori DELEGANO alle funzioni vere, quindi `shutil.rmtree` e il
+        # controllo `7.15` continuerebbero a passare (misurato, col ripristino
+        # rimosso, su entrambe le piattaforme di gate). Un residuo che nessun
+        # controllo vede e' la ragione per cui il ripristino non puo' essere
+        # affidato al cammino felice.
+        os.scandir, os.listdir = veri["scandir"], veri["listdir"]
+        os.stat, os.lstat = veri["stat"], veri["lstat"]
+        os.path.isfile = veri["isfile"]
+
+    check("R2.1-5 `E2` §5.3: una sola enumerazione per aggregazione, e nessuna "
+          "interrogazione per voce dal livello Python",
+          conta["scandir"] == 1 and conta["listdir"] == 0 and conta["per_voce"] == 0
+          and rapporto.records_discovered == 3 and rapporto.records_valid == 3
+          and rapporto.records_corrupt == 0
+          and R.invarianti_aggregato(rapporto) == [],
+          str(conta) + " " + str((rapporto.records_discovered,
+                                  rapporto.records_valid, rapporto.records_corrupt)))
+
+
+def sezione_r21_punti(tmp):
+    _punto_R21_1(tmp)
+    _punto_R21_2(tmp)
+    _punto_R21_3(tmp)
+    _punto_R21_4(tmp)
+    # `R2.1-5` ha DUE meta', e ciascuna ha la propria prova, separatamente
+    # identificabile: il criterio `T18` copre la voce il cui TIPO non e'
+    # determinabile -> `corrupt` (monkeypatching di `os.scandir`, perche' con una
+    # directory vera quel caso non si costruisce); `_punto_R21_5` copre il link
+    # simbolico, che non e' un file regolare (filesystem reale, nessun patch).
+    _punto_R21_5(tmp)
+    # Il ramo di `_punto_R21_5` che nessuna delle due piattaforme di gate prende,
+    # e la meta' di `E2` §5.3 asseribile dal livello Python. Entrambi sono
+    # `check` del punto, non criteri: `CRITERI_REGISTRATI` resta a 24.
+    _punto_R21_5_ramo_dichiarato(tmp)
+    _punto_E2_5_3_costo(tmp)
+
+
+# ==========================================================================
 # main
 # ==========================================================================
 
@@ -2479,6 +3675,8 @@ def main() -> int:
         sezione_a4(tmp)
         sezione_a5(tmp)
         sezione_p0_3_p0_4(tmp)
+        sezione_r21_criteri(tmp)
+        sezione_r21_punti(tmp)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
@@ -2488,13 +3686,32 @@ def main() -> int:
         rimosso = tmp
     digest = sezione_7_15()
     check("7.15 la TemporaryDirectory e' rimossa dopo la corsa", not os.path.exists(rimosso))
+    conteggi = sezione_contabilita_criteri()
 
     falliti = [(n, d) for n, ok, d in RISULTATI if not ok]
     for n, d in falliti:
         sys.stdout.write("FALLITO  " + n + ("  [" + d + "]" if d else "") + "\n")
+    for n, ragione in NON_APPLICABILI:
+        sys.stdout.write("NOT_APPLICABLE_WINDOWS  " + n + "  [" + ragione + "]\n")
+    for n, ragione in NON_ESEGUITI:
+        sys.stdout.write("NON ESEGUITO  " + n + "  [" + ragione + "]\n")
+    # `DEC-14` — i contatori SOMMANO al totale: una riga con `superati` e
+    # `falliti` soltanto e' ambigua per costruzione appena esiste un esito non
+    # applicabile, ed e' precisamente cio' che `DEC-14` vieta. Per la stessa
+    # ragione un caso non ESEGUITO entra nel totale invece di sparirne: stamparlo
+    # senza contarlo lascerebbe la somma piu' corta del vero, che e' il vuoto che
+    # `DEC-14` vieta — nella forma piu' insidiosa, perche' la riga sembra tornare.
+    totale = len(RISULTATI) + len(NON_APPLICABILI) + len(NON_ESEGUITI)
     sys.stdout.write(
-        "controlli: %d totali, %d superati, %d falliti\n"
-        % (len(RISULTATI), len(RISULTATI) - len(falliti), len(falliti))
+        "controlli: %d totali, %d superati, %d falliti, %d non applicabili, "
+        "%d non eseguiti\n"
+        % (totale, len(RISULTATI) - len(falliti), len(falliti),
+           len(NON_APPLICABILI), len(NON_ESEGUITI))
+    )
+    sys.stdout.write(
+        "criteri differiti: %d registrati, %d passati, %d falliti, %d not_applicable\n"
+        % (len(CRITERI_REGISTRATI), conteggi["passed"], conteggi["failed"],
+           conteggi["not_applicable"])
     )
     sys.stdout.write("tools/ds_call.py sha256: " + digest + "\n")
     sys.stdout.write("chiamate di rete: %d\n" % CHIAMATE_RETE["n"])

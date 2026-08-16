@@ -25,6 +25,7 @@ import platform
 import re
 import secrets
 import time
+import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -250,6 +251,12 @@ def _adattatori_predefiniti() -> Adattatori:
 
 _SEPARATORI = ("/", "\\")
 
+#: E1 rev6 §3.3 — insieme dei dialetti supportati da `M0.1`. Ha un solo elemento, e
+#: finche' ne ha uno l'insieme dei vocabolari attivi e' determinato dall'URI e non
+#: richiede verifica separata. Ampliarlo e' un emendamento successivo, che dovra'
+#: definire la risoluzione cross-dialetto prima di ammettere il secondo elemento.
+DIALETTI_SUPPORTATI = frozenset({"https://json-schema.org/draft/2020-12/schema"})
+
 
 def _token_sicuro(v: Any) -> bool:
     """§4.5 — grammatica PRIMA di ogni codifica (A1 rev4 §2.2).
@@ -333,7 +340,10 @@ def _valida_contesto(contesto: Any):
         return InvocationError(e, "attempt")
 
     artefatto = contesto.artifact_id
-    if type(artefatto) is not str or re.match(r"^[0-9a-f]{64}$", artefatto) is None:
+    # E2 rev3 §4.3 — regex LETTERALE in linea, non una costante: e' il punto sul
+    # confine pubblico, e una correzione limitata al modulo del contratto lo mancava.
+    # `\Z` e non `$`: quest'ultimo accettava `"a"*64 + "\n"`, che arrivava fino al disco.
+    if type(artefatto) is not str or re.match(r"^[0-9a-f]{64}\Z", artefatto) is None:
         return InvocationError(e, "artifact_id")
 
     riferimento = contesto.schema_ref
@@ -546,6 +556,34 @@ def _costruisci_registro(adattatori: Adattatori, lib: _Libreria):
         documenti[identita] = documento
         byte_grezzi[identita] = grezzo
 
+    # R2.1-4 — `F3`, identita'. Da quando le risorse EMBEDDED entrano nell'indice, un
+    # `$id` embedded che collide con un'identita' di primo livello darebbe due
+    # bersagli per lo stesso nome: sceglierne uno in silenzio e' la classe di difetto
+    # di `P0-4`. Resta un errore d'identita', fail-closed, e cade in `F3` — prima di
+    # `F4` e di `F5`, come la precedenza di §6 impone.
+    for identita, documento in documenti.items():
+        for _ptr, identificatore, _nodo in _id_embedded(documento):
+            if _identita_risolta(identificatore, identita) in documenti:
+                return None, ReasonCode.SCHEMA_ID_COLLISION
+
+    # E1 rev6 §3.3 — il dialetto dichiarato e' vincolante, e vale PRIMA della
+    # meta-validazione: `check_schema` e' fissato a 2020-12 mentre
+    # `Resource.from_contents` adotta la specifica dichiarata dalla risorsa, quindi
+    # senza questo controllo i due passi potevano operare su dialetti diversi sullo
+    # stesso documento. `M0.1` supporta un solo dialetto: un `$schema` assente o non
+    # supportato e' un esito deterministico, mai un fallback silenzioso.
+    # R2.1-1 (`A2`) — NESSUNA operazione di membership o di hash prima della
+    # validazione di TIPO. `DIALETTI_SUPPORTATI` e' un `frozenset` e `in` chiama
+    # `hash()` sul valore: con `$schema` lista o oggetto — JSON legittimo, documento
+    # leggibile, `$id` conforme — usciva un `TypeError: unhashable type` NON catturato
+    # da alcuna superficie pubblica, contro `DEC-5` clausola 3. Il tipo si accerta
+    # prima; l'appartenenza dopo. Ogni `$schema` non stringa e ogni stringa non
+    # supportata danno lo stesso esito deterministico.
+    for identita, documento in documenti.items():
+        dialetto = documento.get("$schema")
+        if not isinstance(dialetto, str) or dialetto not in DIALETTI_SUPPORTATI:
+            return None, ReasonCode.SCHEMA_META_INVALID
+
     for identita, documento in documenti.items():
         try:
             lib.jsonschema.Draft202012Validator.check_schema(documento)
@@ -747,38 +785,182 @@ def _ha_chiave(nodo, s) -> bool:
     return isinstance(nodo, dict) and isinstance(s, str) and s in nodo
 
 
-def _segui_ref(riferimento, risorsa_corrente, documenti):
+#: E1 rev6 §3.4 — le posizioni che il dialetto 2020-12 definisce SCHEMA. Nient'altro
+#: viene attraversato: `const`, `default`, `examples` ed `enum` portano DATI, e un
+#: `{"$ref": ...}` che vi compare e' un valore JSON legittimo, non un riferimento.
+#: Le parole chiave ignote non si attraversano: il dialetto non le definisce schema.
+#: R2.1-3 (`A3a`) — `contentSchema` e' la sola posizione-schema di 2020-12 che
+#: mancava dalle tre liste, verificato per enumerazione contro i vocabolari core,
+#: applicator, unevaluated e content. La sua assenza sbagliava in ENTRAMBE le
+#: direzioni: un `$ref` irrisolvibile dichiarato li' dentro non veniva enumerato e la
+#: closure risultava risolta (allentamento), mentre un `$anchor` legittimo dichiarato
+#: li' dentro non entrava nella mappa e faceva rifiutare l'intero registro (falso
+#: positivo, contro `R-FID`: `referencing` 0.37.0 lo risolve).
+_KW_SCHEMA_SINGOLO = ("additionalProperties", "propertyNames", "if", "then", "else",
+                      "not", "contains", "items", "unevaluatedItems",
+                      "unevaluatedProperties", "contentSchema")
+_KW_SCHEMA_LISTA = ("allOf", "anyOf", "oneOf", "prefixItems")
+_KW_SCHEMA_MAPPA = ("properties", "patternProperties", "$defs", "dependentSchemas")
+_KW_RIFERIMENTO = ("$ref", "$dynamicRef")
+
+
+def _e_schema(nodo) -> bool:
+    """Uno schema e' un oggetto o un booleano. Stringhe, numeri, array e null non lo sono."""
+    return isinstance(nodo, dict) or isinstance(nodo, bool)
+
+
+def _sottoschemi(nodo):
+    """(pezzo di puntatore, sottoschema) per le sole posizioni-schema del dialetto."""
+    if not isinstance(nodo, dict):
+        return
+    for k in _KW_SCHEMA_SINGOLO:
+        if k in nodo:
+            yield "/" + _esc(k), nodo[k]
+    for k in _KW_SCHEMA_LISTA:
+        v = nodo.get(k)
+        if isinstance(v, list):
+            for i, s in enumerate(v):
+                yield "/" + _esc(k) + "/" + str(i), s
+    for k in _KW_SCHEMA_MAPPA:
+        v = nodo.get(k)
+        if isinstance(v, dict):
+            for nome, s in v.items():
+                yield "/" + _esc(k) + "/" + _esc(str(nome)), s
+
+
+def _cammina_schemi(documento):
+    """Visita ITERATIVA dei nodi-schema. Nessuna ricorsione: E1 rev6 §3.7.
+
+    `chiusura_risolve` e' pubblica e non deve mai lasciar uscire un'eccezione
+    (`DEC-5`). La versione ricorsiva cedeva con `RecursionError` non catturata su un
+    documento profondo, ed era schermata solo dal fatto che `check_schema` falliva
+    prima — una coincidenza fra due profondita', non una difesa.
+    """
+    pila = [("", documento)]
+    visti = set()
+    while pila:
+        ptr, nodo = pila.pop()
+        if not isinstance(nodo, dict) or id(nodo) in visti:
+            continue
+        visti.add(id(nodo))
+        yield ptr, nodo
+        for pezzo, sotto in _sottoschemi(nodo):
+            pila.append((ptr + pezzo, sotto))
+
+
+def _ancore(documento, chiavi=("$anchor", "$dynamicAnchor")) -> dict:
+    """`$anchor` e `$dynamicAnchor` dichiarati nelle posizioni-schema della risorsa."""
+    fuori = {}
+    for ptr, nodo in _cammina_schemi(documento):
+        for k in chiavi:
+            v = nodo.get(k)
+            if isinstance(v, str) and v and v not in fuori:
+                fuori[v] = (ptr, nodo)
+    return fuori
+
+
+def _identita_risolta(identificatore, base) -> str:
+    """`$id` risolto contro la risorsa contenente, RFC 3986. Sui basename e' identita'."""
+    try:
+        return urllib.parse.urljoin(base, identificatore)
+    except Exception:
+        return identificatore
+
+
+def _id_embedded(documento):
+    """(puntatore, identita risolta, nodo) per ogni sottoschema con `$id` proprio."""
+    for ptr, nodo in _cammina_schemi(documento):
+        if ptr == "":
+            continue
+        identificatore = nodo.get("$id")
+        if isinstance(identificatore, str) and identificatore:
+            yield ptr, identificatore, nodo
+
+
+def _risorse_embedded(documenti: dict) -> dict:
+    """R2.1-4 (`A3b`) — indice delle risorse EMBEDDED del registro chiuso.
+
+    In Draft 2020-12 un sottoschema con `$id` proprio **e' una risorsa**, e il resolver
+    del dialetto la risolve. L'indice conosceva soltanto i documenti di primo livello,
+    quindi il preflight rifiutava (`REF_UNRESOLVABLE`) un riferimento che
+    `referencing` 0.37.0 risolve: violazione diretta di `R-FID`.
+
+    Il valore e' `(identita contenente, puntatore base, nodo)`. `schema_resource_id`
+    resta un documento REGISTRATO e il puntatore lo attraversa per intero: e' cio' che
+    tiene valida la dereferenziazione a valle, che `ADR` §4.6 pretende risolvibile.
+    Una collisione con un'identita' di primo livello non arriva qui: `F3` l'ha gia'
+    respinta come errore d'identita'.
+    """
+    fuori = {}
+    for identita, documento in documenti.items():
+        for ptr, identificatore, nodo in _id_embedded(documento):
+            risolta = _identita_risolta(identificatore, identita)
+            if risolta in documenti or risolta in fuori:
+                continue
+            fuori[risolta] = (identita, ptr, nodo)
+    return fuori
+
+
+def _segui_ref(riferimento, risorsa_corrente, documenti, embedded=None):
+    """Risoluzione INIZIALE di un riferimento dentro il registro chiuso.
+
+    Frammento secondo RFC 3986 — con decodifica percentuale — e puntatore secondo
+    RFC 6901. Un frammento non vuoto che non inizia con `/` e' un `$anchor` o un
+    `$dynamicAnchor`. Il bersaglio deve essere uno SCHEMA.
+
+    Risoluzione **iniziale**, e non di piu': il binding finale di un `$dynamicRef`
+    dipende dallo scope dinamico di valutazione e non e' determinabile staticamente.
+    Qui si verifica che il riferimento risolva, non a che cosa si legherà.
+
+    Il bersaglio puo' essere una risorsa **embedded** (R2.1-4). L'indice si calcola
+    solo quando la base non e' un documento di primo livello: sul registro sano —
+    zero risorse embedded — non costa nulla.
+    """
     if not isinstance(riferimento, str):
         raise _PercorsoNonRisolto()
     base, _, frammento = riferimento.partition("#")
     risorsa = base if base else risorsa_corrente
-    if risorsa not in documenti:
-        raise _PercorsoNonRisolto()
-    nodo = documenti[risorsa]
-    puntatore = ""
-    if frammento:
-        if not frammento.startswith("/"):
+    if risorsa in documenti:
+        identita, base_ptr, documento = risorsa, "", documenti[risorsa]
+    else:
+        if embedded is None:
+            embedded = _risorse_embedded(documenti)
+        voce = embedded.get(risorsa)
+        if voce is None:
             raise _PercorsoNonRisolto()
+        identita, base_ptr, documento = voce
+    try:
+        frammento = urllib.parse.unquote(frammento)
+    except Exception:
+        raise _PercorsoNonRisolto()
+    if not frammento:
+        return identita, base_ptr, documento
+    if frammento.startswith("/"):
+        nodo = documento
         for pezzo in frammento.split("/")[1:]:
             chiave = pezzo.replace("~1", "/").replace("~0", "~")
             try:
                 nodo = nodo[chiave] if isinstance(nodo, dict) else nodo[int(chiave)]
             except Exception:
                 raise _PercorsoNonRisolto()
-        puntatore = frammento
-    return risorsa, puntatore, nodo
+        if not _e_schema(nodo):
+            raise _PercorsoNonRisolto()
+        return identita, base_ptr + frammento, nodo
+    voce = _ancore(documento).get(frammento)
+    if voce is None:
+        raise _PercorsoNonRisolto()
+    puntatore, nodo = voce
+    if not _e_schema(nodo):
+        raise _PercorsoNonRisolto()
+    return identita, base_ptr + puntatore, nodo
 
 
-def _riferimenti(nodo, fuori: list) -> None:
-    """Raccoglie ogni valore di `$ref` presente nel documento, a qualsiasi profondita'."""
-    if isinstance(nodo, dict):
-        if "$ref" in nodo:
-            fuori.append(nodo["$ref"])
-        for v in nodo.values():
-            _riferimenti(v, fuori)
-    elif isinstance(nodo, list):
-        for v in nodo:
-            _riferimenti(v, fuori)
+def _riferimenti(documento, fuori: list) -> None:
+    """Riferimenti nelle SOLE posizioni che il dialetto definisce schema."""
+    for _ptr, nodo in _cammina_schemi(documento):
+        for k in _KW_RIFERIMENTO:
+            if k in nodo:
+                fuori.append(nodo[k])
 
 
 def chiusura_risolve(documenti: dict) -> bool:
@@ -794,20 +976,33 @@ def chiusura_risolve(documenti: dict) -> bool:
     caricati: un `$ref` http, file:// o UNC non e' "esterno da recuperare", e' un
     riferimento che il registro chiuso non contiene. Nessuna rete, nessun retrieve.
     """
+    embedded = _risorse_embedded(documenti)
     for identita, documento in documenti.items():
         trovati = []
         _riferimenti(documento, trovati)
         for riferimento in trovati:
             try:
-                _segui_ref(riferimento, identita, documenti)
+                _segui_ref(riferimento, identita, documenti, embedded)
             except _PercorsoNonRisolto:
                 return False
     return True
 
 
 _ASSENTE = object()
+
+#: Valvola di sicurezza sull'AMPIEZZA dell'enumerazione, non sulla profondita'. Non e'
+#: un budget di salti — quello e' stato rimosso: era condiviso, mai ripristinato, e
+#: oltre 31 `$ref` incatenati faceva degradare un `FULL_FAIL` legittimo a
+#: `INTERNAL_VALIDATION_ERROR` con zero voci. La terminazione ora e' data dall'insieme
+#: dei visitati. Questo tetto non deve MAI legare: se lega, l'attribuzione torna a
+#: dipendere dall'ordine di enumerazione, che e' il difetto `P0-4`.
 _MAX_CANDIDATI = 8
-_MAX_SALTI_REF = 32
+
+#: `K27` — strumentazione dell'AMPIEZZA osservata dall'ultimo azzeramento. Esiste per
+#: rendere asseribile che `_MAX_CANDIDATI` **non lega**: se legasse, l'attribuzione
+#: tornerebbe a dipendere dall'ordine di enumerazione, che e' il difetto `P0-4`.
+#: Nessuna decisione della capacita' legge questo valore.
+_STRUMENTAZIONE = {"ampiezza_massima": 0}
 
 
 def _passo_locale(nodo, segmenti, i):
@@ -833,46 +1028,146 @@ def _passo_locale(nodo, segmenti, i):
         raise _PercorsoNonRisolto()
 
 
-def _candidati(risorsa, nodo, puntatore, dichiarati, segmenti, i, documenti, saldo, fuori):
-    """Enumera le risoluzioni possibili del percorso di schema.
+def _bersagli(parola, valore, risorsa, documenti, embedded):
+    """(risorsa, puntatore, nodo, dinamico) per una parola chiave di riferimento.
 
-    `jsonschema` NON mette `$ref` in `absolute_schema_path`: dopo un nodo che porta un
-    `$ref`, il segmento successivo puo' appartenere al bersaglio del riferimento oppure
-    a un sibling locale che condivide la stessa chiave. Sono due risoluzioni entrambe
-    ben formate, e la vecchia guardia ne sceglieva sempre una — quella locale — anche
-    quando l'errore veniva dall'altra. E' cosi' che `evidence-pack` riportava
-    `/properties/payload/properties/claims/items/required`, un array che contiene
-    `["promoted_by"]`, per una `id` mancante che vive in `core.schema.json#/$defs/Claim`.
+    Per `$ref` il bersaglio e' quello statico, ed e' esatto: `dinamico = False`.
 
-    Qui si enumerano entrambe e si lascia decidere al chiamante, che ha in mano il
-    valore di schema che ha davvero fallito.
+    Per `$dynamicRef` il bersaglio **non e' determinabile staticamente**. Il dialetto
+    lo lega al `$dynamicAnchor` omonimo della risorsa piu' esterna dello scope
+    dinamico, e lo scope dinamico non e' una proprieta' del registro (`R-PRE`). Una
+    risoluzione statica **non e' prova del binding**: misurato, nella costruzione
+    `lib`/`pain` con `$dynamicAnchor` omonimi e `type` divergenti produce **un solo**
+    candidato ben formato, che punta alla risorsa SBAGLIATA — un'attribuzione ben
+    formata e falsa, la stessa classe di `P0-4` per un'altra via.
+
+    Si enumerano quindi **tutti** i binding possibili — ogni risorsa del registro che
+    dichiara quel `$dynamicAnchor` — marcati `dinamico = True`. La scelta non si fa
+    qui: `_analizza_percorso` ne accetta uno solo se il `validator_value` dell'errore
+    lo prova, e altrimenti degrada per `DEC-8`. Non si indovina.
     """
-    if len(fuori) >= _MAX_CANDIDATI or saldo[0] <= 0:
-        return
-    if i >= len(segmenti):
-        fuori.append((risorsa, puntatore, list(dichiarati), nodo))
-        return
-
-    # Ramo locale per primo: senza ambiguita' riproduce esattamente il cammino storico.
-    try:
-        nodo2, pezzo, dichiarato, passi = _passo_locale(nodo, segmenti, i)
-    except _PercorsoNonRisolto:
-        pass
-    else:
-        avanti = list(dichiarati)
-        if dichiarato is not None:
-            avanti.append(dichiarato)
-        _candidati(risorsa, nodo2, puntatore + pezzo, avanti, segmenti, i + passi,
-                   documenti, saldo, fuori)
-
-    # Ramo del riferimento: si segue il `$ref` e si riprova lo STESSO segmento.
-    if isinstance(nodo, dict) and "$ref" in nodo:
-        saldo[0] -= 1
+    if parola != "$dynamicRef":
         try:
-            r2, p2, n2 = _segui_ref(nodo["$ref"], risorsa, documenti)
+            yield _segui_ref(valore, risorsa, documenti, embedded) + (False,)
         except _PercorsoNonRisolto:
             return
-        _candidati(r2, n2, p2, dichiarati, segmenti, i, documenti, saldo, fuori)
+        return
+
+    visti = set()
+    frammento = valore.partition("#")[2] if isinstance(valore, str) else ""
+    if frammento and not frammento.startswith("/"):
+        try:
+            nome = urllib.parse.unquote(frammento)
+        except Exception:
+            nome = frammento
+        for identita, documento in documenti.items():
+            voce = _ancore(documento, ("$dynamicAnchor",)).get(nome)
+            if voce is None:
+                continue
+            puntatore, nodo = voce
+            if not _e_schema(nodo) or (identita, puntatore) in visti:
+                continue
+            visti.add((identita, puntatore))
+            yield identita, puntatore, nodo, True
+    try:
+        r2, p2, n2 = _segui_ref(valore, risorsa, documenti, embedded)
+    except _PercorsoNonRisolto:
+        return
+    if (r2, p2) not in visti:
+        yield r2, p2, n2, True
+
+
+def _dichiarati_sicuri(parziali) -> list:
+    """`DEC-12` — la declaredness d'ISTANZA che il cammino ha comunque stabilito.
+
+    Il degrado dell'attribuzione di SCHEMA e la redazione della posizione d'ISTANZA
+    sono due assi indipendenti: un fallimento sul primo non autorizza a cancellare una
+    posizione sicura come `/k`. Il prefisso di cammino che risolve determina la
+    declaredness dei segmenti d'istanza corrispondenti; il residuo resta ignoto, e
+    `costruisci_posizioni` lo redige.
+
+    Voto conservativo: un segmento e' dichiarato solo se **ogni** cammino che lo ha
+    raggiunto lo dichiara. Due rami che dissentono non producono una disclosure.
+    """
+    if not parziali:
+        return []
+    lunghezza = max(len(p) for p in parziali)
+    return [all(p[j] for p in parziali if len(p) > j) for j in range(lunghezza)]
+
+
+def _candidati(risorsa, nodo, puntatore, dichiarati, segmenti, i, documenti, fuori,
+               parziali=None, embedded=None):
+    """Enumera le risoluzioni possibili del percorso di schema. Visita ITERATIVA.
+
+    `jsonschema` NON mette i riferimenti in `absolute_schema_path`: dopo un nodo che ne
+    porta uno, il segmento successivo puo' appartenere al bersaglio oppure a un sibling
+    locale che condivide la stessa chiave. Sono due risoluzioni entrambe ben formate, e
+    la vecchia guardia ne sceglieva sempre una — quella locale — anche quando l'errore
+    veniva dall'altra. E' cosi' che `evidence-pack` riportava un `required` che contiene
+    `["promoted_by"]` per una `id` mancante che vive in `core.schema.json#/$defs/Claim`.
+
+    Si seguono **tutte** le parole chiave di riferimento del dialetto, non la sola
+    `$ref`: con `$dynamicRef` nessun candidato risultava ben formato, il chiamante
+    sollevava, e un `FULL_FAIL` legittimo diventava `VALIDATOR_ERROR` con zero voci —
+    `P0-4` ancora vivo su un'altra parola chiave.
+
+    R2.1-2 (`A1`) — seguire la parola chiave non bastava, e il ramo aggiunto era
+    **codice morto**: `jsonschema` METTE `$dynamicRef` in `absolute_schema_path` e NON
+    mette `$ref`. Reimpilare il ramo con lo **stesso** indice di segmento e' corretto
+    per `$ref` e sbagliato per `$dynamicRef`, che restava un segmento mai consumato.
+    Misurato:
+
+        $dynamicRef  absolute_schema_path = ['items','$dynamicRef','type']  cand. 0
+        $ref         absolute_schema_path = ['items','type']                cand. 1
+
+    Il segmento si consuma quindi **se e solo se** il percorso lo porta.
+
+    Nessun budget globale di salti. La terminazione e' data dall'insieme dei visitati su
+    `(risorsa, puntatore, indice di segmento)`: una catena lecita non degrada per la
+    propria lunghezza, e un ciclo di riferimenti non fa girare a vuoto.
+
+    `parziali`, se dato, raccoglie la declaredness di ogni stato visitato: serve a
+    `DEC-12`, perche' anche un cammino che non arriva in fondo ha stabilito qualcosa
+    sulla posizione d'ISTANZA, e quel qualcosa non si butta.
+    """
+    if embedded is None:
+        embedded = _risorse_embedded(documenti)
+    pila = [(risorsa, nodo, puntatore, tuple(dichiarati), i, False)]
+    visti = set()
+    while pila and len(fuori) < _MAX_CANDIDATI:
+        ris, nd, ptr, dic, k, dinamico = pila.pop()
+        chiave = (ris, ptr, k)
+        if chiave in visti:
+            continue
+        visti.add(chiave)
+        if parziali is not None:
+            parziali.append(dic)
+        if k >= len(segmenti):
+            fuori.append((ris, ptr, list(dic), nd, dinamico))
+            continue
+
+        # Il ramo del riferimento si impila per PRIMO, quindi si estrae per ULTIMO:
+        # cosi' il ramo locale resta esplorato per primo e, senza ambiguita', l'ordine
+        # dei candidati riproduce esattamente il cammino storico.
+        if isinstance(nd, dict):
+            for parola in _KW_RIFERIMENTO:
+                if parola not in nd:
+                    continue
+                salto = 1 if segmenti[k] == parola else 0
+                for r2, p2, n2, din in _bersagli(parola, nd[parola], ris,
+                                                 documenti, embedded):
+                    pila.append((r2, n2, p2, dic, k + salto, dinamico or din))
+
+        try:
+            nodo2, pezzo, dichiarato, passi = _passo_locale(nd, segmenti, k)
+        except _PercorsoNonRisolto:
+            pass
+        else:
+            avanti = dic + ((dichiarato,) if dichiarato is not None else ())
+            pila.append((ris, nodo2, ptr + pezzo, avanti, k + passi, dinamico))
+
+    if len(fuori) > _STRUMENTAZIONE["ampiezza_massima"]:
+        _STRUMENTAZIONE["ampiezza_massima"] = len(fuori)
 
 
 def _analizza_percorso(radice_id, schema_radice, documenti, percorso_schema,
@@ -887,17 +1182,48 @@ def _analizza_percorso(radice_id, schema_radice, documenti, percorso_schema,
     che le distingue — il nodo terminale corretto E' quel valore. §4.6 chiede che
     `schema_resource_id` sia la risorsa che contiene davvero la parola chiave, e questa
     e' l'unica informazione disponibile che lo determina.
+
+    Per i candidati raggiunti attraverso un `$dynamicRef` il `validator_value` non e'
+    un aiuto ma la **prova**: e' l'unico dato che dice quale binding di runtime ha
+    davvero prodotto l'errore. Senza quella prova si degrada per `DEC-8`.
     """
     fuori = []
+    parziali = []
     _candidati(radice_id, schema_radice, "", [], list(percorso_schema), 0,
-               documenti, [_MAX_SALTI_REF], fuori)
-    if not fuori:
-        raise _PercorsoNonRisolto()
-    if valore_atteso is not _ASSENTE and len(fuori) > 1:
-        esatti = [c for c in fuori if c[3] == valore_atteso]
+               documenti, fuori, parziali)
+
+    # I candidati STATICI sono esatti e conservano il comportamento storico, riga per
+    # riga: `$ref` non e' toccato da R2.1-2.
+    statici = [c for c in fuori if not c[4]]
+    if statici:
+        if valore_atteso is not _ASSENTE and len(statici) > 1:
+            esatti = [c for c in statici if c[3] == valore_atteso]
+            if len(esatti) == 1:
+                return esatti[0][0], esatti[0][1], esatti[0][2]
+        return statici[0][0], statici[0][1], statici[0][2]
+
+    # Nessun candidato statico: se ne esistono di DINAMICI, uno solo e' accettabile —
+    # quello il cui nodo terminale E' il valore di schema che ha fallito. Con zero
+    # prove o con piu' di un candidato compatibile il binding non e' dimostrabile, e
+    # si degrada: attribuire "il primo" sarebbe ben formato e falso.
+    dinamici = [c for c in fuori if c[4]]
+    if dinamici and valore_atteso is not _ASSENTE:
+        esatti = [c for c in dinamici if c[3] == valore_atteso]
         if len(esatti) == 1:
             return esatti[0][0], esatti[0][1], esatti[0][2]
-    return fuori[0][0], fuori[0][1], fuori[0][2]
+
+    # `DEC-8` — un fallimento di ATTRIBUZIONE non tocca il verdetto: si degrada la sola
+    # precisione dell'attribuzione di SCHEMA — risorsa = radice selezionata, puntatore
+    # vuoto. Prima si sollevava, e il verdetto spariva insieme alla posizione: era
+    # `P0-4`.
+    #
+    # `DEC-12` — e si degrada SOLO quella. La posizione d'ISTANZA vive sull'altro asse
+    # e si conserva per quanto il cammino l'ha accertata: un record con
+    # `schema_pointer = ""`, `instance_pointer = "/k"` e `location_is_exact = true` e'
+    # conforme, e dice esattamente cio' che si sa. Il commento precedente prometteva
+    # che questo ritorno facesse redigere la posizione e porre
+    # `location_is_exact = false`: dopo `DEC-12` sarebbe normativamente falso.
+    return radice_id, "", _dichiarati_sicuri(parziali)
 
 
 def costruisci_posizioni(percorso_istanza, dichiarati):
@@ -907,7 +1233,15 @@ def costruisci_posizioni(percorso_istanza, dichiarati):
     `instance_location` e' RLE: come RFC 6901 ma un segmento puo' essere `~R`.
     """
     segmenti = list(percorso_istanza)
-    if len(dichiarati) != len(segmenti):
+    dichiarati = list(dichiarati)
+    if len(dichiarati) < len(segmenti):
+        # `DEC-12` — il prefisso accertato si CONSERVA e si redige il solo residuo
+        # ignoto. Il ricalcolo integrale — «solo gli indici interi sono dichiarati» —
+        # buttava anche cio' che il cammino aveva stabilito: una `/k` sicura diventava
+        # `/~R` per una ragione che vive sull'altro asse, ed e' l'accoppiamento che
+        # `DEC-12` scioglie. Il residuo resta redatto: non accertato, non emesso.
+        dichiarati += [False] * (len(segmenti) - len(dichiarati))
+    elif len(dichiarati) > len(segmenti):
         dichiarati = [isinstance(s, int) and not isinstance(s, bool) for s in segmenti]
     pezzi_rle = []
     redatto = False

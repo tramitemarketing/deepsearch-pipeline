@@ -39,21 +39,54 @@ def _leggi_limitato(percorso: str, apri) -> Any:
 
 
 def _aggrega_con_lettore(radice: str, *, quiescent: bool, apri) -> AggregateReport:
+    # `E2` rev3 §5.3 — UNA sola passata, nessuna `stat` per voce: `os.scandir` fornisce
+    # `is_file(follow_symlinks=False)` senza syscall aggiuntive nel caso comune, e un
+    # link simbolico non conta come file regolare. L'implementazione precedente usava
+    # `os.listdir` + `os.path.isfile`, che §5.2/§5.3 non prescrivono.
     try:
-        voci = sorted(os.listdir(radice))
+        with os.scandir(radice) as it:
+            voci = sorted(it, key=lambda v: v.name)
     except Exception:
         voci = []
 
-    candidati = [n for n in voci if FINAL_NAME.match(n) is not None]
-    scoperti = len(candidati)
+    # `DEC-10` — «corrupt, non silenzio». Si rileva OGNI file regolare della directory;
+    # un nome che non rispetta la grammatica finale o pending e' contato come
+    # **corrotto senza aprirne il contenuto**. Prima un file dal nome malformato era
+    # invisibile: `records_discovered` non lo vedeva e nessun segnale ne restava.
+    #
+    # `records_discovered` e' la partizione dei file regolari MENO i pending validi.
+    # Definirlo per sottrazione e' cio' che preserva `AGG:1`
+    # (`discovered = valid + corrupt`): con «ogni file regolare» a pendenti invariati
+    # l'invariante si romperebbe, e `invarianti_aggregato` non si tocca.
+    #
+    # R2.1-5 (`A5`) — «errore di ACCESSO» e «non e' un file» sono due cose diverse, e
+    # `os.path.isfile` le fondeva: inghiotte `OSError` e restituisce `False`, quindi
+    # una voce il cui tipo non e' determinabile spariva — silenzio, non `corrupt` —
+    # e il ramo `except Exception: continue` era morto per quel trigger. Una voce
+    # indeterminabile conta ora `corrupt` e resta dentro `records_discovered`:
+    # fail-closed, e `AGG:1` per costruzione.
+    regolari = []
+    indeterminate = 0
+    for v in voci:
+        try:
+            regolare = v.is_file(follow_symlinks=False)
+        except OSError:
+            indeterminate += 1
+            continue
+        if regolare:
+            regolari.append(v.name)
 
     # A2 §5 — i pending si CONTANO dal nome e non si aprono mai. La grammatica pending
     # non puo' coincidere con quella finale, quindi questo conteggio e' disgiunto da
     # `candidati` per costruzione e non entra in alcun bucket di record. E' un segnale
     # operativo sulla directory: dice che una pulizia e' rimasta indietro, non che
     # esista un artefatto in piu'. La quiescenza continua a NON essere inferita da qui.
-    pendenti = len([n for n in voci if PENDING_NAME.match(n) is not None])
-    corrotti = 0
+    pendenti = len([n for n in regolari if PENDING_NAME.match(n) is not None])
+    candidati = [n for n in regolari if FINAL_NAME.match(n) is not None]
+    non_conformi = [n for n in regolari
+                    if FINAL_NAME.match(n) is None and PENDING_NAME.match(n) is None]
+    scoperti = len(candidati) + len(non_conformi) + indeterminate
+    corrotti = len(non_conformi) + indeterminate
     validi = []  # (record_id, record)
 
     for nome in candidati:

@@ -31,13 +31,18 @@ MAX_VERSION_BYTES = 32
 MAX_KEYWORD_BYTES = 32
 MAX_RECORD_BYTES = 131072
 
-SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
-HEX8 = re.compile(r"^[0-9a-f]{8}$")
-HEX32 = re.compile(r"^[0-9a-f]{32}$")
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
-SCHEMA_REF = re.compile(r"^[A-Za-z0-9-]{1,48}\.schema\.json$")
-VERSION_TOKEN = re.compile(r"^[0-9A-Za-z.+_-]{1,32}$")
-TIMESTAMP_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$")
+#: E2 rev3 §4.1 — ancoraggio con `\Z`, MAI con `$`. In Python `$` accetta un newline
+#: finale: `re.match(r"^[0-9a-f]{64}$", "a"*64 + "\n")` e' un match. Undici metadati
+#: del record lo portavano fino al disco e l'aggregatore li contava; e poiche'
+#: `invocation_id` e' meta' della chiave di deduplicazione, un newline sdoppiava
+#: un'invocazione gia' contata, con tutte le invarianti `AGG` pulite.
+SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]{1,64}\Z")
+HEX8 = re.compile(r"^[0-9a-f]{8}\Z")
+HEX32 = re.compile(r"^[0-9a-f]{32}\Z")
+HEX64 = re.compile(r"^[0-9a-f]{64}\Z")
+SCHEMA_REF = re.compile(r"^[A-Za-z0-9-]{1,48}\.schema\.json\Z")
+VERSION_TOKEN = re.compile(r"^[0-9A-Za-z.+_-]{1,32}\Z")
+TIMESTAMP_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\Z")
 
 REDACTED_SEGMENT = "~R"
 
@@ -69,8 +74,22 @@ CORE_SCHEMA_ID = "core.schema.json"
 
 MODE_SHADOW = "SHADOW"
 
-FINAL_NAME = re.compile(r"^[0-9a-f]{32}\.json$")
-PENDING_NAME = re.compile(r"^[0-9a-f]{32}\.[0-9a-f]{8}\.pending$")
+FINAL_NAME = re.compile(r"^[0-9a-f]{32}\.json\Z")
+PENDING_NAME = re.compile(r"^[0-9a-f]{32}\.[0-9a-f]{8}\.pending\Z")
+
+#: E2 rev3 §4.2 — token persistiti, o usati per identita', deduplicazione e nomi di
+#: file. Nessuno puo' contenere un carattere di controllo. Oggi la classe di ogni
+#: grammatica li esclude gia' e `\Z` chiude il newline finale, quindi questo rifiuto e'
+#: **ridondante**: va messo lo stesso, perche' e' l'unica difesa indipendente dalla
+#: forma dell'ancoraggio, ed e' cio' che tiene se una classe si allarga domani. Senza
+#: questa nota un lettore futuro lo troverebbe ridondante, avrebbe ragione, e lo
+#: toglierebbe.
+TOKEN_PERSISTITI = (
+    "record_version", "record_id", "invocation_id", "run_id", "role", "stage",
+    "artifact_id", "mode", "timestamp_utc", "schema_ref", "schema_sha256",
+    "registry_fingerprint", "python_version", "validator_version",
+    "referencing_version", "checksum",
+)
 
 
 # --------------------------------------------------------------------------
@@ -636,7 +655,11 @@ def valida_contratto_record(rec: Any) -> list:
         # costruire un record simile da dati di istanza; il rifiuto serve ai record che
         # l'aggregatore §4.13 legge da una directory che non ha scritto lui, e al caso
         # di §4.2 in cui il carattere viene dallo SCHEMA e non e' redigibile.
+        # E2 rev3 — `schema_resource_id` era l'UNICO campo di `ENTRY_KEYS` escluso da
+        # questo ciclo: token persistito che identifica una risorsa, accettava il
+        # newline finale, e non compariva ne' nell'ambito ne' fra le esclusioni.
         for k in (
+            "schema_resource_id",
             "schema_pointer",
             "instance_pointer",
             "instance_location",
@@ -655,6 +678,15 @@ def valida_contratto_record(rec: Any) -> list:
                 v.append("INVARIANTE:9")
             if REDACTED_SEGMENT in e["instance_location"] and e["location_is_exact"]:
                 v.append("INVARIANTE:9")
+
+    # E2 rev3 §4.2 — nessun carattere di controllo nei token persistiti. `D-4` copriva
+    # i cinque campi di posizione delle voci e non i metadati: la difesa esisteva sul
+    # percorso del produttore e mancava su quello dell'aggregatore, che e' proprio il
+    # percorso che legge record scritti da altri.
+    for k in TOKEN_PERSISTITI:
+        val = rec.get(k)
+        if isinstance(val, str) and contiene_controllo(val):
+            v.append("CARATTERI:" + k)
 
     # nullability §4.7
     v.extend(_controlla_nullability(rec, full, reason_enum, comparison))
