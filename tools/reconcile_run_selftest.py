@@ -44,11 +44,15 @@ def segna(nome, titolo, ok, dettaglio=""):
 
 class Banco:
     """
-    Copia del repo + root telemetria deviata, entrambe dentro una sola temporanea.
+    Copia del repo + root telemetria + root stato, tutte dentro una sola temporanea.
 
-    Il seam serve esattamente qui: reconcile_run.py calcola la root M0.2 due livelli
+    Il seam serve esattamente qui: reconcile_run.py calcola le due root due livelli
     sopra il proprio ROOT, e nella copia quei due livelli cadono fuori da cio' che
-    rmtree rimuove. Senza deviarla, questa macchina scriverebbe nella root vera.
+    rmtree rimuove. Senza deviarle, questa macchina scriverebbe nelle root vere.
+
+    Dal thin slice 2 le root da deviare sono DUE, e la seconda e' quella che conta di
+    piu': lo stato mutabile non e' versionato, quindi un test che vi scrivesse per
+    sbaglio corromperebbe la memoria vera senza lasciare traccia in alcun diff.
     """
 
     def __enter__(self):
@@ -57,6 +61,8 @@ class Banco:
         shutil.copytree(ROOT, self.dst, ignore=IGNORA)
         self.tele = os.path.join(self.base, "telemetria")
         os.makedirs(self.tele, exist_ok=True)
+        self.stato = os.path.join(self.base, "stato")
+        os.makedirs(self.stato, exist_ok=True)
         return self
 
     def __exit__(self, *a):
@@ -94,23 +100,69 @@ class Banco:
         with open(os.path.join(d, "01-evidence.json"), "w", encoding="utf-8") as g:
             json.dump(art, g, ensure_ascii=False)
 
-    def crea_legacy(self):
+    def crea_legacy(self, manifest=True):
         """Due ledger legacy non vuoti, con una riga PRIVA di run_id: e' il caso
-        'misto' su cui il non-assorbimento va provato, non quello comodo."""
-        os.makedirs(os.path.join(self.dst, "state"), exist_ok=True)
-        with open(self.percorso("state", "source-ledger.jsonl"), "w", encoding="utf-8") as g:
+        'misto' su cui il non-assorbimento va provato, non quello comodo.
+
+        Dal thin slice 2 vivono nella root dello stato, non piu' in dst/state, e sono
+        accompagnati da un manifest che ne congela il prefisso. I ledger scritti qui
+        SONO il prefisso: byte_prefisso e' la loro intera lunghezza, com'e' all'atto
+        della migrazione vera."""
+        with open(self.stato_p("source-ledger.jsonl"), "w", encoding="utf-8",
+                  newline="\n") as g:
             g.write(json.dumps({"id": "S-20260101-0001-0001", "url": "https://vecchio.invalid",
                                 "run_id": "20260101-0001"}, ensure_ascii=False) + "\n")
             g.write(json.dumps({"id": "S-20260102-0001-0001",
                                 "url": "https://senza-run-id.invalid"}, ensure_ascii=False) + "\n")
-        with open(self.percorso("state", "query-ledger.jsonl"), "w", encoding="utf-8") as g:
+        with open(self.stato_p("query-ledger.jsonl"), "w", encoding="utf-8",
+                  newline="\n") as g:
             g.write(json.dumps({"normalized_query": "vecchia query",
                                 "run_id": "20260101-0001"}, ensure_ascii=False) + "\n")
+        for f_ in ("seen-pains.jsonl", "sector-history.jsonl", "shadow-portfolio.jsonl"):
+            open(self.stato_p(f_), "w", encoding="utf-8").close()
+        if manifest:
+            self.scrivi_manifest()
+
+    def scrivi_manifest(self, **override):
+        """Manifest calcolato sui file di stato come stanno adesso. Gli override
+        servono ai casi che devono farlo mentire: e' l'unico modo per provare che il
+        controllo n.4 guarda il file e non se stesso."""
+        voci = []
+        for nome in ("query-ledger", "source-ledger", "seen-pains",
+                     "sector-history", "shadow-portfolio"):
+            p = self.stato_p(nome + ".jsonl")
+            b = open(p, "rb").read() if os.path.exists(p) else b""
+            r = s = 0
+            for l in b.decode("utf-8").splitlines():
+                if not l.strip():
+                    continue
+                r += 1
+                try:
+                    o = json.loads(l)
+                except Exception:
+                    o = None
+                if not (isinstance(o, dict) and o.get("run_id")):
+                    s += 1
+            v = {"ledger": nome, "sorgente": "banco di prova",
+                 "sha256_prefisso": hashlib.sha256(b).hexdigest(),
+                 "byte_prefisso": len(b), "righe_importate": r,
+                 "righe_legacy_senza_run_id": s, "data_importazione": "2026-08-17"}
+            v.update(override.get(nome, {}))
+            voci.append(v)
+        doc = {"versione_formato": 1, "voci": voci}
+        doc.update(override.get("_doc", {}))
+        with open(self.stato_p("state-import-manifest.json"), "w", encoding="utf-8",
+                  newline="\n") as g:
+            json.dump(doc, g, ensure_ascii=False, indent=2)
+            g.write("\n")
 
     # -- percorsi
 
     def percorso(self, *p):
         return os.path.join(self.dst, *p)
+
+    def stato_p(self, *p):
+        return os.path.join(self.stato, *p)
 
     def ledger(self):
         return os.path.join(self.tele, LEDGER_M02)
@@ -120,15 +172,27 @@ class Banco:
 
     # -- esecuzione
 
-    def esegui(self, run_id, *flag, tele=None):
+    def _env(self, tele=None, stato=None):
         env = dict(os.environ)
         env["DEEPSEARCH_TELEMETRY_ROOT"] = self.tele if tele is None else tele
+        env["DEEPSEARCH_STATE_ROOT"] = self.stato if stato is None else stato
+        return env
+
+    def esegui(self, run_id, *flag, tele=None, stato=None):
         arg = [sys.executable, os.path.join(self.dst, "tools", "reconcile_run.py")]
         if run_id is not None:
             arg.append("runs/" + run_id)
         arg.extend(flag)
         return subprocess.run(arg, capture_output=True, text=True, cwd=self.dst,
-                              env=env, encoding="utf-8", errors="replace")
+                              env=self._env(tele, stato), encoding="utf-8", errors="replace")
+
+    def chiudi(self, run_id, fase="pre", stato=None):
+        """run_close.py sulla copia. Serve ai controlli della guardia, che vivono li'
+        e che nessun test esercitava prima del thin slice 2."""
+        arg = [sys.executable, os.path.join(self.dst, "tools", "run_close.py"),
+               "runs/" + run_id, "--fase", fase]
+        return subprocess.run(arg, capture_output=True, text=True, cwd=self.dst,
+                              env=self._env(stato=stato), encoding="utf-8", errors="replace")
 
 
 # ---------------------------------------------------------------- utilita'
@@ -233,11 +297,11 @@ def t_c():
     with Banco() as b:
         b.crea_legacy()
         b.crea_run(RUN_A)
-        prima_s = leggi_byte(b.percorso("state", "source-ledger.jsonl"))
-        prima_q = leggi_byte(b.percorso("state", "query-ledger.jsonl"))
+        prima_s = leggi_byte(b.stato_p("source-ledger.jsonl"))
+        prima_q = leggi_byte(b.stato_p("query-ledger.jsonl"))
         b.esegui(RUN_A, "--telemetry-m0.2")
-        dopo_s = leggi_byte(b.percorso("state", "source-ledger.jsonl"))
-        dopo_q = leggi_byte(b.percorso("state", "query-ledger.jsonl"))
+        dopo_s = leggi_byte(b.stato_p("source-ledger.jsonl"))
+        dopo_q = leggi_byte(b.stato_p("query-ledger.jsonl"))
         det = []
         if prima_s != dopo_s:
             det.append("source-ledger legacy modificato")
@@ -255,13 +319,13 @@ def t_d():
     with Banco() as b:
         b.crea_legacy()
         b.crea_run(RUN_A)
-        prima_s = leggi_byte(b.percorso("state", "source-ledger.jsonl"))
-        prima_q = leggi_byte(b.percorso("state", "query-ledger.jsonl"))
+        prima_s = leggi_byte(b.stato_p("source-ledger.jsonl"))
+        prima_q = leggi_byte(b.stato_p("query-ledger.jsonl"))
         b.esegui(RUN_A, "--telemetry-m0.2")
         det = []
-        if leggi_byte(b.percorso("state", "source-ledger.jsonl")) != prima_s:
+        if leggi_byte(b.stato_p("source-ledger.jsonl")) != prima_s:
             det.append("--telemetry-m0.2 ha toccato il source-ledger")
-        if leggi_byte(b.percorso("state", "query-ledger.jsonl")) != prima_q:
+        if leggi_byte(b.stato_p("query-ledger.jsonl")) != prima_q:
             det.append("--telemetry-m0.2 ha toccato il query-ledger")
         if not os.path.exists(b.ledger()):
             det.append("il ledger M0.2 non e' stato scritto")
@@ -269,11 +333,11 @@ def t_d():
     with Banco() as b2:
         b2.crea_legacy()
         b2.crea_run(RUN_A)
-        p_s = leggi_byte(b2.percorso("state", "source-ledger.jsonl"))
-        p_q = leggi_byte(b2.percorso("state", "query-ledger.jsonl"))
+        p_s = leggi_byte(b2.stato_p("source-ledger.jsonl"))
+        p_q = leggi_byte(b2.stato_p("query-ledger.jsonl"))
         b2.esegui(RUN_A, "--consolida")
-        d_s = leggi_byte(b2.percorso("state", "source-ledger.jsonl"))
-        d_q = leggi_byte(b2.percorso("state", "query-ledger.jsonl"))
+        d_s = leggi_byte(b2.stato_p("source-ledger.jsonl"))
+        d_q = leggi_byte(b2.stato_p("query-ledger.jsonl"))
         if d_s == p_s:
             det.append("CONTROPROVA: --consolida non consolida piu' le fonti")
         if d_q == p_q:
@@ -354,33 +418,101 @@ def t_f():
 
 # ---------------------------------------------------------------- T-G
 
-SCRITTURA = {"write", "writelines", "truncate", "remove", "unlink", "rename",
-             "replace", "mkdir", "makedirs", "rmtree", "copy", "copy2", "copytree",
-             "dump", "flush"}
+# (A) Scritture QUALIFICATE PER MODULO, confrontate dopo aver risolto gli alias.
+#     Fino al thin slice 2 bastava il nome nudo dell'attributo, e la scansione non
+#     sapeva distinguere `os.remove(p)` da `lista.remove(x)`, `shutil.copy(a,b)` da
+#     `dizionario.copy()`, `os.replace(a,b)` da `stringa.replace("a","b")`. In un file
+#     che costruisce insiemi di query e dizionari di manifest quei tre omonimi sono
+#     piu' probabili delle scritture vere: il criterio sarebbe diventato rumoroso, e
+#     un criterio rumoroso si disattiva.
+QUALIFICATE = {
+    ("os", "remove"), ("os", "unlink"), ("os", "rename"), ("os", "replace"),
+    ("os", "mkdir"), ("os", "makedirs"), ("os", "rmdir"), ("os", "removedirs"),
+    ("shutil", "rmtree"), ("shutil", "copy"), ("shutil", "copy2"),
+    ("shutil", "copytree"), ("shutil", "move"), ("json", "dump"),
+}
+# (B) Scritture su OGGETTO FILE: qui il nome basta, su qualunque ricevente, perche'
+#     su un file non hanno omonimi innocui.
+#     `append` NON entra: su un oggetto file `.append()` non esiste — l'append su
+#     file e' open(..., "a"), che prende (C) — mentre come nome d'attributo
+#     colpirebbe list.append, che in run_close.py ricorre su liste di esiti.
+SU_FILE = {"write", "writelines", "truncate", "flush"}
+
+# Import ammessi in run_close.py. E' qui che il divieto su pathlib smette di essere
+# una frase e diventa un controllo: introdurre pathlib — o qualunque altro modulo che
+# sappia scrivere sul filesystem — fa fallire il criterio finche' (A) non viene
+# esteso di proposito. Senza questo elenco, `Path(p).unlink()` sfuggirebbe a (A),
+# che risolve solo riceventi legati a un modulo, e a (B), che non lo contiene.
+IMPORT_AMMESSI = {"json", "os", "re", "sys", "glob", "unicodedata", "hashlib"}
+IMPORT_DA_AMMESSI = {("reconcile_run", "radice_stato")}
 
 
-def t_g():
-    """run_close.py ancora read-only. Scansione AST, non ricerca testuale: un
-    grep su 'write' trova anche i commenti."""
-    p = os.path.join(ROOT, "tools", "run_close.py")
-    with open(p, encoding="utf-8") as f:
-        albero = ast.parse(f.read(), p)
+def _legami_moduli(albero):
+    """(alias -> modulo, nome nudo -> (modulo, attributo)).
+
+    E' cio' che rende la scansione resistente agli alias invece che alla lettera del
+    sorgente: `import shutil as sh` lega sh a shutil, `from shutil import copy` lega
+    il nome nudo copy a shutil.copy."""
+    mod, diretti = {}, {}
+    for n in ast.walk(albero):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                mod[a.asname or a.name.split(".")[0]] = a.name.split(".")[0]
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            for a in n.names:
+                diretti[a.asname or a.name] = (n.module.split(".")[0], a.name)
+    return mod, diretti
+
+
+def scansiona_scritture(sorgente, nome="<sorgente>"):
+    """Le primitive di scrittura raggiungibili in un sorgente Python.
+
+    Scansione AST, non ricerca testuale: un grep su 'write' trova anche i commenti."""
+    albero = ast.parse(sorgente, nome)
+    mod, diretti = _legami_moduli(albero)
     trovate = []
     for n in ast.walk(albero):
+        # Riassegnazione di modulo: `x = shutil` renderebbe la mappa incompleta e
+        # aprirebbe una via a (A). Non si indovina: si fallisce.
+        if isinstance(n, (ast.Assign, ast.AnnAssign)):
+            v = getattr(n, "value", None)
+            if isinstance(v, ast.Name) and v.id in mod:
+                trovate.append(f"riassegnazione del modulo {v.id} a riga {n.lineno}")
         if not isinstance(n, ast.Call):
             continue
         f_ = n.func
-        if isinstance(f_, ast.Attribute) and f_.attr in SCRITTURA:
-            trovate.append(f"{f_.attr}() a riga {n.lineno}")
-        if isinstance(f_, ast.Name) and f_.id == "open":
-            modo = None
-            if len(n.args) > 1 and isinstance(n.args[1], ast.Constant):
-                modo = n.args[1].value
-            for k in n.keywords:
-                if k.arg == "mode" and isinstance(k.value, ast.Constant):
-                    modo = k.value.value
-            if isinstance(modo, str) and any(c in modo for c in "wax+"):
-                trovate.append(f"open(mode={modo!r}) a riga {n.lineno}")
+        if isinstance(f_, ast.Attribute):
+            if f_.attr in SU_FILE:
+                trovate.append(f"{f_.attr}() a riga {n.lineno}")
+            elif isinstance(f_.value, ast.Name) and f_.value.id in mod:
+                m = mod[f_.value.id]
+                if (m, f_.attr) in QUALIFICATE:
+                    trovate.append(f"{m}.{f_.attr}() a riga {n.lineno}")
+        elif isinstance(f_, ast.Name):
+            if f_.id == "open":
+                modo = None
+                if len(n.args) > 1 and isinstance(n.args[1], ast.Constant):
+                    modo = n.args[1].value
+                for k in n.keywords:
+                    if k.arg == "mode" and isinstance(k.value, ast.Constant):
+                        modo = k.value.value
+                if isinstance(modo, str) and any(c in modo for c in "wax+"):
+                    trovate.append(f"open(mode={modo!r}) a riga {n.lineno}")
+            elif diretti.get(f_.id) in QUALIFICATE:
+                m, a = diretti[f_.id]
+                trovate.append(f"{m}.{a}() importata nuda, a riga {n.lineno}")
+    return trovate
+
+
+def _sorgente_run_close():
+    p = os.path.join(ROOT, "tools", "run_close.py")
+    with open(p, encoding="utf-8") as f:
+        return f.read()
+
+
+def t_g():
+    """run_close.py ancora read-only."""
+    trovate = scansiona_scritture(_sorgente_run_close(), "run_close.py")
     segna("T-G", "run_close.py ancora read-only", not trovate,
           "; ".join(trovate[:6]))
 
@@ -673,8 +805,405 @@ def t_o():
 
 # ---------------------------------------------------------------- consegna
 
+# ------------------------------------------------- T-P / T-Q / T-R / T-S / T-U / T-V
+#
+# I criteri del thin slice 2. Il primo e' quello che rende falsificabile tutto il
+# resto: senza T-U, T-C e T-D resterebbero verdi su un percorso morto — leggerebbero
+# due file che nessuno scrive piu', li troverebbero identici prima e dopo, e
+# certificherebbero un non-assorbimento che nessuno sta piu' esercitando.
+
+def _esito(out, nome):
+    """True/False/None per il controllo di run_close il cui nome inizia con `nome`."""
+    for l in out.splitlines():
+        s = l.strip()
+        for pref, val in (("ok  ", True), ("FAIL", False)):
+            if s.startswith(pref) and s[len(pref):].strip().startswith(nome):
+                return val
+    return None
+
+
+def t_p():
+    """Gli import di run_close.py sono enumerati.
+
+    E' il controllo che meccanizza il divieto su pathlib. (A) risolve solo riceventi
+    legati a un modulo e (B) non contiene `unlink`: `Path(p).unlink()` sfuggirebbe a
+    entrambi. Invece di inseguire ogni forma possibile si chiude la porta a monte —
+    se l'insieme degli import cambia, il criterio fallisce e qualcuno deve decidere."""
+    albero = ast.parse(_sorgente_run_close(), "run_close.py")
+    visti, visti_da, fuori = set(), set(), []
+    for n in ast.walk(albero):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                visti.add(a.name.split(".")[0])
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            for a in n.names:
+                visti_da.add((n.module.split(".")[0], a.name))
+    fuori += sorted(visti - IMPORT_AMMESSI)
+    fuori += [f"{m}.{a}" for m, a in sorted(visti_da - IMPORT_DA_AMMESSI)]
+    segna("T-P", "import di run_close.py enumerati", not fuori,
+          ("non ammessi: " + ", ".join(fuori)) if fuori
+          else f"{len(visti)} moduli, {len(visti_da)} from-import")
+
+
+def t_q():
+    """La guardia sullo stato migrato: sette guasti, sette gravi.
+
+    Ogni alterazione avviene sulla copia del banco. La radice vera non viene mai
+    aperta in scrittura da questa prova: e' l'unico modo per collaudare una guardia
+    su dati che, fuori di qui, non sono versionati e non si ripristinano."""
+    casi, det = [], []
+
+    def caso(nome, prepara, controllo, atteso=False):
+        with Banco() as b:
+            b.crea_legacy()
+            b.crea_run(RUN_A)
+            prepara(b)
+            r = b.chiudi(RUN_A)
+            e = _esito(r.stdout, controllo)
+            casi.append((nome, e is atteso))
+            if e is not atteso:
+                det.append(f"{nome}: atteso {atteso}, ottenuto {e}")
+
+    # (a) manifest assente
+    caso("manifest assente",
+         lambda b: os.remove(b.stato_p("state-import-manifest.json")),
+         "manifest dello stato presente")
+    # (b) manifest illeggibile
+    caso("manifest illeggibile",
+         lambda b: open(b.stato_p("state-import-manifest.json"), "w").write("{ rotto"),
+         "manifest dello stato leggibile")
+    # (c) voce mancante
+    caso("voce mancante",
+         lambda b: _togli_voce(b, "source-ledger"),
+         "manifest con una voce per file")
+    # (d) manifest internamente incoerente: dichiara una riga in meno di quante ce ne
+    #     siano. E' il caso che distingue un manifest coerente con se stesso da uno
+    #     coerente col file: l'hash del prefisso combacia, il conteggio no.
+    caso("39 dichiarate su 40 reali",
+         lambda b: b.scrivi_manifest(**{"source-ledger": {"righe_importate": 1}}),
+         "source-ledger.jsonl: manifest coerente col file")
+    # (e) prefisso manomesso, a parita' di lunghezza
+    caso("prefisso manomesso", _manometti_prefisso,
+         "source-ledger.jsonl: prefisso storico intatto")
+    # (f) troncamento sotto byte_prefisso
+    caso("ledger troncato", _tronca,
+         "source-ledger.jsonl: non troncato")
+    # (g) riga nuova senza run_id, su un ledger e su un file di memoria
+    caso("riga nuova senza run_id (ledger)",
+         lambda b: _appendi(b, "query-ledger.jsonl", {"normalized_query": "orfana"}),
+         "query-ledger.jsonl: ogni riga nuova porta run_id")
+    caso("riga nuova senza run_id (memoria)",
+         lambda b: _appendi(b, "sector-history.jsonl", {"sector": "senza attribuzione"}),
+         "sector-history.jsonl: ogni riga nuova porta run_id")
+
+    # E la controprova, senza la quale i sette sopra sarebbero soddisfatti anche da
+    # una guardia che dice sempre di no: su stato integro tutto passa.
+    with Banco() as b:
+        b.crea_legacy()
+        b.crea_run(RUN_A)
+        r = b.chiudi(RUN_A)
+        for c in ("manifest completo",
+                  "source-ledger.jsonl: prefisso storico intatto",
+                  "source-ledger.jsonl: manifest coerente col file",
+                  "query-ledger.jsonl: ogni riga nuova porta run_id"):
+            if _esito(r.stdout, c) is not True:
+                det.append(f"CONTROPROVA: '{c}' non passa su stato integro")
+
+    segna("T-Q", "guardia sullo stato: manifest, prefisso, attribuzione",
+          not det, "; ".join(det[:4]))
+
+
+def _togli_voce(b, nome):
+    p = b.stato_p("state-import-manifest.json")
+    with open(p, encoding="utf-8") as g:
+        d = json.load(g)
+    d["voci"] = [v for v in d["voci"] if v.get("ledger") != nome]
+    with open(p, "w", encoding="utf-8", newline="\n") as g:
+        json.dump(d, g, ensure_ascii=False, indent=2)
+
+
+def _manometti_prefisso(b):
+    p = b.stato_p("source-ledger.jsonl")
+    d = open(p, "rb").read().replace(b"vecchio.invalid", b"vecchiX.invalid")
+    open(p, "wb").write(d)
+
+
+def _tronca(b):
+    p = b.stato_p("source-ledger.jsonl")
+    d = open(p, "rb").read()
+    open(p, "wb").write(d[:len(d) // 2])
+
+
+def _appendi(b, f_, riga):
+    with open(b.stato_p(f_), "a", encoding="utf-8", newline="\n") as g:
+        g.write(json.dumps(riga, ensure_ascii=False) + "\n")
+
+
+def t_r():
+    """Radici d'ambiente enumerate.
+
+    SC-22 non copre questo seam e non si finge che lo faccia: salta ogni file di
+    tools/ che non nomini le credenziali dei provider, e reconcile_run.py non le
+    nomina — di proposito, per lasciarlo lavorare sul caso che gli compete senza
+    avvicinarglisi. La contenzione la prova questo criterio.
+
+    (Questa spiegazione evita di scrivere per esteso i due marcatori su cui SC-22
+    filtra: nominarli qui farebbe entrare il banco di prova nel suo perimetro, e il
+    controllo si metterebbe a cercare in questo file una gestione di chiavi che non
+    c'e'. E' successo, ed e' il motivo della perifrasi.)"""
+    ammesse = {"DEEPSEARCH_TELEMETRY_ROOT", "DEEPSEARCH_STATE_ROOT"}
+    lette, mediate, det = {}, [], []
+    for f_ in ("reconcile_run.py", "run_close.py"):
+        p = os.path.join(ROOT, "tools", f_)
+        with open(p, encoding="utf-8") as g:
+            albero = ast.parse(g.read(), p)
+        lette[f_] = set()
+        for n in ast.walk(albero):
+            nomi = None
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                    and n.func.attr in ("getenv", "get"):
+                v = n.func.value
+                ok = (isinstance(v, ast.Name) and v.id == "os") or \
+                     (isinstance(v, ast.Attribute) and v.attr == "environ")
+                if ok and n.args:
+                    nomi = n.args[0]
+            elif isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute) \
+                    and n.value.attr == "environ":
+                nomi = n.slice
+            if nomi is None:
+                continue
+            if isinstance(nomi, ast.Constant) and isinstance(nomi.value, str):
+                lette[f_].add(nomi.value)
+            else:
+                mediate.append(f"{f_}:{n.lineno}")
+    if mediate:
+        det.append("lette mediante variabile: " + ", ".join(mediate))
+    tutte = lette["reconcile_run.py"] | lette["run_close.py"]
+    if tutte != ammesse:
+        det.append(f"insieme letto {sorted(tutte)} != {sorted(ammesse)}")
+    if lette["run_close.py"]:
+        det.append(f"run_close.py ne legge {sorted(lette['run_close.py'])}")
+    segna("T-R", "radici d'ambiente enumerate e lette per nome letterale",
+          not det, "; ".join(det))
+
+
+def t_s():
+    """T-G esteso: vede gli alias, e non spara sui contenitori.
+
+    Due lati, e servono entrambi. Senza il primo il criterio sarebbe aggirabile con
+    un `import shutil as sh`; senza il secondo sarebbe rumoroso, e un criterio
+    rumoroso viene disattivato dal primo che ha fretta."""
+    base = _sorgente_run_close()
+    det = []
+
+    def sonda(nome, codice, deve_fallire):
+        trovate = scansiona_scritture(base + "\n" + codice, "sonda")
+        nuove = len(trovate) > 0
+        if nuove is not deve_fallire:
+            det.append(f"{nome}: atteso {'rilevata' if deve_fallire else 'ignorata'}")
+
+    # DEVONO essere rilevate
+    sonda("os.remove diretto", "import os\ndef _s1(p):\n    os.remove(p)\n", True)
+    sonda("alias di modulo", "import shutil as sh\ndef _s2(a, b):\n    sh.copy(a, b)\n", True)
+    sonda("import nudo", "from shutil import copy\ndef _s3(a, b):\n    copy(a, b)\n", True)
+    sonda("alias di os", "import os as _o\ndef _s4(p):\n    _o.makedirs(p)\n", True)
+    sonda("json.dump", "import json\ndef _s5(o, g):\n    json.dump(o, g)\n", True)
+    sonda("write su file", "def _s6(g):\n    g.write('x')\n", True)
+    sonda("open in append", "def _s7(p):\n    open(p, 'a')\n", True)
+    sonda("riassegnazione di modulo", "import shutil\n_x = shutil\n", True)
+
+    # NON devono essere rilevate: sono metodi su contenitori e su stringhe
+    sonda("dict.copy", "def _n1(d):\n    return d.copy()\n", False)
+    sonda("set.remove", "def _n2(s, x):\n    s.remove(x)\n", False)
+    sonda("str.replace", "def _n3(t):\n    return t.replace('a', 'b')\n", False)
+    sonda("list.append", "def _n4(l, x):\n    l.append(x)\n", False)
+    sonda("open in lettura", "def _n5(p):\n    open(p, 'rb')\n", False)
+
+    segna("T-S", "T-G vede gli alias e non spara sui contenitori", not det,
+          "; ".join(det[:4]))
+
+
+def t_u():
+    """Il ri-puntamento e' avvenuto davvero, e la radice vergine non fa esplodere
+    niente.
+
+    La prima meta' e' il criterio che manca a T-C e T-D: se qualcuno rilocasse a
+    meta', loro resterebbero verdi su un percorso morto e nessuno se ne accorgerebbe.
+    Qui il percorso morto viene guardato di proposito."""
+    det = []
+    with Banco() as b:
+        b.crea_legacy()
+        b.crea_run(RUN_A)
+        b.esegui(RUN_A, "--consolida")
+        for f_ in ("query-ledger.jsonl", "source-ledger.jsonl"):
+            if os.path.exists(b.percorso("state", f_)):
+                det.append(f"scritto ancora sotto state/: {f_}")
+            if not os.path.exists(b.stato_p(f_)):
+                det.append(f"non scritto nella radice dello stato: {f_}")
+
+    # Radice vergine: non esiste, e --consolida deve crearla invece di morire con
+    # FileNotFoundError. E' il caso della macchina appena preparata, cioe' il primo
+    # che si incontra e l'unico che nessuno prova.
+    with Banco() as b:
+        vergine = os.path.join(b.base, "mai-creata", "state")
+        b.crea_run(RUN_A)
+        r = b.esegui(RUN_A, "--consolida", stato=vergine)
+        if "FileNotFoundError" in (r.stderr or ""):
+            det.append("radice vergine: FileNotFoundError")
+        if not os.path.exists(os.path.join(vergine, "source-ledger.jsonl")):
+            det.append("radice vergine: il ledger non e' stato creato")
+
+    segna("T-U", "stato rilocato davvero, radice vergine creata dallo scrittore",
+          not det, "; ".join(det[:4]))
+
+
+def t_v():
+    """Attribuzione per run, zero legittimo, copertura delle query.
+
+    L'ultimo caso e' quello per cui il vecchio `dich_s <= q` e' stato ritirato: un
+    run che ripete query gia' presenti nel prefisso storico non le riconsolida, e
+    con la vecchia aritmetica sarebbe stato grave per aver avuto memoria."""
+    det = []
+    with Banco() as b:
+        b.crea_legacy()
+        b.crea_run(RUN_A)
+        b.esegui(RUN_A, "--consolida")
+        r = b.chiudi(RUN_A)
+        # le righe nuove sono attribuite a questo run, le legacy no
+        if _esito(r.stdout, "query-ledger.jsonl: ogni riga nuova porta run_id") is not True:
+            det.append("le righe scritte dal run non risultano attribuite")
+        if _esito(r.stdout, "ogni ricerca dichiarata e' nel query-ledger") is not True:
+            det.append("copertura: query consolidate non riconosciute")
+        # il prefisso storico non si e' mosso
+        b2 = leggi_byte(b.stato_p("source-ledger.jsonl"))
+        if b2 is None or b"senza-run-id.invalid" not in b2:
+            det.append("le righe storiche non attribuibili sono sparite")
+
+        # Il caso decisivo: un SECONDO run che dichiara le stesse query. Non ne
+        # consolida nessuna — ci sono gia' — quindi ne attribuisce zero a se stesso.
+        # La copertura deve passare lo stesso: le query SONO nel ledger.
+        b.crea_run(RUN_B)
+        b.esegui(RUN_B, "--consolida")
+        r2 = b.chiudi(RUN_B)
+        if _esito(r2.stdout, "ogni ricerca dichiarata e' nel query-ledger") is not True:
+            det.append("copertura: query gia' nel prefisso trattate come mai registrate")
+
+    # Zero legittimo: un run che non dichiara nulla non produce gravi di copertura.
+    with Banco() as b:
+        b.crea_legacy()
+        os.makedirs(b.percorso("runs", RUN_A, "wave1"), exist_ok=True)
+        r = b.chiudi(RUN_A)
+        if _esito(r.stdout, "ogni ricerca dichiarata e' nel query-ledger") is False:
+            det.append("zero query dichiarate trattato come guasto")
+
+    segna("T-V", "attribuzione per run, zero legittimo, copertura delle query",
+          not det, "; ".join(det[:4]))
+
+
+FILE_STATO = {"seen-pains.jsonl", "sector-history.jsonl", "shadow-portfolio.jsonl",
+              "query-ledger.jsonl", "source-ledger.jsonl"}
+
+
+def t_w():
+    """Un solo punto di configurazione: tutti i percorsi di stato nascono da
+    radice_stato(), e nessuno li ricostruisce per conto proprio.
+
+    Serve perche' la rilocazione PARZIALE e' il guasto piu' insidioso di tutti: se
+    uno solo dei cinque join tornasse a ROOT/state, ogni lettore troverebbe un file
+    plausibile — vuoto invece che pieno, o pieno invece che vuoto — e nessun altro
+    criterio se ne accorgerebbe. run_close.py:207 in particolare ripeteva il join
+    invece di riusare quello di :124, ed e' il punto in cui una rilocazione a meta'
+    passerebbe inosservata.
+
+    La prova e' strutturale, non testuale: si guarda l'albero sintattico, non si
+    cerca una stringa. Un commento che nomini ROOT/state non e' un difetto; una
+    chiamata che lo costruisca lo e'."""
+    det = []
+    for f_ in ("reconcile_run.py", "run_close.py"):
+        p = os.path.join(ROOT, "tools", f_)
+        with open(p, encoding="utf-8") as g:
+            albero = ast.parse(g.read(), p)
+
+        # nomi assegnati da radice_stato(): `_stato = radice_stato()`
+        da_radice = set()
+        for n in ast.walk(albero):
+            if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call) \
+                    and isinstance(n.value.func, ast.Name) \
+                    and n.value.func.id == "radice_stato":
+                for t in n.targets:
+                    if isinstance(t, ast.Name):
+                        da_radice.add(t.id)
+
+        # La definizione di radice_stato() e' l'unico posto in cui il segmento "state"
+        # DEVE essere costruito: e' il punto di configurazione, ed escluderlo non e'
+        # un'eccezione di comodo — e' la definizione stessa di "un solo punto".
+        dentro = set()
+        for n in ast.walk(albero):
+            if isinstance(n, ast.FunctionDef) and n.name == "radice_stato":
+                dentro = set(range(n.lineno, (n.end_lineno or n.lineno) + 1))
+
+        for n in ast.walk(albero):
+            if getattr(n, "lineno", None) in dentro:
+                continue
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "join"):
+                continue
+            cost = [a.value for a in n.args
+                    if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+            # (a) il segmento "state" non ha piu' alcuna ragione di essere costruito
+            if "state" in cost:
+                det.append(f"{f_}:{n.lineno} costruisce ancora il segmento 'state'")
+                continue
+            # (b) chi nomina un file di stato deve partire da radice_stato()
+            if not (FILE_STATO & set(cost)):
+                continue
+            primo = n.args[0] if n.args else None
+            ok = (isinstance(primo, ast.Call) and isinstance(primo.func, ast.Name)
+                  and primo.func.id == "radice_stato") or \
+                 (isinstance(primo, ast.Name) and primo.id in da_radice)
+            if not ok:
+                det.append(f"{f_}:{n.lineno} nomina un file di stato senza radice_stato()")
+
+    segna("T-W", "un solo punto di configurazione della radice dello stato",
+          not det, "; ".join(det[:4]))
+
+
+def t_t():
+    """La radice dello stato non viene dalla configurazione.
+
+    Le chiavi memory.*_file nominano ancora la vecchia collocazione e nessuno le
+    legge. Restano li' perche' correggerle allargherebbe il perimetro; il rischio e'
+    che qualcuno le prenda per la sorgente della radice, ed e' questo a doverlo
+    escludere. L'alterazione avviene sulla COPIA: il file di configurazione del
+    repository non viene toccato in alcun caso."""
+    det = []
+    with Banco() as b:
+        p = b.percorso("config", "deepsearch.config.json")
+        with open(p, encoding="utf-8") as g:
+            cfg = json.load(g)
+        mem = cfg.get("memory")
+        if not isinstance(mem, dict):
+            det.append("config.memory assente: il caso non e' piu' quello descritto")
+        else:
+            for k in list(mem):
+                if k.endswith("_file"):
+                    mem[k] = "percorso/inventato/" + os.path.basename(str(mem[k]))
+            with open(p, "w", encoding="utf-8", newline="\n") as g:
+                json.dump(cfg, g, ensure_ascii=False, indent=2)
+            b.crea_legacy()
+            b.crea_run(RUN_A)
+            b.esegui(RUN_A, "--consolida")
+            if not os.path.exists(b.stato_p("source-ledger.jsonl")):
+                det.append("la radice e' cambiata con la configurazione")
+            if os.path.exists(b.percorso("percorso", "inventato")):
+                det.append("una chiave di configurazione ha prodotto un percorso reale")
+    segna("T-T", "la radice dello stato non si legge dalla configurazione",
+          not det, "; ".join(det))
+
+
 def main():
-    for t in (t_a, t_b, t_c, t_d, t_e, t_f, t_g, t_h, t_j, t_k, t_l, t_o):
+    for t in (t_a, t_b, t_c, t_d, t_e, t_f, t_g, t_h, t_j, t_k, t_l, t_o,
+              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w):
         try:
             t()
         except Exception as e:

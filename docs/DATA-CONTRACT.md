@@ -17,7 +17,7 @@
 | `geo_primary` / `geo_secondary` | config | `["IT"]` | pain-finder, evidence, tam |
 | `icp_constraints` | config `scope.company_size_target` | 5-250 addetti | pain-finder, tam |
 | `sectors_selected` | rotazione da `sector-history` | 6 settori | pain-finder |
-| `excluded_dedup_keys` | `seen-pains.jsonl` + cooldown | array | pain-finder |
+| `excluded_dedup_keys` | `runtime/state/seen-pains.jsonl` + cooldown | array | pain-finder |
 | `thresholds` | config, profilo attivo | oggetto | competitor-analyst |
 | `bootstrap_constraints` | config | oggetto | bootstrap-filter, venture-architect |
 | `scoring_weights` | config | oggetto | ranking-agent |
@@ -171,7 +171,7 @@ condizione della sua utilita'.
 
 ## 6. File di stato persistenti
 
-**`state/seen-pains.jsonl`** — un record per pain toccato da ogni run.
+**`runtime/state/seen-pains.jsonl`** — un record per pain toccato da ogni run.
 
 ```json
 {"dedup_key":"logistica|10-50|riconciliazione ddt fatture","pain_id":"P-007","run_id":"20260807",
@@ -180,14 +180,14 @@ condizione della sua utilita'.
  "timestamp":"2026-08-07T03:41:00Z","retry_after":"2026-08-21"}
 ```
 
-**`state/query-ledger.jsonl`** — ogni ricerca eseguita, con query normalizzata, angolo, resa e
+**`runtime/state/query-ledger.jsonl`** — ogni ricerca eseguita, con query normalizzata, angolo, resa e
 fonti estratte. Serve a deduplicare, a rendere il run auditabile e a contare le ricerche
 **realmente distinte** (per angolo, non per riformulazione).
 
-**`state/source-ledger.jsonl`** — tutte le fonti, riusabili fra run. Una fonte gia' verificata in un
+**`runtime/state/source-ledger.jsonl`** — tutte le fonti, riusabili fra run. Una fonte gia' verificata in un
 run precedente non va riverificata: riduce il costo del `source-verifier` nel tempo.
 
-**`state/sector-history.jsonl`** — settori esplorati per run, con pain prodotti e pubblicati.
+**`runtime/state/sector-history.jsonl`** — settori esplorati per run, con pain prodotti e pubblicati.
 Alimenta la rotazione `least_recently_explored`.
 
 ## 7. Regole di serializzazione

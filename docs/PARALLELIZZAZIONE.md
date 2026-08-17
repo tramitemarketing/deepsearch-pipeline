@@ -71,7 +71,7 @@ agli altri due.
 `DEEP` conviene (`parallel_gate_execution: true`); in `LIGHT` conviene la cascata stretta.
 
 Una regola pratica: se il tasso storico di kill al gate 3 supera il 60%, la cascata e' piu'
-economica anche in DEEP. Il dato si legge da `seen-pains.jsonl`.
+economica anche in DEEP. Il dato si legge da `runtime/state/seen-pains.jsonl`.
 
 ### Wave 6 — 3 lenti di red team + verifier (motivo: diversita' + copertura)
 
@@ -96,7 +96,7 @@ Con 8 shard + 5 canali × 24 pain + 3 lenti, la stessa ricerca verrebbe eseguita
 senza controllo.
 
 **Query ledger.** Prima di ogni ricerca l'agente normalizza la query (minuscolo, senza
-punteggiatura, termini ordinati alfabeticamente) e controlla `state/query-ledger.jsonl`. Se esiste
+punteggiatura, termini ordinati alfabeticamente) e controlla `runtime/state/query-ledger.jsonl`. Se esiste
 gia' per il run corrente, riusa il risultato.
 
 **Source ledger persistente fra run.** Una fonte gia' registrata e verificata in un run precedente

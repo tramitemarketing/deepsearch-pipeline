@@ -46,9 +46,15 @@ DEEPSEARCH/
 │   ├── ANTI-HALLUCINATION.md       ← le 9 difese
 │   ├── PARALLELIZZAZIONE.md        ← strategie di fan-out e deduplica
 │   └── MIGLIORIE.md                ← cosa e' cambiato e perche'
-├── state/                          ← memoria persistente fra run (non svuotare; vedi state/README.md)
+├── state/                          ← solo lo schema dei file di memoria (vedi state/README.md)
 └── runs/                           ← un sottodirectory per run, con tutti i JSON e il REPORT.md
 ```
+
+**La memoria fra run non sta qui dentro.** Vive in `runtime/state/`, fuori dal repository e fuori
+da ogni cartella sincronizzata: e' li' che stanno `seen-pains.jsonl`, `sector-history.jsonl`,
+`shadow-portfolio.jsonl`, `query-ledger.jsonl` e `source-ledger.jsonl`. I tre file omonimi che
+trovi ancora sotto `state/` sono vuoti e nessuno li scrive piu'. Il percorso lo calcola
+`radice_stato()` in `tools/reconcile_run.py`, che e' l'unico posto in cui e' deciso.
 
 Verifica che i subagent siano caricati con `/agents` in Claude Code. Se non compaiono, controlla che
 il frontmatter YAML di ogni file `.claude/agents/*.md` sia intatto (delimitatori `---`).

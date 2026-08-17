@@ -199,8 +199,8 @@ onestamente etichettati e indicare **dove andare a cercare** (`evidence_seeds`).
 3. Hai raggiunto il tetto del tuo `id_range` (12 pain) → `stop_reason: COMPLETED`.
 4. Segnale di ABORT dall'orchestratore.
 
-Prima di ogni ricerca consulta `state/query-ledger.jsonl`: se la query normalizzata esiste gia' per
-questo run, riusa il risultato invece di consumare budget. **Non scrivere mai in `state/`**: restituisci le ricerche in `queries_run` e le fonti in `new_sources`.
+Prima di ogni ricerca consulta `runtime/state/query-ledger.jsonl`: se la query normalizzata esiste gia' per
+questo run, riusa il risultato invece di consumare budget. **Non scrivere mai lo stato: ne' in `state/` dentro il repository, ne' direttamente in `runtime/state/`**, che e' la radice mutabile dove la memoria vive davvero. Restituisci le ricerche in `queries_run` e le fonti in `new_sources`: consolida l'orchestratore, ed e' l'unico che puo' farlo.
 Consolida l'orchestratore.
 
 ## CONTEGGIO DEL BUDGET (tre unita', e la regola che mancava)

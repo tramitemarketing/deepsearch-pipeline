@@ -110,7 +110,7 @@ viene rimossa meccanicamente dall'orchestratore prima della pubblicazione.
 ## 3. Source Ledger: le fonti sono oggetti, non stringhe
 
 Nessun agente cita una fonte "in prosa". Ogni fonte incontrata viene registrata in
-`state/source-ledger.jsonl` come oggetto con ID, e da quel momento si cita **solo per ID**.
+`runtime/state/source-ledger.jsonl` come oggetto con ID, e da quel momento si cita **solo per ID**.
 
 ```
 S-<run_id>-<progressivo>   es. S-20260807-041
@@ -174,7 +174,7 @@ irraggiungibili viene declassato a `HYPOTHESIS` d'ufficio, esattamente come in I
 ## 4. Query Ledger: nessuna ricerca viene fatta due volte
 
 Prima di eseguire una ricerca, ogni agente normalizza la query (minuscolo, senza punteggiatura,
-termini ordinati alfabeticamente) e controlla `state/query-ledger.jsonl`. Se la query normalizzata
+termini ordinati alfabeticamente) e controlla `runtime/state/query-ledger.jsonl`. Se la query normalizzata
 esiste gia' per il run corrente, **riusa il risultato registrato** invece di rieseguirla.
 
 Ogni ricerca eseguita viene appesa al ledger con: `normalized_query`, `raw_query`, `agent`,
@@ -183,7 +183,7 @@ Ogni ricerca eseguita viene appesa al ledger con: `normalized_query`, `raw_query
 **Attenzione: riusare un DOCUMENTO non e' come riusare un RISULTATO.** Sono due cose diverse e solo
 la prima e' lecita.
 
-- **Cache di documenti** (`state/doc-cache/`, per URL canonicalizzato): un documento gia' scaricato
+- **Cache di documenti** (`runtime/state/doc-cache/`, per URL canonicalizzato - prescritta e non ancora implementata): un documento gia' scaricato
   in questo run puo' essere riletto senza spendere una fetch. Non rivela a nessuno cosa hanno
   cercato gli altri.
 - **Riuso di risultati di ricerca**: passare a un'istanza la SERP ottenuta da un'altra. **Vietato

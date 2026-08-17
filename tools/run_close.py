@@ -36,7 +36,7 @@ Un verificatore che premia la cancellazione delle prove e' peggio di nessun veri
         python3 tools/run_close.py runs/<run_id> --fase finale
         exit 0 = VALIDO · 1 = DEGRADATO · 2 = NON VALIDO
 """
-import json, os, re, sys, glob, unicodedata
+import json, os, re, sys, glob, unicodedata, hashlib
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):      # console Windows in cp1252: '→' e '·' fanno crashare
     try: _f.reconfigure(encoding="utf-8", errors="replace")
@@ -48,6 +48,15 @@ ARTEFATTI = ["00-run-manifest.json", "00-run-stats.json", "downgrades.jsonl",
 LEDGER = ["query-ledger.jsonl", "source-ledger.jsonl"]
 MEMORIA = ["seen-pains.jsonl", "sector-history.jsonl"]
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# La radice dello stato mutabile si decide in UN SOLO posto, e non e' questo: la si
+# importa invece di ricostruirla. Tre join letterali che risolvano ognuno per conto
+# proprio sono tre occasioni di divergere, e una rilocazione parziale resterebbe
+# verde — ogni lettore troverebbe il file che si aspetta, in posti diversi.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from reconcile_run import radice_stato          # noqa: E402  (dopo sys.path, per forza)
+
+MANIFEST_STATO = "state-import-manifest.json"
 
 APERTURA_DEGRADATA = "run degradato: l'esito vuoto non e' interpretabile"
 APERTURA_VUOTA = "nessuna opportunita' ha superato i criteri"
@@ -66,23 +75,180 @@ def piatto(s):
 
 
 def righe(path, run_id=None):
-    """(n_totali, n_di_questo_run). None = assente · -1 = JSONL corrotto."""
+    """(n_totali, n_di_questo_run, n_senza_run_id). (None,None,None) = assente ·
+    -1 ovunque = JSONL corrotto.
+
+    Fino al thin slice 2 c'era un ripiego: se NESSUNA riga portava run_id la funzione
+    rendeva `mio = None` e atteso() ricadeva sul TOTALE. Serviva ai ledger scritti
+    prima che il campo esistesse. Con una memoria storica migrata quel ripiego e' il
+    contrario di cio' che si vuole: i contatori del REPORT misurano il lavoro di
+    QUESTO run, e attribuirgli righe che nessuno gli ha attribuito e' la lineage
+    dedotta che la disciplina vieta. `mio` e' ora un intero, zero compreso — e lo
+    zero e' una misura reale, non un'assenza.
+
+    Il prezzo della rimozione va detto: l'errore "riga nuova senza run_id" non e'
+    piu' catturato da qui. Lo catturano i controlli n.5 e n.6 di guardia_stato(), e
+    per questo le due modifiche non sono separabili.
+    """
     if not os.path.exists(path):
-        return None, None
-    tot, mio, ha_run = 0, 0, False
+        return None, None, None
+    tot, mio, senza = 0, 0, 0
     for l in open(path, encoding="utf-8"):
         if not l.strip():
             continue
         try:
             o = json.loads(l)
         except Exception:
-            return -1, -1
+            return -1, -1, -1
         tot += 1
-        if isinstance(o, dict) and "run_id" in o:
-            ha_run = True
+        if isinstance(o, dict) and o.get("run_id"):
             if o["run_id"] == run_id:
                 mio += 1
-    return tot, (mio if ha_run else None)
+        else:
+            senza += 1
+    return tot, mio, senza
+
+
+def guardia_stato(check):
+    """I sei controlli d'integrita' sullo stato migrato (n.1-6 della guardia).
+
+    Lo stato mutabile vive fuori dal repository e non e' versionato: nessuno lo
+    ripristina, nessun diff lo mostra, e un'alterazione silenziosa del prefisso
+    storico non lascerebbe traccia da nessuna parte. Il manifest e' l'unica ancora
+    che abbiamo, e questi controlli sono l'unico posto in cui viene interrogata.
+
+    SOLE LETTURE, ed e' un vincolo di questo file, non una preferenza: open in "rb",
+    read, seek, hashlib, json.load. Nessuna primitiva di scrittura — T-G lo verifica
+    per AST, ed e' la ragione per cui la guardia sta qui e la creazione della radice
+    sta nello scrittore.
+
+    Perche' il prefisso e non tutto il file: dopo il primo run la coda cresce, e
+    congelarne l'hash renderebbe il controllo inutile al secondo giro. Il prefisso
+    invece non cambia mai piu' — e' precisamente cio' che lo rende un'ancora.
+    """
+    ATTRIBUIBILI = {"query-ledger", "source-ledger", "seen-pains", "sector-history"}
+    # shadow-portfolio resta fuori dai controlli n.5 e n.6: non ha schema, non e'
+    # documentato in state/README.md, non e' in MEMORIA e nessuno strumento lo legge.
+    # E' l'unico dei cinque senza alcun contratto sul contenuto — lacuna nota, non
+    # proprieta' del file, e non va scambiata per una scelta di disegno.
+
+    radice = radice_stato()
+    mp = os.path.join(radice, MANIFEST_STATO)
+
+    # --- n.1  manifest presente, leggibile, completo
+    if not os.path.exists(mp):
+        check("manifest dello stato presente", False,
+              f"{MANIFEST_STATO} assente in {radice}: il prefisso storico non e' verificabile")
+        return
+    try:
+        with open(mp, encoding="utf-8") as g:
+            man = json.load(g)
+    except Exception as e:
+        check("manifest dello stato leggibile", False, f"JSON non valido: {type(e).__name__}")
+        return
+    if not isinstance(man, dict) or "versione_formato" not in man:
+        check("manifest con versione_formato", False, "campo assente")
+        return
+    voci = {v.get("ledger"): v for v in (man.get("voci") or []) if isinstance(v, dict)}
+    manca = [n for n in ("query-ledger", "source-ledger", "seen-pains",
+                         "sector-history", "shadow-portfolio") if n not in voci]
+    if manca:
+        check("manifest con una voce per file", False, "voci mancanti: " + ", ".join(manca))
+        return
+    incomplete = [n for n, v in voci.items()
+                  if not str(v.get("sorgente") or "").strip()
+                  or not str(v.get("data_importazione") or "").strip()]
+    check("manifest completo", not incomplete,
+          ("voci senza sorgente o data: " + ", ".join(sorted(incomplete))) if incomplete
+          else f"{len(voci)} voci, versione {man.get('versione_formato')}")
+    if incomplete:
+        return
+
+    for nome, v in sorted(voci.items()):
+        f_ = nome + ".jsonl"
+        p = os.path.join(radice, f_)
+        n = v.get("byte_prefisso")
+        if not isinstance(n, int) or n < 0:
+            check(f"{f_}: byte_prefisso valido", False, f"valore {n!r}")
+            continue
+        if not os.path.exists(p):
+            # Un file di stato assente non e' materia di questa guardia: lo dicono gia'
+            # i controlli sui ledger e sulla memoria, con le loro parole.
+            continue
+        with open(p, "rb") as g:
+            grezzo = g.read()
+
+        # --- n.3  assenza di troncamento
+        if len(grezzo) < n:
+            check(f"{f_}: non troncato", False,
+                  f"{len(grezzo)} byte, meno dei {n} del prefisso importato")
+            continue
+        check(f"{f_}: non troncato", True, f"{len(grezzo)} byte, prefisso {n}")
+
+        pre = grezzo[:n]
+
+        # --- n.2  prefisso byte-identico
+        h = hashlib.sha256(pre).hexdigest()
+        check(f"{f_}: prefisso storico intatto", h == v.get("sha256_prefisso"),
+              f"atteso {str(v.get('sha256_prefisso'))[:16]}..., trovato {h[:16]}...")
+
+        # --- n.4  coerenza interna del manifest col file vivo
+        #     E' il controllo che impedisce a un manifest coerente con se' stesso di
+        #     mentire sul file: un prefisso di 40 righe dichiarato di 39 passerebbe
+        #     l'hash solo se l'hash fosse calcolato sul manifest, e infatti non lo e'.
+        confine = (n == 0) or (grezzo[n - 1:n] == b"\n")
+        r_pre, s_pre = _conta_righe(pre)
+        problemi = []
+        if not confine:
+            problemi.append("byte_prefisso non cade su confine di riga")
+        if r_pre != v.get("righe_importate"):
+            problemi.append(f"righe {r_pre} vs {v.get('righe_importate')} dichiarate")
+        if s_pre != v.get("righe_legacy_senza_run_id"):
+            problemi.append(f"senza run_id {s_pre} vs {v.get('righe_legacy_senza_run_id')}")
+        check(f"{f_}: manifest coerente col file", not problemi,
+              "; ".join(problemi) if problemi else f"{r_pre} righe, {s_pre} senza run_id")
+
+        if nome not in ATTRIBUIBILI:
+            continue
+
+        coda = grezzo[n:]
+        r_coda, s_coda = _conta_righe(coda)
+
+        # --- n.5  tetto alle righe legacy, sull'INTERO file
+        tetto = v.get("righe_legacy_senza_run_id")
+        tot_senza = s_pre + s_coda
+        check(f"{f_}: nessuna riga senza run_id oltre le legacy",
+              isinstance(tetto, int) and tot_senza <= tetto,
+              f"{tot_senza} righe senza run_id, dichiarate {tetto}")
+
+        # --- n.6  run_id presente e non vuoto su ogni riga dopo il prefisso
+        #     Presenza e non vuotezza, NON conformita' a un pattern: le 39 righe
+        #     migrate portano run_id "20260801", otto cifre nude, che non soddisfa
+        #     ^[0-9]{8}-[0-9]{4}$ di seen-pain.schema.json. Imporre il pattern qui
+        #     farebbe fallire la migrazione all'istante, e la conformita' fra i
+        #     cinque file e' questione aperta, non materia di questa guardia.
+        check(f"{f_}: ogni riga nuova porta run_id", s_coda == 0,
+              f"{s_coda} righe su {r_coda} scritte dopo il prefisso non lo portano"
+              if s_coda else f"{r_coda} righe nuove, tutte attribuite")
+
+
+def _conta_righe(b):
+    """(righe non vuote, righe senza run_id) su un blocco di byte JSONL.
+    Una riga non parsabile conta come priva di run_id: e' l'esito prudente, e il
+    caso vero e' comunque intercettato dall'esito 'JSONL corrotto' di righe()."""
+    r = s = 0
+    for l in b.decode("utf-8", "replace").splitlines():
+        if not l.strip():
+            continue
+        r += 1
+        try:
+            o = json.loads(l)
+        except Exception:
+            s += 1
+            continue
+        if not (isinstance(o, dict) and o.get("run_id")):
+            s += 1
+    return r, s
 
 
 def claim_verificati(nodo):
@@ -121,34 +287,41 @@ def chiudi(run_dir, fase="finale"):
     # --- ledger: scritti DURANTE il run, quindi sono fatti su questo run
     conteggi = {}
     for f_ in LEDGER:
-        tot, mio = righe(os.path.join(ROOT, "state", f_), run_id)
+        tot, mio, senza = righe(os.path.join(radice_stato(), f_), run_id)
         conteggi[f_] = (tot, mio)
         if tot == -1:
             check(f"ledger {f_}", False, "JSONL corrotto")
         elif tot is None:
             check(f"ledger {f_}", False, "assente: il run non ha registrato nulla")
-        elif mio is None:
-            check(f"ledger {f_}", True,
-                  f"{tot} righe totali — righe senza run_id: conteggio per run impossibile")
-            check(f"ledger {f_} tracciabile per run", False,
-                  "le righe non portano run_id: i numeri del report sono cumulativi di tutti i "
-                  "run, non di questo", grave=False)
         else:
-            check(f"ledger {f_}", True, f"{mio} righe di questo run su {tot} totali")
+            # I due numeri restano distinti in ogni riga d'esito, ed e' la coppia che rende
+            # leggibile uno zero legittimo accanto a un ledger di novanta righe: "quante ne ha
+            # aggiunte questo run" e "quante ne aveva il file" sono due domande diverse.
+            d = f"{mio} righe di questo run su {tot} totali"
+            if senza:
+                d += (f" — {senza} precedono l'attribuzione per run e restano fuori"
+                      f" dai contatori")
+            check(f"ledger {f_}", True, d)
 
     # --- memoria: scritta DOPO da §10. Solo integrita', mai quantita'.
     for f_ in MEMORIA:
-        tot, _ = righe(os.path.join(ROOT, "state", f_), run_id)
+        tot, _, _ = righe(os.path.join(radice_stato(), f_), run_id)
         check(f"memoria {f_} integra", tot != -1,
               "JSONL corrotto" if tot == -1 else
               ("assente (la scrive §10, dopo questa verifica)" if tot is None else f"{tot} righe"))
 
+    # --- guardia sullo stato migrato: il prefisso storico e l'attribuzione delle righe nuove
+    guardia_stato(check)
+
     # --- riconciliazione: i numeri dichiarati contro i ledger, sempre
     def atteso(f_):
+        # Il numero che il REPORT deve dichiarare e' il lavoro di QUESTO run, sempre. Non
+        # esiste piu' il ripiego sul totale: su un ledger con memoria storica attribuirebbe
+        # al run corrente il lavoro di quelli precedenti.
         tot, mio = conteggi.get(f_, (None, None))
         if tot in (None, -1):
             return None
-        return mio if mio is not None else tot
+        return mio
 
     q, f = atteso("query-ledger.jsonl"), atteso("source-ledger.jsonl")
     stats = os.path.join(run_dir, "00-run-stats.json")
@@ -204,7 +377,7 @@ def chiudi(run_dir, fase="finale"):
 
     if artefatti_json:
         nel_ledger = set()
-        lp = os.path.join(ROOT, "state", "source-ledger.jsonl")
+        lp = os.path.join(radice_stato(), "source-ledger.jsonl")
         if os.path.exists(lp):
             for l in open(lp, encoding="utf-8"):
                 try:
@@ -325,13 +498,43 @@ def chiudi(run_dir, fase="finale"):
                                  "fetcher, crawler o qualita' delle fonti sarebbe un aneddoto"))
             avvisi += 1
 
-        # Le ricerche dichiarate dagli agenti contro quelle consolidate nel ledger.
-        dich_s = sum((o.get("budget_used") or {}).get("searches") or 0 for _, o in artefatti_json)
+        # Le ricerche dichiarate dagli agenti contro il ledger.
+        #
+        # Fino al thin slice 2 qui stava `dich_s <= q`: un confronto fra due numeri, quante
+        # ricerche gli agenti dicono di aver fatto contro quante ne risultano consolidate per
+        # QUESTO run. Con una memoria storica migrata quella relazione non e' piu' ben formata.
+        # reconcile_run carica l'INTERO query-ledger (:302) e appende solo cio' che non c'e'
+        # gia' (:358): una ricerca del run corrente che ripeta una query gia' presente nel
+        # prefisso storico e' legittimamente non consolidata e non entra in q. Il controllo
+        # avrebbe prodotto un grave per la sola ragione di avere memoria.
+        #
+        # Cio' che voleva dire e' la COPERTURA: nessuna ricerca deve restare non registrata.
+        # Si verifica per appartenenza a un insieme, non per confronto fra numeri — e' indiffe-
+        # rente se la query stia fra le righe di questo run o fra quelle del prefisso storico,
+        # purche' qualcuno l'abbia registrata. Una query dichiarata e assente da entrambi e'
+        # una ricerca di cui non resta traccia, ed e' l'unico caso che merita un grave.
         dich_f = sum((o.get("budget_used") or {}).get("fetches") or 0 for _, o in artefatti_json)
-        if q is not None and dich_s:
-            check("ricerche consolidate == ricerche dichiarate dagli agenti", dich_s <= q,
-                  f"agenti {dich_s} vs ledger {q}" +
-                  (f" — {dich_s - q} mai consolidate" if dich_s > q else ""))
+        dichiarate = set()
+        for _, o in artefatti_json:
+            for qq in (o.get("queries_run") or []):
+                if isinstance(qq, dict) and qq.get("normalized_query"):
+                    dichiarate.add(qq["normalized_query"])
+        if dichiarate:
+            nel_ql = set()
+            qp = os.path.join(radice_stato(), "query-ledger.jsonl")
+            if os.path.exists(qp):
+                for l in open(qp, encoding="utf-8"):
+                    try:
+                        oq = json.loads(l)
+                        if isinstance(oq, dict) and oq.get("normalized_query"):
+                            nel_ql.add(oq["normalized_query"])
+                    except Exception:
+                        pass
+            scoperte = sorted(dichiarate - nel_ql)
+            dett = (f"{len(scoperte)} mai registrate: "
+                    + "; ".join(x[:40] for x in scoperte[:3])) if scoperte else \
+                   f"{len(dichiarate)} dichiarate, tutte nel ledger"
+            check("ogni ricerca dichiarata e' nel query-ledger", not scoperte, dett)
         if d is not None and dich_f:
             check("fetches nelle statistiche == fetches dichiarate", d.get("fetches") == dich_f,
                   f"stats {d.get('fetches')} vs agenti {dich_f}")

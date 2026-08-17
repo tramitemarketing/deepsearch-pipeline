@@ -101,14 +101,14 @@ funnel            = config.funnel[profile]
 Crea `runs/<run_id>/` con le sottocartelle `01-pains/ 02-evidence/ 03-competitor/ 04-trigger/
 05-tam/ 06-bootstrap/ 07-venture/ 08-redteam/ 09-verify/ 10-ranking/`.
 
-Inizializza (o apri in append) `state/query-ledger.jsonl`, `state/source-ledger.jsonl`. Sono file
+Inizializza (o apri in append) `runtime/state/query-ledger.jsonl`, `runtime/state/source-ledger.jsonl`. Sono file
 **JSONL puri**: una riga = un oggetto JSON, nessuna riga di commento. **Ogni riga che scrivi porta
 il campo `run_id`**: i due ledger sono cumulativi fra run, quindi senza quel campo il numero di
 ricerche di *questo* run non e' ricostruibile e l'intestazione del report finisce per attribuirgli
 il lavoro di tutti i run precedenti. La documentazione dei loro
 schemi sta in `state/README.md`.
 
-Leggi `state/seen-pains.jsonl` e costruisci `excluded_dedup_keys`:
+Leggi `runtime/state/seen-pains.jsonl` e costruisci `excluded_dedup_keys`:
 
 - pain con esito `KILLED` e `killed_at` entro `killed_pain_cooldown_days` (90) → esclusi;
 - pain con esito `PARKED` e `parked_at` entro `parked_pain_retry_days` (14) → esclusi;
@@ -116,7 +116,7 @@ Leggi `state/seen-pains.jsonl` e costruisci `excluded_dedup_keys`:
   funnel allo stage in cui erano fermi, con le loro `missing_to_decide` come input prioritario;
 - idee gia' pubblicate entro `published_idea_cooldown_days` (365) → escluse.
 
-Leggi `state/sector-history.jsonl` e seleziona i `config.scope.sectors_per_run` settori meno
+Leggi `runtime/state/sector-history.jsonl` e seleziona i `config.scope.sectors_per_run` settori meno
 esplorati di recente.
 
 **Provider di ogni agente.** Leggi `config.provider.attivo_per_agente`: agente assente significa
@@ -192,7 +192,7 @@ in `runs/<run_id>/violations.jsonl`. Sugli output di agenti judgment-only, verif
 `source_id` citato esista nel ledger: se ne trovi uno inesistente, **scarta l'intero output** e
 rilancia l'agente una volta con l'avviso esplicito.
 
-**Deduplica delle ricerche.** Passa a ogni agente il puntatore a `state/query-ledger.jsonl`.
+**Deduplica delle ricerche.** Passa a ogni agente il puntatore a `runtime/state/query-ledger.jsonl`.
 Prima di ogni wave, ricorda agli agenti di consultarlo. Dopo ogni wave, consolida le nuove query.
 
 **Budget.** Tieni un contatore globale delle ricerche.
@@ -223,7 +223,7 @@ intervalli disgiunti, non uno:
   DEEP non ha mai potuto raggiungere il proprio obiettivo di generazione.
 
 **Proprieta' dei ledger: scrivi solo tu.** Gli agenti restituiscono `new_sources` e `queries_run`
-nel proprio envelope e **non toccano** `state/*.jsonl`. Otto istanze in append concorrente sullo
+nel proprio envelope e **non toccano** `runtime/state/*.jsonl`. Otto istanze in append concorrente sullo
 stesso file producono formati divergenti e blocchi mancanti — nel collaudo e' successo. Consolidi tu
 a fine wave, normalizzando in un unico formato.
 
@@ -346,7 +346,7 @@ qui. Un pain di nicchia con tre annunci di lavoro che descrivono il compito e ne
 parli e' il bersaglio primario dichiarato dalla missione, e questo taglio lo metteva sotto qualunque
 pain con una cifra pubblicata da un osservatorio.
 
-Tieni i primi `funnel.pains_to_evidence` (24 in DEEP). Gli altri vanno in `state/seen-pains.jsonl`
+Tieni i primi `funnel.pains_to_evidence` (24 in DEEP). Gli altri vanno in `runtime/state/seen-pains.jsonl`
 come `NOT_SELECTED` (non `KILLED`: potranno tornare).
 
 Salva in `runs/<run_id>/01-pains/`.
@@ -582,7 +582,7 @@ Se un agente restituisce `supplement_requests` con `blocks_verdict = true`:
   una singola istanza dell'agente retrieval indicato, con budget ridotto (3 ricerche) e mandato
   circoscritto alla sola domanda mancante; poi rilancia il bootstrap-filter con il dossier
   arricchito;
-- altrimenti → `PARK`, e la richiesta viene salvata in `seen-pains.jsonl` come compito prioritario
+- altrimenti → `PARK`, e la richiesta viene salvata in `runtime/state/seen-pains.jsonl` come compito prioritario
   del run successivo.
 
 Il contatore di round e' obbligatorio: un dato non reperibile (per esempio "questo vendor locale
@@ -872,7 +872,7 @@ zero e' colpa dello strumento.
 
 ## 10. AGGIORNAMENTO DELLA MEMORIA
 
-Appendi a `state/seen-pains.jsonl` un record per ogni pain toccato dal run, **conforme a
+Appendi a `runtime/state/seen-pains.jsonl` un record per ogni pain toccato dal run, **conforme a
 `schemas/seen-pain.schema.json`** — non a questo esempio:
 
 ```json
@@ -900,13 +900,13 @@ in PARK con `kill_attribution: STRUMENTO` e `missing_to_decide` che chiedeva tes
 ≥ 6 ricerche»*, e il retry a quattordici giorni lo avrebbe rieseguito con lo stesso budget. Il
 sistema aveva prodotto un'autodiagnosi corretta e nessun meccanismo per agirvi.
 
-Appendi a `state/sector-history.jsonl` i settori esplorati con il numero di pain prodotti e
+Appendi a `runtime/state/sector-history.jsonl` i settori esplorati con il numero di pain prodotti e
 pubblicati: alimenta la rotazione dei settori del run successivo.
 
-Consolida `state/source-ledger.jsonl`: le fonti restano disponibili fra run e riducono il costo
+Consolida `runtime/state/source-ledger.jsonl`: le fonti restano disponibili fra run e riducono il costo
 delle verifiche future.
 
-**Portafoglio ombra.** Appendi a `state/shadow-portfolio.jsonl` un record per ogni idea arrivata
+**Portafoglio ombra.** Appendi a `runtime/state/shadow-portfolio.jsonl` un record per ogni idea arrivata
 almeno al gate 3 e poi uccisa:
 
 ```json
@@ -956,9 +956,15 @@ Un file **vuoto e' un esito legittimo** e va comunque creato: `downgrades.jsonl`
 ```
 
 I numeri vanno **contati dai ledger e dagli artefatti**, mai ricordati. `searches` e' il numero di
-righe di `state/query-ledger.jsonl`, `sources` quello di `state/source-ledger.jsonl`: sono i due
-campi che il verificatore riconcilia, e se li scrivi a memoria fallisce. L'intestazione del report
-si scrive da questo file. Un verificatore che deve indovinare la formattazione di una riga di prosa
+righe di `runtime/state/query-ledger.jsonl` **attribuite a questo run**, cioe' che portano il suo
+`run_id`; `sources` la stessa cosa su `runtime/state/source-ledger.jsonl`. **Non e' il totale del
+file.** I due ledger sono cumulativi fra run e conservano righe piu' vecchie dell'attribuzione:
+contarle tutte significherebbe intestare a questo run il lavoro di tutti i precedenti — che e'
+esattamente cio' contro cui avverte il §2 quando pretende `run_id` su ogni riga scritta. Zero e' un
+valore legittimo: un run che non aggiunge fonti dichiara `sources: 0` accanto a un ledger di
+novanta righe, e i due numeri rispondono a due domande diverse. Sono i due campi che il
+verificatore riconcilia, e se li scrivi a memoria fallisce. L'intestazione del report si scrive da
+questo file. Un verificatore che deve indovinare la formattazione di una riga di prosa
 e' fragile per costruzione — ed e' lo stesso errore che questa pipeline rimprovera ai propri agenti:
 leggere campi tipizzati, non parsare frasi.
 
@@ -1019,7 +1025,7 @@ indistinguibili a occhio, e il primo e' un guasto mentre il secondo e' il funzio
 Senza questa distinzione il sistema non puo' dire quale dei due sta guardando — ed e' il difetto che
 ha reso non interpretabile il collaudo del 20260801.
 
-### Passo 4 — Verifica finale, e solo qui il cancello su `state/`
+### Passo 4 — Verifica finale, e solo qui il cancello su `runtime/state/`
 <!-- ancora: verifica-finale -->
 
 ```bash
@@ -1028,10 +1034,10 @@ python3 tools/run_close.py runs/<run_id> --fase finale
 
 Ora `REPORT.md` esiste, l'intestazione viene riconciliata con i ledger e l'apertura viene
 confrontata con il verdetto. Questa esecuzione, **e nessun'altra**, autorizza la scrittura in
-`state/`:
+`runtime/state/`:
 
 <!-- ancora: scrittura-state -->
-- **VALIDO senza violazioni** → esegui §10 e scrivi in `state/`. E qui, una volta sola, esegui la
+- **VALIDO senza violazioni** → esegui §10 e scrivi in `runtime/state/`. E qui, una volta sola, esegui la
   riconciliazione in modalita' telemetria `m0.2` — il flag va DOPO il percorso del run:
 
   ```bash
@@ -1043,7 +1049,7 @@ confrontata con il verdetto. Questa esecuzione, **e nessun'altra**, autorizza la
   stampata**, dopo di essa restano le righe di chiusura della diagnosi.
   Riporta quell'esito nelle note di esecuzione come lo hai letto, insieme a cio' che lo strumento
   abbia eventualmente scritto su stderr. E' l'esito di QUESTA esecuzione: non se ne fa una seconda.
-- **altrimenti** → **non scrivere in `state/`**. Un run degradato che aggiorna la memoria propaga il
+- **altrimenti** → **non scrivere in `runtime/state/`**. Un run degradato che aggiorna la memoria propaga il
   proprio guasto a tutti i run successivi, e nessuno se ne accorgera' perche' il guasto arrivera'
   travestito da dato storico.
 

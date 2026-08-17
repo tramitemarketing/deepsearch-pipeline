@@ -74,6 +74,35 @@ def radice_telemetria():
     return os.path.join(os.path.dirname(os.path.dirname(ROOT)), "runtime", "telemetry")
 
 
+def radice_stato():
+    """
+    Root dello stato mutabile della pipeline: accanto alla telemetria, fuori dal
+    repository e fuori da ogni cartella sincronizzata.
+
+    Prima del thin slice 2 i cinque file di stato vivevano in ROOT/state/, cioe'
+    dentro GOVERNANCE-SYNC/, che e' una cartella Syncthing: un run reale li avrebbe
+    replicati su altre macchine senza che alcun atto lo avesse autorizzato. E' il
+    motivo per cui questa funzione esiste.
+
+    E' l'UNICO punto in cui la radice dello stato si decide. run_close.py la importa
+    da qui invece di ricostruirla: tre join letterali che risolvano ognuno per conto
+    proprio sono tre occasioni di divergere, e una rilocazione parziale resterebbe
+    verde perche' ogni lettore troverebbe il file che si aspetta.
+
+    La variabile d'ambiente ha lo stesso statuto di quella della telemetria — seam
+    dei test, non opzione di configurazione — e per la stessa ragione si legge
+    letterale.
+
+    La radice non si legge MAI da config/: le chiavi memory.*_file sono
+    configurazione inattiva che nessuno strumento legge, e nominano ancora la
+    vecchia collocazione. Usarle qui riporterebbe lo stato dentro il repository.
+    """
+    v = os.environ.get("DEEPSEARCH_STATE_ROOT")
+    if v:
+        return v
+    return os.path.join(os.path.dirname(os.path.dirname(ROOT)), "runtime", "state")
+
+
 NON_STRUM = "NOT_INSTRUMENTED"
 IGNOTO = "UNKNOWN"
 LEDGER_M02 = "m0.2-ledger.jsonl"
@@ -296,8 +325,9 @@ def scrivi_sidecar_m0_2(run_dir, dati):
 
 def riconcilia(run_dir, consolida=False, telemetria=False):
     run_id = os.path.basename(os.path.normpath(run_dir))
-    sl = os.path.join(ROOT, "state", "source-ledger.jsonl")
-    ql = os.path.join(ROOT, "state", "query-ledger.jsonl")
+    _stato = radice_stato()
+    sl = os.path.join(_stato, "source-ledger.jsonl")
+    ql = os.path.join(_stato, "query-ledger.jsonl")
     id_nel_ledger, n_src = carica_ledger(sl, "id")
     q_nel_ledger, n_q = carica_ledger(ql, "normalized_query")
 
@@ -465,6 +495,13 @@ def riconcilia(run_dir, consolida=False, telemetria=False):
         print("  Le citazioni senza origine non vengono mai inventate: restano scoperte.\n")
         return 1 if (senza_origine or verified_solo_irr) else 0
 
+    # La radice dello stato e' fuori dal repository e alla prima esecuzione puo' non
+    # esistere: senza questa riga l'append la solleverebbe come FileNotFoundError non
+    # intercettata, e il consolidamento morirebbe sul caso piu' comune di tutti — la
+    # macchina appena preparata. La telemetria ha sempre avuto il proprio makedirs;
+    # lo stato no, perche' fino al thin slice 2 viveva in una directory tracciata che
+    # esisteva per costruzione.
+    os.makedirs(_stato, exist_ok=True)
     with open(sl, "a", encoding="utf-8") as g:
         for i in sorted(recuperabili):
             g.write(json.dumps(raccolte[i], ensure_ascii=False) + "\n")

@@ -285,7 +285,7 @@
               },
               "dedup_key": {
                 "type": "string",
-                "description": "Chiave normalizzata sector|company_size|job_to_be_done in minuscolo senza articoli. Usata contro state/seen-pains.jsonl per non riproporre pain gia' esaminati nei run precedenti."
+                "description": "Chiave normalizzata sector|company_size|job_to_be_done in minuscolo senza articoli. Usata contro runtime/state/seen-pains.jsonl per non riproporre pain gia' esaminati nei run precedenti."
               },
               "self_kill_flags": {
                 "type": "array",

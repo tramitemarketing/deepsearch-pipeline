@@ -174,7 +174,7 @@ documentabili** significa costruire una porta e murarla, ed e' quello che faceva
 `VALIDAZIONE-SUL-CAMPO` come ramo del gate 8.
 
 Ogni stage e' un restringimento **motivato e registrato**. Ogni caduta finisce nella sintesi degli
-scarti con il codice del criterio che l'ha causata, e in `state/seen-pains.jsonl` con il proprio
+scarti con il codice del criterio che l'ha causata, e in `runtime/state/seen-pains.jsonl` con il proprio
 cooldown.
 
 ---
@@ -248,7 +248,7 @@ L'unico punto in cui serve davvero un barrier e' il **ranking**, che e' comparat
 
 ```mermaid
 flowchart LR
-    subgraph state ["state/ — persiste fra i run"]
+    subgraph state ["runtime/state/ — persiste fra i run, fuori dal repository"]
         SP[(seen-pains.jsonl)]
         SL[(source-ledger.jsonl)]
         QL[(query-ledger.jsonl)]
@@ -284,7 +284,7 @@ flowchart LR
 
 La memoria fra run e' la ragione per cui questa pipeline puo' girare ogni venerdi' senza degenerare.
 Un sistema senza memoria riscopre gli stessi pain, ripete le stesse ricerche e ripropone le stesse
-idee gia' scartate, con la stessa sicurezza della prima volta. Con `seen-pains.jsonl`:
+idee gia' scartate, con la stessa sicurezza della prima volta. Con `runtime/state/seen-pains.jsonl`:
 
 - un pain ucciso non torna per 90 giorni, **salvo** che il trigger-finder rilevi un cambiamento
   normativo che invalida il motivo dello scarto;

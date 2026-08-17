@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "seen-pain.schema.json",
-  "title": "Record di memoria fra run — una riga di state/seen-pains.jsonl",
+  "title": "Record di memoria fra run — una riga di runtime/state/seen-pains.jsonl",
   "description": "Undici schemi coprivano gli artefatti EFFIMERI di un run e nessuno copriva l'unico che deve sopravvivergli. Da questo record dipendono il cooldown dei KILLED (90 giorni), il retry dei PARKED (14), l'esclusione dei pubblicati (365), la riesumazione allo stage corretto e le missing_to_decide come input prioritario del run successivo: cioe' tutta la miglioria A3. Fino alla v2.14.1 era definito solo come esempio JSON dentro §10 dell'orchestratore — un esempio non e' un contratto, e infatti il vocabolario degli outcome era gia' divergito una volta (PUBLISHED contro PUBBLICATA, trovato da SC-05 e ancora vivo in state/README.md).",
   "type": "object",
   "required": [
