@@ -1168,6 +1168,77 @@ def t_w():
           not det, "; ".join(det[:4]))
 
 
+def _radice_stato_di(albero, con_variabile=None):
+    """radice_stato() come la calcola l'albero indicato, in un processo separato.
+
+    Serve un processo separato perche' il valore dipende dalla posizione del file
+    sorgente e dall'ambiente, e importarlo qui darebbe la risposta di QUESTO albero
+    con QUESTO ambiente — cioe' non la domanda che si vuole porre."""
+    env = dict(os.environ)
+    env.pop("DEEPSEARCH_STATE_ROOT", None)
+    if con_variabile is not None:
+        env["DEEPSEARCH_STATE_ROOT"] = con_variabile
+    codice = ("import sys; sys.path.insert(0, sys.argv[1]);"
+              " import reconcile_run; print(reconcile_run.radice_stato())")
+    r = subprocess.run([sys.executable, "-c", codice, os.path.join(albero, "tools")],
+                       capture_output=True, text=True, env=env,
+                       encoding="utf-8", errors="replace")
+    return r.stdout.strip()
+
+
+def _antenati(p):
+    p = os.path.abspath(p)
+    while True:
+        yield p
+        su = os.path.dirname(p)
+        if su == p:
+            return
+        p = su
+
+
+def t_x():
+    """La radice di PRODUZIONE: quella che si ottiene senza il seam d'ambiente.
+
+    Il banco fissa sempre DEEPSEARCH_STATE_ROOT, quindi non esercita mai il ramo di
+    ripiego di radice_stato() — che e' precisamente il ramo che vale in produzione,
+    dove nessuna variabile e' impostata. T-W non lo copre, e non per dimenticanza:
+    esclude il corpo di radice_stato() perche' e' li' che il segmento va composto,
+    una volta sola. Restava scoperto il caso peggiore — riportare il SOLO ripiego a
+    ROOT/state — che passava tutti gli altri criteri lasciando la memoria dentro il
+    repository e dentro Syncthing su ogni macchina reale.
+
+    Le tre proprieta' si verificano sul valore calcolato, non sul testo del sorgente:
+    un ripiego riportato a ROOT/state fallisce la seconda per costruzione, perche' il
+    percorso che produce sta dentro l'albero."""
+    det = []
+    reale = _radice_stato_di(ROOT)
+    atteso = os.path.join(os.path.dirname(os.path.dirname(ROOT)), "runtime", "state")
+
+    # 1. senza variabile, il valore e' esattamente quello previsto
+    if os.path.normpath(reale) != os.path.normpath(atteso):
+        det.append(f"senza variabile: {reale!r} invece di {atteso!r}")
+
+    # 2. fuori dal repository. E' il controllo che intercetta il ripiego riportato a
+    #    ROOT/state: quel percorso e' dentro l'albero, e qui si misura.
+    r_abs, root_abs = os.path.abspath(reale), os.path.abspath(ROOT)
+    if r_abs == root_abs or r_abs.startswith(root_abs + os.sep):
+        det.append(f"la radice cade DENTRO il repository: {reale}")
+
+    # 3. fuori da Syncthing: nessun .stfolder in alcun antenato
+    sync = [a for a in _antenati(reale) if os.path.isdir(os.path.join(a, ".stfolder"))]
+    if sync:
+        det.append(f"antenato sincronizzato: {sync[0]}")
+
+    # 4. con la variabile impostata, il seam continua a valere
+    finto = os.path.join(tempfile.gettempdir(), "radice-di-prova-ts21")
+    con = _radice_stato_di(ROOT, con_variabile=finto)
+    if os.path.normpath(con) != os.path.normpath(finto):
+        det.append(f"con variabile: {con!r} invece di {finto!r}")
+
+    segna("T-X", "radice di produzione: fuori dal repository e da Syncthing",
+          not det, "; ".join(det) if det else reale)
+
+
 def t_t():
     """La radice dello stato non viene dalla configurazione.
 
@@ -1203,7 +1274,7 @@ def t_t():
 
 def main():
     for t in (t_a, t_b, t_c, t_d, t_e, t_f, t_g, t_h, t_j, t_k, t_l, t_o,
-              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w):
+              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w, t_x):
         try:
             t()
         except Exception as e:
