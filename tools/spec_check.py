@@ -51,7 +51,8 @@ DOCS = os.path.join(ROOT, "docs")
 CONTRATTI_MINIMI = {
     "costanti_rispecchiate": 8,
     "enum_condivisi": 4,
-    "liste_vs_enum": 1,
+    "liste_vs_enum": 4,
+    "clausole_orchestratore": 3,
     "id_namespacati_per_run": 1,
     "schema_per_agente": 6,
     "wave_per_agente": 10,
@@ -929,8 +930,122 @@ def sc15_schema_verso_prompt(cfg, schemi):
     avviato, alla wave in cui capita, come un PARK inspiegabile. Nominarlo nel prompt costa una
     riga. La direzione opposta (prompt → schema) era coperta da SC-05; questa non lo era da nessuno.
     """
-    esenti = {"agent", "run_id", "status", "timestamp", "payload", "budget_used", "schema_version",
-              "queries_run", "new_sources", "unreachable_sources", "stop_reason", "pain_id"}
+    # TRE DIFETTI DELLA PRIMA STESURA, tutti misurati sul primo canary reale.
+    #
+    # (1) Guardava UN SOLO NODO: `payload.required` di primo livello. Non scendeva nelle
+    #     proprieta' annidate e non risolveva i `$ref`. Copertura misurata sui dieci schemi che
+    #     dichiara di verificare: 48 `required` su 182, il 26%. `promoted_by` vive in
+    #     `payload.properties.claims.items.required` e non e' mai stato guardato — e' il campo
+    #     che ha fatto scendere in PARKED tutti e cinque i canali di un run reale.
+    # (2) `pain_id` era fra gli esenti, scambiato per un campo d'envelope. Non e' in
+    #     `Envelope.required`: e' `required` nel payload di sette schemi, e le occorrenze nei
+    #     sette prompt corrispondenti sono ZERO. L'insieme degli esenti si ricava ora
+    #     dall'envelope invece di essere ricopiato a mano: una lista scritta a mano diverge, e
+    #     questa era gia' divergente.
+    # (3) `campo in testo` e' una ricerca di sottostringa senza confini di parola.
+    #     `bootstrap-verdict` pretende `dimensions`, `bootstrap-filter.md` contiene
+    #     `blocking_dimensions` — che il prompt dichiara «arrivano dall'input» — e il controllo
+    #     taceva. Il confronto e' ora per TOKEN ESATTO contro un vocabolario estratto per
+    #     posizione lessicale: identificatori fra backtick e chiavi dei blocchi json.
+    #
+    # PERCHE' SOLO I VOCABOLARI CHIUSI. Segnalare ogni `required` non nominato produrrebbe
+    # centinaia di righe su campi che l'agente puo' dedurre dal nome. Il danno reale e' il campo
+    # che ha un `enum` o un `pattern`: la' non basta indovinare il nome, bisogna conoscere i
+    # valori ammessi, e sbagliarli costa l'intero stage. Se il prompt insegna tutti i valori
+    # dell'enum senza nominare il campo, l'agente sa comunque cosa scrivere e non si segnala.
+    envelope = ((schemi.get("core.schema.json") or {}).get("$defs") or {}).get("Envelope") or {}
+    esenti = set(envelope.get("required") or [])
+    if not esenti:
+        err("SC-15", "core.schema.json#/$defs/Envelope non dichiara 'required': l'insieme degli "
+                     "esenti verrebbe calcolato vuoto e ogni campo d'envelope sarebbe segnalato",
+            "schemas")
+
+    def risolvi(nodo, corrente, giri=0):
+        """Segue i `$ref` locali e verso altri schemi. I fratelli di un `$ref` in Draft 2020-12
+        SI SOMMANO al referente invece di sostituirlo: e' il meccanismo su cui poggia
+        l'obbligatorieta' di `promoted_by`, e ignorarlo significa non vederla."""
+        while isinstance(nodo, dict) and "$ref" in nodo and giri < 10:
+            giri += 1
+            ref, resto = nodo["$ref"], {k: v for k, v in nodo.items() if k != "$ref"}
+            if not ref.startswith("#"):
+                file_, _, frammento = ref.partition("#")
+                if file_ not in schemi:
+                    return nodo, corrente
+                corrente, ref = file_, "#" + frammento
+            t = schemi[corrente]
+            for seg in ref.lstrip("#/").split("/"):
+                if not seg:
+                    continue
+                seg = seg.replace("~1", "/").replace("~0", "~")
+                if not isinstance(t, dict) or seg not in t:
+                    return nodo, corrente
+                t = t[seg]
+            fuso = dict(t)
+            for k, v in resto.items():
+                if k == "required":
+                    fuso["required"] = sorted(set(fuso.get("required") or []) | set(v))
+                elif k == "properties":
+                    q = dict(fuso.get("properties") or {}); q.update(v); fuso["properties"] = q
+                else:
+                    fuso[k] = v
+            nodo = fuso
+        return nodo, corrente
+
+    def vocabolario_chiuso(nodo, corrente):
+        """Il campo ha valori che l'agente non puo' indovinare? Ritorna il sottoschema, o None."""
+        n, c2 = risolvi(nodo, corrente)
+        if "enum" in n or "pattern" in n:
+            return n
+        if n.get("type") == "array":
+            it, _ = risolvi(n.get("items") or {}, c2)
+            if "enum" in it or "pattern" in it:
+                return it
+        return None
+
+    def campi_chiusi(nodo, corrente, percorso="payload", fuori=None, prof=0):
+        if fuori is None:
+            fuori = []
+        if prof > 12 or not isinstance(nodo, dict):
+            return fuori
+        nodo, corrente = risolvi(nodo, corrente)
+        for c in (nodo.get("required") or []):
+            sotto = (nodo.get("properties") or {}).get(c)
+            if sotto is None:
+                continue
+            v = vocabolario_chiuso(sotto, corrente)
+            if v is not None:
+                fuori.append((f"{percorso}.{c}", c, v))
+        for k, v in (nodo.get("properties") or {}).items():
+            campi_chiusi(v, corrente, f"{percorso}.{k}", fuori, prof + 1)
+        if "items" in nodo:
+            campi_chiusi(nodo["items"], corrente, percorso + "[]", fuori, prof + 1)
+        for parola in ("allOf", "anyOf", "oneOf"):
+            for sub in (nodo.get(parola) or []):
+                campi_chiusi(sub, corrente, percorso, fuori, prof + 1)
+        return fuori
+
+    def vocabolario_del_prompt(testo):
+        """Identificatori che il prompt nomina COME CAMPI. Non `campo in testo`: la posizione
+        lessicale distingue `dimensions` da `blocking_dimensions`.
+
+        I percorsi puntati fra backtick contano per OGNI segmento: `summary.fabricated_sources`
+        nomina sia `summary` sia `fabricated_sources`, e `payload.ranking[].grounded_questions`
+        nomina anche `ranking`. Senza questa scomposizione il controllo sparava su campi che il
+        prompt documenta per esteso — ed e' il primo modo in cui un controllo si fa disattivare.
+        """
+        v = set()
+        for span in re.findall(r"`([^`\n]+)`", testo):
+            v |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", span))
+        for blocco in re.findall(r"```json(.*?)```", testo, re.S):
+            v |= set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:', blocco))
+        return v
+
+    def insegna_i_valori(testo, vincolo):
+        vals = vincolo.get("enum")
+        if not vals:
+            return False
+        return all(re.search(r"\b" + re.escape(str(x)) + r"\b", testo) for x in vals)
+
     for voce in ((cfg.get("verifica_specifica") or {}).get("schema_per_agente") or []):
         try:
             schema_, agente = voce["schema"], voce["agente"]
@@ -942,14 +1057,50 @@ def sc15_schema_verso_prompt(cfg, schemi):
             err("SC-15", f"schema inesistente: {schema_}", "config.verifica_specifica"); continue
         if not os.path.exists(p):
             err("SC-15", f"agente inesistente: {agente}", "config.verifica_specifica"); continue
+        # Uno schema DICHIARATO qui e privo di properties.payload spegneva il controllo in
+        # silenzio: `or {}` seguito da `or []` itera su una lista vuota e non emette nulla.
+        # Un controllo che tace quando il suo oggetto non c'e' e' indistinguibile da un
+        # controllo che passa.
+        payload = ((schemi[schema_].get("properties") or {}).get("payload"))
+        if not isinstance(payload, dict):
+            err("SC-15", f"{schema_} e' dichiarato in schema_per_agente ma non ha "
+                         "properties.payload: il controllo non avrebbe nulla da guardare e "
+                         "tacerebbe", "config.verifica_specifica")
+            continue
         testo = leggi(p)
-        payload = (((schemi[schema_].get("properties") or {}).get("payload")) or {})
+        vocab = vocabolario_del_prompt(testo)
+        visti = set()
+
+        # PASSO 1 — la garanzia originale, invariata nella portata: OGNI campo di
+        # `payload.required` di primo livello deve essere nominato dal prompt. Vale anche per i
+        # campi che non hanno una `properties` corrispondente, che il passo 2 non potrebbe
+        # vedere. Restringere questo passo ai soli vocabolari chiusi avrebbe scambiato una
+        # copertura con un'altra: l'autotest lo ha ripreso subito, sulla mutazione che aggiunge
+        # `confutazione_richiesta` a redteam-report e non la nomina in nessun prompt.
         for campo in (payload.get("required") or []):
-            if campo in esenti or campo in testo:
+            if campo in esenti or campo in vocab:
                 continue
+            visti.add(campo)
             err("SC-15",
-                f"'{campo}' e' required in {schema_} e il prompt non lo nomina mai: l'agente puo' "
-                "ometterlo, e l'errore si manifesta a run avviato", f"{agente}.md")
+                f"'{campo}' e' required nel payload di {schema_} e il prompt non lo nomina mai: "
+                "l'agente puo' ometterlo, e l'errore si manifesta a run avviato", f"{agente}.md")
+
+        # PASSO 2 — i campi ANNIDATI, che il passo 1 non raggiunge. Qui la soglia e' il
+        # vocabolario chiuso: pretendere che il prompt nomini tutti i 182 required raggiungibili
+        # produrrebbe centinaia di righe su campi deducibili dal nome, e un controllo che spara a
+        # vuoto viene disattivato molto prima di uno che tace. Il danno reale e' il campo di cui
+        # non basta indovinare il nome perche' bisogna conoscerne i valori ammessi.
+        for percorso, campo, vincolo in campi_chiusi(payload, schema_):
+            if campo in esenti or campo in vocab or campo in visti:
+                continue
+            if insegna_i_valori(testo, vincolo):
+                continue
+            visti.add(campo)
+            err("SC-15",
+                f"'{campo}' e' required in {schema_} ({percorso}), ha un vocabolario chiuso "
+                f"({'enum' if 'enum' in vincolo else 'pattern'}) e il prompt non lo nomina mai: "
+                "l'agente non puo' indovinarne i valori, e l'errore si manifesta a run avviato",
+                f"{agente}.md")
 
 
 # ---------------------------------------------------------------- SC-16
@@ -1660,6 +1811,40 @@ def sc28_quanti_controlli_dice_di_avere(prosa):
                     f"{nome}:{riga}")
 
 
+# ---------------------------------------------------------------- SC-29
+def sc29_clausole_dell_orchestratore(cfg):
+    """
+    Una determinazione che vive solo in prosa non e' falsificabile da nessuno.
+
+    Il primo canary reale ha potuto comporre lo schema di una radice col prompt di un'altra. La
+    riparazione — dichiarare la radice canonica, registrare percorso e sha256 di cio' che viene
+    caricato, fermarsi prima di scrivere su un mismatch — e' per sua natura una frase nel prompt
+    dell'orchestratore. Se nessun controllo la legge, cancellarla non produce alcun segnale, e
+    fra sei mesi nessuno sapra' se sia mai stata scritta.
+
+    Questo controllo verifica che la clausola ESISTA DOVE DEVE. Non verifica che un run la
+    rispetti: quello nessun controllo statico puo' farlo, e dirlo qui e' preferibile a lasciarlo
+    intendere. Il confronto normalizza gli spazi, cosi' che riformattare un paragrafo non
+    spenga il controllo — che e' il modo in cui i controlli su prosa muoiono davvero.
+    """
+    def norma(s):
+        return re.sub(r"\s+", " ", s).strip()
+
+    for voce in ((cfg.get("verifica_specifica") or {}).get("clausole_orchestratore") or []):
+        try:
+            file_, clausola = voce["file"], voce["clausola"]
+        except (KeyError, TypeError):
+            err("SC-29", "voce malformata: servono 'file' e 'clausola'",
+                "config.verifica_specifica"); continue
+        p = os.path.join(ROOT, *file_.split("/"))
+        if not os.path.exists(p):
+            err("SC-29", f"file inesistente: {file_}", "config.verifica_specifica"); continue
+        if norma(clausola) not in norma(leggi(p)):
+            err("SC-29",
+                f"la clausola «{clausola}» non compare in {file_}: la determinazione che la "
+                "impone resterebbe senza alcun luogo in cui e' scritta", file_)
+
+
 CONTROLLI = {
     "SC-00": ("integrita' del contratto di verifica", lambda c, s, p: sc00_integrita_del_contratto(c)),
     "SC-01": ("riferimenti a config esistenti", lambda c, s, p: sc01_riferimenti_config(c, normativi(p))),
@@ -1690,6 +1875,7 @@ CONTROLLI = {
     "SC-26": ("emettibilita' dei KILL: calcolata, non asserita", lambda c, s, p: sc26_emettibilita_dei_kill(c, normativi(p), s)),
     "SC-27": ("nessun kill automatico senza severity", lambda c, s, p: sc27_kill_automatici_hanno_una_severity(c, normativi(p), s)),
     "SC-28": ("quanti controlli dice di avere", lambda c, s, p: sc28_quanti_controlli_dice_di_avere(normativi(p) + pagine_pubblicate())),
+    "SC-29": ("clausole di provenienza nell'orchestratore", lambda c, s, p: sc29_clausole_dell_orchestratore(c)),
 }
 
 

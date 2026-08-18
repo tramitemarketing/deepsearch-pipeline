@@ -1,0 +1,20 @@
+{
+  "label": "crescita anno su anno 2022-2023",
+  "value": null,
+  "unit": "%",
+  "currency": "EUR",
+  "year": 2025,
+  "geo": "IT",
+  "state": "VERIFIED",
+  "source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "input_source_ids": [
+    "S-20260808-1200-0001"
+  ],
+  "is_assumption": false,
+  "value_min": 2.5,
+  "value_max": 10.0,
+  "formula": null,
+  "display_string": "fra il 2,5% e il 10% annuo"
+}

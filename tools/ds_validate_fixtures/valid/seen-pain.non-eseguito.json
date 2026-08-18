@@ -1,0 +1,27 @@
+{
+  "dedup_key": "verifica adempimenti filiera|50-249|servizi ambientali",
+  "pain_id": "P-004",
+  "run_id": "20260808-1200",
+  "outcome": "NON-ESEGUITO",
+  "stage": "evidence",
+  "profondita_raggiunta": 3,
+  "reason_code": "G3-EVIDENZA-INSUFFICIENTE",
+  "kill_analysis": {
+    "kill_basis": "ASSENZA",
+    "kill_attribution": "MONDO",
+    "ramo_attivato": 5,
+    "stop_reason_osservato": "COMPLETED",
+    "kill_emettibile": true,
+    "predicato_falsificabile": "esiste un vendor italiano con API pubblica su questo job"
+  },
+  "missing_to_decide": [
+    "listino pubblico del vendor dominante"
+  ],
+  "park_count": 1,
+  "park_reason_history": [
+    "prima sosta: nessun listino pubblico reperibile"
+  ],
+  "parked_at": "2026-08-08T12:00:00Z",
+  "retry_after": "2026-09-08",
+  "timestamp": "2026-08-08T12:00:00Z"
+}

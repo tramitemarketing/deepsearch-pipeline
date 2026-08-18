@@ -285,3 +285,18 @@ regola di arresto. In quel caso:
 Nel run 20260802-1759 quattro istanze su sei hanno mappato un solo vendor e il rapporto e' stato
 riportato come se valesse sul mercato. E' la stessa cosa che questo prompt gia' dice dei
 `NON_TENTATO`, applicata al denominatore invece che al numeratore.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `id` | `payload.claims[].id` | `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>`. Il namespace e' sempre il secondo segmento e te lo assegna l'orchestratore |
+| `snippet_source` | `payload.claims[].evidence[].snippet_source` | `SERP`, `FETCHED` |
+| `question_id` | `payload.q2_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q2` |

@@ -130,3 +130,18 @@ JSON conforme a `schemas/scorecard.schema.json`.
 ## CONDIZIONI DI STOP
 
 Non fai ricerche. Ti fermi quando tutte le idee hanno una scheda punteggio completa.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `count` | `payload.ranking[].grounded_questions.count` | forma `<n>/5` con `n` fra 0 e 5: `0/5`, `3/5`, `5/5`. E' una **stringa**, non un numero |
+
+Il formato `n/5` non e' cosmetico: rende leggibile a colpo d'occhio quante delle cinque domande
+anti-allucinazione risultano fondate, e un intero nudo perderebbe il denominatore.

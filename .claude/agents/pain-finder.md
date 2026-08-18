@@ -233,3 +233,21 @@ confronta stringhe, e su un testo riscritto quel confronto non esiste.
 Un annuncio di lavoro documenta il **compito**, non la **taglia** di chi lo paga. Non promuovere mai
 l'appartenenza alla fascia 5-249 addetti su una traccia di comportamento: quella resta `UNKNOWN`.
 Nel run 20260802-1759 fra le tracce comparivano Edison ed EcoEridania, entrambe fuori fascia.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `id` | `payload.pains[].id` | forma `P-<nnn>`, tre cifre: `P-001`, `P-042` |
+| `frequency` | `payload.pains[].recurrence.frequency` | `giornaliera`, `settimanale`, `mensile`, `trimestrale`, `annuale`, `occasionale`, `UNKNOWN` |
+| `is_spending` | `payload.pains[].already_spending.is_spending` | `true`, `false`, `"UNKNOWN"` — i primi due sono booleani JSON, il terzo e' una stringa |
+| `snippet_source` | `payload.claims[].evidence[].snippet_source` | `SERP` (visto nei risultati di ricerca), `FETCHED` (pagina aperta) |
+
+`snippet_source` non e' burocrazia: e' l'unico modo di sapere, a run finito, quante pagine sono
+state davvero lette. Con quel campo assente ogni discussione sul retrieval diventa aneddotica.

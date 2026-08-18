@@ -167,3 +167,23 @@ JSON conforme a `schemas/bootstrap-verdict.schema.json`.
 Non fai ricerche: non hai budget da esaurire. Ti fermi quando le 13 dimensioni sono valutate.
 Se il dossier in input e' incompleto al punto da rendere impossibile valutare piu' di 3 dimensioni,
 restituisci subito `PARK` con `supplement_requests` compilato, invece di procedere a intuito.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `dimensions` | `payload.dimensions` | **non e' `blocking_dimensions`**: quello arriva dall'input, questo e' il tuo output. E' l'elenco di TUTTI i vincoli di `config.bootstrap_constraints` valutati uno per uno — nessuno puo' essere saltato — ciascuno con `constraint`, `result` e `reasoning` |
+| `state` | `payload.unit_economics.*.state` — su `arpa_annual`, `cac_estimate`, `cac_to_arpa`, `payback_months` | `VERIFIED`, `ESTIMATED`, `UNKNOWN` |
+| `verdict` | `payload.verdict.verdict` | `PASS`, `KILL`, `FAIL`, `PARK` |
+| `question_id` | `payload.q3_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q3` |
+
+Le quattro grandezze di `unit_economics` sono `Numeric` e pretendono tutte `label`, `value`, `unit`
+e `state`. `state` e' il campo che distingue un numero misurato da uno stimato: senza, il verdetto
+non e' interpretabile a valle.

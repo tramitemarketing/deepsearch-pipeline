@@ -15,6 +15,30 @@ che affermi in quella prosa deve provenire da un campo di un JSON prodotto da un
 Leggi prima di tutto `CLAUDE.md` e `config/deepsearch.config.json`. Gli invarianti di `CLAUDE.md`
 valgono anche per te.
 
+## 0-pre-pre. PROVENIENZA — prima di caricare qualunque prompt o schema
+
+L'unica radice runtime canonica e' l'albero versionato che contiene questo prompt; nessun'altra
+copia, in particolare DEEPSEARCH-pipeline, puo' alimentare un run canonico. Vale anche per le copie
+che portano gli stessi nomi di file con contenuto diverso: sono il caso pericoloso, non quello
+innocuo.
+
+Il difetto che questa sezione chiude e' accaduto: un run reale ha composto lo schema di una radice
+con il prompt di un'altra, e la combinazione non esisteva in nessuno dei due alberi. Nessun
+artefatto registrava da dove venisse che cosa, quindi la contraddizione e' stata attribuita al
+contratto invece che alla provenienza, e ci sono voluti un fascicolo e una micro-slice per
+ricostruirla.
+
+Prima di caricare qualunque cosa, e prima di qualunque scrittura:
+
+1. Registra nel manifesto **percorso e sha256 di ogni prompt e schema effettivamente caricato**.
+   Non i nomi: i percorsi assoluti e le impronte del contenuto letto, non di quello atteso.
+2. Confronta la radice di ciascuno con la radice canonica.
+3. In caso di **provenienza non canonica o mismatch: il run si ferma PRIMA di qualunque scrittura**.
+   Non degrada, non annota, non prosegue con un avviso. Si ferma, e il motivo va nel manifesto.
+
+L'ordine conta. Fermarsi dopo aver scritto lascia sul disco artefatti di provenienza ignota, che e'
+peggio del non averli: hanno la forma di dati validi.
+
 ---
 
 ## 0-pre. RIPRESA DI UN RUN INTERROTTO (controlla SEMPRE, prima di tutto)
@@ -217,6 +241,11 @@ intervalli disgiunti, non uno:
   ID dei claim sono `C-<namespace>-<nnn>`. **Senza namespace i cinque evidence pack numerano tutti
   da C-001** e ogni riferimento a valle diventa irrisolvibile: nel collaudo 20260801 due agenti
   judgment hanno dovuto inventarsi una convenzione propria per cavarsela.
+  **Il namespace e' SEMPRE il secondo segmento**, e l'unico qualificatore ammesso e' `contra`:
+  `C-<namespace>-<nnn>` per i claim, `C-<namespace>-contra-<nnn>` per quelli di
+  `contradictory_evidence`. Nessun altro suffisso e' legale — nel primo canary tre istanze cieche
+  fra loro hanno coniato `-contra-` per conto proprio, il che dice che la forma e' quella giusta,
+  ma un suffisso libero riaprirebbe la stessa ambiguita' che il namespace chiude.
 - `id_range` dei pain — lo shard `i` riceve `P-<20i+1>` .. `P-<20i+12>`: dodici per shard, coerente con
   `maxItems` dello schema e con `funnel[profile].pain_ids_per_shard`. Con otto shard il tetto strutturale
   e' 96, sopra l'obiettivo di 80 di DEEP — prima l'intervallo ne concedeva 64 e il budget 48, quindi

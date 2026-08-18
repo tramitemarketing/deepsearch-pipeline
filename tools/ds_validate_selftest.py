@@ -1505,35 +1505,36 @@ def sezione_7_14():
     for cartella in ("valid", "invalid", "defs", "schema-broken", "canary"):
         for n in sorted(os.listdir(os.path.join(FIXTURE, cartella))):
             su_disco.append(cartella + "/" + n)
-    # A3 — l'allowlist emendata: 52 fixture, non piu' 50. Le due aggiunte sono i
+    # A3 — l'allowlist emendata: 52 fixture, non piu' 50, e poi 61 con le nove aggiunte
+    # dalla micro-slice di coerenza dei contratti M0.2. Le due aggiunte del 50->52 sono i
     # negativi di `evidence-pack`, senza i quali P0-4 non era distinguibile: uno schema
     # con la sola fixture VALIDA che passa non sa dire se e' stato "validato bene"
     # oppure "non validato affatto".
-    check("7.14 il manifest contiene esattamente i 52 percorsi allowlistati",
-          len(percorsi) == 52 and percorsi == sorted(su_disco),
+    check("7.14 il manifest contiene esattamente i 61 percorsi allowlistati",
+          len(percorsi) == 61 and percorsi == sorted(su_disco),
           str(set(percorsi) ^ set(su_disco)))
     check("7.14 contratto del manifest rispettato", valida_manifest(manifesto) == [],
           str(valida_manifest(manifesto)))
     from collections import Counter
     conteggi = Counter(v["kind"] for v in manifesto["entries"])
-    check("7.14 totali per kind 24/19/8/1",
-          conteggi == {"validation_instance": 24, "subschema_instance": 19,
+    check("7.14 totali per kind 26/26/8/1",
+          conteggi == {"validation_instance": 26, "subschema_instance": 26,
                        "schema_fixture": 8, "test_data": 1}, str(dict(conteggi)))
     per_cartella = Counter(v["path"].split("/")[0] for v in manifesto["entries"])
-    check("7.14 conteggi per directory: valid 12, invalid 11, defs 19, schema-broken 8, canary 2",
-          per_cartella == {"valid": 12, "invalid": 11, "defs": 19,
+    check("7.14 conteggi per directory: valid 13, invalid 12, defs 26, schema-broken 8, canary 2",
+          per_cartella == {"valid": 13, "invalid": 12, "defs": 26,
                            "schema-broken": 8, "canary": 2}, str(dict(per_cartella)))
 
     # A3 — il totale autorizzato e' un LETTERALE, non una deduzione: 5 file di codice
-    # + 1 manifest + 52 fixture = 58. Ogni differenza va spiegata, non assorbita.
+    # + 1 manifest + 61 fixture = 67. Ogni differenza va spiegata, non assorbita.
     codice = sorted(n for n in os.listdir(QUI)
                     if n.startswith("ds_validate") and n.endswith(".py"))
     atteso_codice = ["ds_validate.py", "ds_validate_concurrency.py", "ds_validate_contract.py",
                      "ds_validate_report.py", "ds_validate_selftest.py"]
     check("7.14 i file di codice autorizzati sono esattamente 5", codice == atteso_codice,
           str(set(codice) ^ set(atteso_codice)))
-    check("7.14 l'allowlist totale e' esattamente 58 file",
-          len(codice) + 1 + len(percorsi) == 58,
+    check("7.14 l'allowlist totale e' esattamente 67 file",
+          len(codice) + 1 + len(percorsi) == 67,
           str(len(codice)) + "+1+" + str(len(percorsi)))
     ambiente = [v for v in manifesto["entries"]
                 if v["path"] == "canary/environment.canary.json"][0]
@@ -2819,7 +2820,7 @@ def _criterio_K27():
             adattatori=adattatori())
     osservato = V._STRUMENTAZIONE["ampiezza_massima"]
     criterio("K27",
-             len(entrate) == 23 and 0 < osservato < V._MAX_CANDIDATI,
+             len(entrate) == 25 and 0 < osservato < V._MAX_CANDIDATI,
              "fixture=%d ampiezza_massima=%d tetto=%d"
              % (len(entrate), osservato, V._MAX_CANDIDATI))
 

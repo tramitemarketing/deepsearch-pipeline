@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "fixture_count": 52,
+  "fixture_count": 61,
   "entries": [
     {
       "path": "canary/environment.canary.json",
@@ -32,10 +32,40 @@
       "expected_full_outcome": "FULL_FAIL"
     },
     {
+      "path": "defs/Claim.contra.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Claim.newline.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
       "path": "defs/Claim.ok.json",
       "kind": "subschema_instance",
       "target_ref": "CORE_CLAIM",
       "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Claim.quantity-null.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "defs/Claim.suffisso-arbitrario.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Claim.verified-senza-regola.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_CLAIM",
+      "expected_full_outcome": "FULL_FAIL"
     },
     {
       "path": "defs/Envelope.bad.json",
@@ -66,6 +96,18 @@
       "kind": "subschema_instance",
       "target_ref": "CORE_NUMERIC",
       "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Numeric.intervallo-monco.bad.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_NUMERIC",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "defs/Numeric.intervallo.ok.json",
+      "kind": "subschema_instance",
+      "target_ref": "CORE_NUMERIC",
+      "expected_full_outcome": "FULL_PASS"
     },
     {
       "path": "defs/Numeric.ok.json",
@@ -135,6 +177,12 @@
     },
     {
       "path": "invalid/evidence-pack.claim-id-type.json",
+      "kind": "validation_instance",
+      "target_ref": "evidence-pack.schema.json",
+      "expected_full_outcome": "FULL_FAIL"
+    },
+    {
+      "path": "invalid/evidence-pack.promoted-by-missing.json",
       "kind": "validation_instance",
       "target_ref": "evidence-pack.schema.json",
       "expected_full_outcome": "FULL_FAIL"
@@ -287,6 +335,12 @@
       "path": "valid/scorecard.ok.json",
       "kind": "validation_instance",
       "target_ref": "scorecard.schema.json",
+      "expected_full_outcome": "FULL_PASS"
+    },
+    {
+      "path": "valid/seen-pain.non-eseguito.json",
+      "kind": "validation_instance",
+      "target_ref": "seen-pain.schema.json",
       "expected_full_outcome": "FULL_PASS"
     },
     {

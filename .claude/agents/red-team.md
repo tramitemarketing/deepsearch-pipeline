@@ -173,3 +173,18 @@ JSON conforme a `schemas/redteam-report.schema.json`.
 2. Budget (8 ricerche) esaurito.
 3. Saturazione: nessun finding nuovo per `stop_rules.zero_yield_window` ricerche consecutive (dall'input).
 4. ABORT dall'orchestratore.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `severity` | `payload.findings[].severity` | `FATALE`, `GRAVE`, `MODERATO` |
+| `state` | `payload.findings[].state` | `VERIFIED`, `ESTIMATED`, `HYPOTHESIS`, `UNKNOWN` |
+| `question_id` | `payload.q5_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q5` |

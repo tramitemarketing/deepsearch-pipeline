@@ -781,9 +781,23 @@
       "MENZIONE-ONESTA",
       "PARKED",
       "KILLED",
-      "NOT_SELECTED"
+      "NOT_SELECTED",
+      "NON-ESEGUITO"
     ],
-    "_pain_outcomes_nota": "Vocabolario dell'esito registrato in seen-pains.jsonl. E' run.outcomes piu' NOT_SELECTED, che non e' un esito di IDEA ma di PAIN: generato e mai promosso allo stage successivo. Fino alla v2.7 l'orchestratore scriveva qui un vocabolario suo, in inglese (PUBLISHED invece di PUBBLICATA), divergente da run.outcomes: la memoria fra run si sarebbe riempita di etichette che nessun altro file riconosce, e il conteggio della condizione_di_riprogettazione — 5 run senza PUBBLICATA — non avrebbe mai trovato una PUBBLICATA. Trovato da spec_check SC-05, non da una rilettura."
+    "pain_stages": [
+      "pain",
+      "evidence",
+      "competitor",
+      "trigger",
+      "tam",
+      "bootstrap",
+      "venture",
+      "redteam",
+      "verify",
+      "ranking"
+    ],
+    "_pain_stages_nota": "Vocabolario dell'AVANZAMENTO PERSISTITO registrato in seen-pains.jsonl, distinto dallo stato semantico di CLAUDE.md e dalla disposizione fisica delle directory del run: i tre livelli restano separati e non devono avere enum identici. Questa lista esiste per essere confrontata con l'enum stage di seen-pain.schema.json: senza di essa quel livello non era sorvegliato da nessun controllo — lo schema non e' in schema_per_agente, non ha properties.payload, e SC-15 non lo vede. Togliere un valore dall'enum non produceva alcun errore.",
+    "_pain_outcomes_nota": "Vocabolario dell'esito registrato in seen-pains.jsonl. E' run.outcomes piu' due esiti che non sono di IDEA ma di PAIN, entrambi senza cooldown: NOT_SELECTED, generato e mai promosso allo stage successivo; e NON-ESEGUITO, selezionato e mai lavorato — budget esaurito, troncamento del funnel, interruzione anticipata. NON-ESEGUITO non e' un giudizio di merito e il pain resta riproponibile subito. Prima che esistesse, un pain selezionato e non lavorato non aveva alcun valore veritiero da scrivere in memoria, e la scelta era fra tacere e scrivere un esito falso. Fino alla v2.7 l'orchestratore scriveva qui un vocabolario suo, in inglese (PUBLISHED invece di PUBBLICATA), divergente da run.outcomes: la memoria fra run si sarebbe riempita di etichette che nessun altro file riconosce, e il conteggio della condizione_di_riprogettazione — 5 run senza PUBBLICATA — non avrebbe mai trovato una PUBBLICATA. Trovato da spec_check SC-05, non da una rilettura."
   },
   "budget": {
     "_nota": "Due unita' distinte. Il vincolo reale sono le FETCH: WebSearch restituisce titoli e URL, e ogni snippet FETCHED costa una fetch. Contare solo le ricerche svuota il funnel senza che nessuno se ne accorga. Gli snippet SERP non costano fetch: usarli e' legittimo, e il verificatore li controlla per primi.",
@@ -1006,9 +1020,37 @@
         "percorso": "sources.fact_promotion_rules._codici",
         "schema": "evidence-pack.schema.json",
         "puntatore": "/properties/payload/properties/claims/items/properties/promoted_by/enum"
+      },
+      {
+        "percorso": "memory.pain_outcomes",
+        "schema": "seen-pain.schema.json",
+        "puntatore": "/properties/outcome/enum"
+      },
+      {
+        "percorso": "memory.pain_stages",
+        "schema": "seen-pain.schema.json",
+        "puntatore": "/properties/stage/enum"
       }
     ],
-    "_liste_vs_enum_nota": "Coppie (lista nel config, enum in uno schema) che devono coincidere ESATTAMENTE. Aggiungere una coppia qui e' il modo di rendere sorvegliata una corrispondenza che oggi vive solo nella testa di chi scrive.",
+    "_liste_vs_enum_nota": "Coppie (lista nel config, enum in uno schema) che devono coincidere ESATTAMENTE. Aggiungere una coppia qui e' il modo di rendere sorvegliata una corrispondenza che oggi vive solo nella testa di chi scrive. Le due coppie su seen-pain.schema.json sono l'unico controllo che raggiunge quel file: non e' in schema_per_agente e non ha properties.payload, quindi SC-15 non lo vede e i suoi due vocabolari — l'esito e l'avanzamento persistito — erano sorvegliati da nulla.",
+    "clausole_orchestratore": [
+      {
+        "file": ".claude/commands/deepsearch.md",
+        "clausola": "L'unica radice runtime canonica e' l'albero versionato che contiene questo prompt; nessun'altra copia, in particolare DEEPSEARCH-pipeline, puo' alimentare un run canonico",
+        "perche": "Q2 — il primo canary ha potuto comporre lo schema di una radice col prompt di un'altra. Senza questa clausola nel prompt che governa il run, la radice resta una convenzione orale. La radice canonica e' GOVERNANCE-SYNC\\M0.1-R1-WORKTREE: il nome NON compare nel prompt perche' 'M0' e' indistinguibile da un codice di criterio per SC-06, che cerca ^[KWMG][0-9]{1,2}$ e i cui criteri M vanno da M1 a M4. Le due vie per scriverlo comunque sarebbero dichiarare un criterio finto in config o allargare SC-06: la prima e' il difetto che questo repository esiste per impedire, la seconda indebolisce un controllo per far entrare una frase. La clausola identifica la radice per contenimento — l'albero che contiene il prompt che si sta leggendo — che e' verificabile a run avviato ed e' cio' che serve davvero."
+      },
+      {
+        "file": ".claude/commands/deepsearch.md",
+        "clausola": "percorso e sha256 di ogni prompt e schema effettivamente caricato",
+        "perche": "Q2 — il manifesto del primo canary registrava sha256 dei soli atti di governance: la provenienza degli artefatti operativi non era ricostruibile a posteriori."
+      },
+      {
+        "file": ".claude/commands/deepsearch.md",
+        "clausola": "provenienza non canonica o mismatch: il run si ferma PRIMA di qualunque scrittura",
+        "perche": "Q2 — registrare la provenienza senza fermarsi su un mismatch produrrebbe soltanto una prova migliore del danno gia' avvenuto."
+      }
+    ],
+    "_clausole_orchestratore_nota": "Clausole che devono comparire LETTERALMENTE nel file indicato, verificate da SC-29. E' il minimo meccanizzabile per una determinazione che altrimenti resterebbe prosa non falsificabile: SC-29 verifica che la clausola esista dove deve, non che un run la rispetti — quest'ultima cosa nessun controllo statico puo' provarla.",
     "schema_per_agente": [
       {
         "schema": "pain.schema.json",

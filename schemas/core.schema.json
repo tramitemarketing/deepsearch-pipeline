@@ -432,11 +432,31 @@
         "state",
         "source_ids"
       ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "VERIFIED"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "promotion_rule_met"
+            ]
+          },
+          "description": "promotion_rule_met e promoted_by non sono alias e non si deducono l'uno dall'altro: il primo e' la regola di fact_promotion applicabile ai claim VERIFIED, il secondo e' l'esito terminale FP0-FP5 del gate. L'obbligo condizionale viveva solo nella description di promotion_rule_met, dove nessun validatore lo leggeva."
+        }
+      ],
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^C-[A-Za-z0-9]{2,20}-[0-9]{3}$",
-          "description": "Namespaced per istanza: C-<istanza>-<nnn>, con <istanza> assegnato dall'orchestratore. Senza namespace i cinque evidence pack numerano tutti da C-001 e i riferimenti a valle non sono risolvibili."
+          "pattern": "^C-[A-Za-z0-9]{2,20}(-contra)?-[0-9]{3}(?![\\s\\S])",
+          "description": "Namespaced per istanza: C-<istanza>-<nnn>, con <istanza> assegnato dall'orchestratore. Il namespace e' SEMPRE il secondo segmento. L'unico qualificatore ammesso e' -contra-, per gli id di contradictory_evidence: nessun altro suffisso e' legale. Senza namespace i cinque evidence pack numerano tutti da C-001 e i riferimenti a valle non sono risolvibili. L'ancora e' (?![\\s\\S]) e non $, perche' in Python $ combacia anche prima di un \\n finale e 'C-x-001\\n' passava."
         },
         "statement": {
           "type": "object",
@@ -455,7 +475,15 @@
               "description": "Cosa e' osservato. Verbo e complemento, nessun aggettivo di valore."
             },
             "quantity": {
-              "$ref": "#/$defs/Numeric"
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Numeric"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "null e un Numeric con state UNKNOWN dicono cose diverse e non sono intercambiabili: null significa 'nessuna grandezza applicabile a questo claim', UNKNOWN significa 'grandezza applicabile, valore non noto'. Zero resta esclusivamente una misura reale. Il $ref nudo rifiutava null, che DATA-CONTRACT §7 prescrive."
             },
             "period": {
               "type": [

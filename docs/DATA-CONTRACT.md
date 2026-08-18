@@ -134,6 +134,8 @@ la coppia (claim, fonte), e su una pagina che nessuno ha aperto non c'e' niente 
 {
   "label": "imprese target in IT",
   "value": 12400,
+  "value_min": null,
+  "value_max": null,
   "unit": "imprese",
   "currency": null,
   "year": 2025,
@@ -145,6 +147,32 @@ la coppia (claim, fonte), e su una pagina che nessuno ha aperto non c'e' niente 
   "display_string": "Stima non verificata: 12.400 imprese — ottenuta da 36.500 x 34%, nessuna fonte diretta per il dato combinato."
 }
 ```
+
+**Gli intervalli.** Quando la grandezza e' un intervallo e non un valore puntuale, si compilano
+`value_min` e `value_max` **lasciando `value` a `null`**, che e' cio' che la `description` di
+`value` prescrive:
+
+```json
+{
+  "label": "crescita anno su anno 2022-2023",
+  "value": null,
+  "value_min": 2.5,
+  "value_max": 10.0,
+  "unit": "%",
+  "state": "VERIFIED",
+  "source_ids": ["S-20260818-0042"]
+}
+```
+
+L'esempio sopra ometteva `value_min` e `value_max`, e nessun prompt li nominava: il risultato e' che
+gli agenti hanno prodotto intervalli **senza `value`**, che `Numeric.required` pretende, e quegli
+artefatti non validano. I quattro campi obbligatori sono sempre `label`, `value`, `unit`, `state`:
+`value: null` e' un valore, l'assenza del campo no.
+
+**`statement.quantity` ammette `Numeric` oppure `null`, e non sono la stessa cosa.** `null` significa
+«nessuna grandezza applicabile a questo claim»; un `Numeric` con `state: UNKNOWN` significa
+«grandezza applicabile, valore non noto». Zero resta esclusivamente una misura reale, e non e'
+surrogato di nessuna delle due.
 
 Il campo `display_string` esiste perche' la formattazione di un numero nel report non sia lasciata
 all'orchestratore: **e' l'agente che lo ha prodotto a decidere come va scritto**, e per gli

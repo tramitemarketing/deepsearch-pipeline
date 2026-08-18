@@ -454,6 +454,18 @@ def chiudi(run_dir, fase="finale"):
         claim_tot = claim_con_ev = 0
         for _, o in artefatti_json:
             for c in claim_verificati(o):
+                # IC-3 conta i soli oggetti Claim. claim_verificati() riconosce la forma
+                # `state VERIFIED + lista source_ids`, che e' larga apposta: la post-condizione
+                # grave "nessun VERIFIED poggia solo su fonti mai lette" deve vedere anche i
+                # Numeric, i Trigger e tutto cio' che porta uno stato. Ma lo slot `evidence[]`
+                # esiste solo sul Claim, e contare qui gli altri significa misurare un rapporto
+                # fra un numeratore e un denominatore che non parlano della stessa cosa: sul
+                # primo canary il contatore diceva 19/36, e diciassette di quei trentasei non
+                # avrebbero potuto avere evidence[] in nessun caso. Tre erano perfino
+                # `statement.quantity` di claim gia' contati fra i diciannove.
+                # La restrizione e' QUI e non in claim_verificati(), che resta intatta.
+                if not (isinstance(c.get("id"), str) and isinstance(c.get("statement"), dict)):
+                    continue
                 claim_tot += 1
                 ev = c.get("evidence")
                 if isinstance(ev, list) and ev:

@@ -138,7 +138,7 @@ Il campo `language_of_the_problem` e' obbligatorio per il canale `community` e s
 kill criterion G3: se il target non ha parole proprie per descrivere il problema, il mercato va
 educato, e in bootstrap non si puo'.
 
-**Campi obbligatori del `payload`** (lo schema li pretende tutti; ometterne uno fa fallire la validazione e manda l'idea in `PARKED` al secondo tentativo): `channel`, `claims`, `q4_answer`, `coverage`.
+**Campi obbligatori del `payload`** (lo schema li pretende tutti; ometterne uno fa fallire la validazione e manda l'idea in `PARKED` al secondo tentativo): `pain_id`, `channel`, `claims`, `q4_answer`, `coverage`.
 
 ## CRITERI DI SUCCESSO
 
@@ -191,3 +191,51 @@ Fino alla v2.12 le regole non avevano codice e **non esisteva il ramo negativo**
 gli agenti hanno coniato `1xT3`, `1xT4`, `2xT5-indipendenti` — non per sciatteria, ma perche'
 dovevano dire *perche'* un claim non era promosso e nessuna etichetta legittima lo permetteva. Nove
 pack su dieci fallivano la validazione. Ora l'etichetta c'e'.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `id` | `payload.claims[].id` | `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>` per `contradictory_evidence`. Il namespace e' **sempre** il secondo segmento e te lo assegna l'orchestratore. Nessun altro suffisso e' legale |
+| `snippet_source` | `payload.claims[].evidence[].snippet_source` | `SERP`, `FETCHED` |
+| `claim_id` | `payload.spend_evidence[].claim_id` | stessa forma di `payload.claims[].id`: e' un riferimento incrociato e deve risolvere a un claim che hai davvero emesso |
+| `spend_form` | `payload.spend_evidence[].spend_form` | `software`, `personale_interno`, `consulenza_esterna`, `penali_o_sanzioni`, `perdite_operative` |
+| `question_id` | `payload.q4_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q4` |
+
+**`promoted_by` e `promotion_rule_met` sono campi diversi e non si deducono l'uno dall'altro.**
+
+- `promotion_rule_met` e' la **regola grezza** che l'evidenza soddisfa — `1xT1`, `1xT2`,
+  `2xT3-indipendenti`, `4xT4-indipendenti` — ed e' **obbligatoria su ogni claim `VERIFIED`**: lo
+  schema la pretende con un condizionale, quindi un claim `VERIFIED` che la omette non valida.
+- `promoted_by` e' l'**esito terminale** del gate di promozione: `FP0`…`FP5`, dove `FP0` significa
+  «nessuna regola si applica» ed e' l'esito corretto e piu' frequente.
+
+Il primo dice *quale evidenza hai*, il secondo *cosa ne ha fatto il gate*. Scrivere l'uno al posto
+dell'altro, o dedurne uno dall'altro, e' l'errore che ha mandato in `PARKED` tutti e cinque i canali
+di un run reale.
+
+**`Numeric` — i quattro campi obbligatori e la regola dell'intervallo.** Ogni grandezza pretende
+`label`, `value`, `unit`, `state`. Per un **intervallo** si compilano `value_min` e `value_max`
+lasciando `value` a `null`: un intervallo con `value` omesso non valida, ed e' il difetto piu'
+frequente di questo agente. `state` ammette `VERIFIED`, `ESTIMATED`, `UNKNOWN`.
+
+`statement.quantity` puo' essere un `Numeric` oppure `null`. **Non sono la stessa cosa**: `null`
+significa «nessuna grandezza applicabile a questo claim», un `Numeric` con `state: UNKNOWN`
+significa «grandezza applicabile, valore non noto». Zero e' esclusivamente una misura reale.
+
+**`snippet` ha `maxLength: 300`.** Piu' lungo di cosi' non e' una citazione, e l'artefatto non valida.
+
+**`queries_run[].angle` NON coincide con `channel`.** Sono due vocabolari distinti e il tuo canale
+non e' automaticamente un angolo legale. In particolare il canale `pricing_mercato` corrisponde
+all'angolo `pricing`: scrivere `pricing_mercato` in `angle` produce un errore per ogni query
+registrata. Gli angoli ammessi sono `normativa`, `statistica_ufficiale`, `competitor`, `pricing`,
+`community`, `trend_adozione`, `fallimenti_storici`, `job_posting`, `bilanci`, `recensioni`,
+`wayback`, `integrazioni`, `falsificazione`, `stagionalita`, `capitolati_e_bandi`,
+`mietitura_annunci`, `mietitura_marketplace_integrazioni`, `mietitura_forum_assistenza`,
+`mietitura_capitolati`, `mietitura_circolari_categoria`.

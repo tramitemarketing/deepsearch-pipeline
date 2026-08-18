@@ -123,3 +123,20 @@ Non fai ricerche. Ti fermi quando il blueprint e' completo e coerente con i vinc
 produrre un MVP entro 90 giorni senza violare un vincolo, restituisci `status: PARTIAL` con la
 spiegazione: significa che il bootstrap-filter ha lasciato passare qualcosa e l'orchestratore deve
 saperlo.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `name` | `payload.pricing.tiers[].name` | `Starter`, `Pro`, `Business` — i nomi dei tier sono fissi, non inventarne altri |
+| `state` | `payload.pricing.tiers[].price.state` | `VERIFIED`, `ESTIMATED`, `UNKNOWN` |
+| `necessity` | `payload.integrations[].necessity` | `BLOCCANTE`, `IMPORTANTE`, `NICE_TO_HAVE` |
+| `feasibility` | `payload.integrations[].feasibility` | `API_PUBBLICA`, `FILE_EXPORT`, `SCRAPING`, `ACCORDO_COMMERCIALE`, `UNKNOWN` |
+| `type` | `payload.moat[].type` | `dati_proprietari_accumulati`, `workflow_lock_in`, `integrazione_profonda`, `compliance_e_certificazioni`, `brand_di_nicchia`, `canale_esclusivo`, `switching_cost_operativo` |

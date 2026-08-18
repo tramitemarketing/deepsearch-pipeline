@@ -577,7 +577,7 @@ QUINTO_RUN = [
      "sommando i nuovi a una base contata male (SC-01..SC-24 invece di SC-00..SC-24). Nessun "
      "controllo poteva vederlo, perche' le pagine HTML erano fuori perimetro: erano l'unico "
      "artefatto pubblico che nessuno confrontava.",
-     patch_ovunque("index.html", "29 controlli", "27 controlli")),
+     patch_ovunque("index.html", "30 controlli", "27 controlli")),
 
     ("SC-27",
      "la deroga resta in config e l'agente non ha lo slot per dichiararla: E_IL_SISTEMA_DI_RECORD "
@@ -591,6 +591,85 @@ QUINTO_RUN = [
                   lambda d: d["properties"]["payload"]["properties"]["competitors"]["items"]
                              ["properties"]["criteria_evaluated"]["items"]["properties"]
                              ["severity_reason"]["enum"].remove("E_IL_SISTEMA_DI_RECORD"))),
+]
+
+
+def togli_blocco_vocabolari(percorso_file):
+    def f(base):
+        p = os.path.join(base, percorso_file)
+        t = open(p, encoding="utf-8").read()
+        i = t.index("## VOCABOLARI CHIUSI")
+        open(p, "w", encoding="utf-8").write(t[:i])
+    return f
+
+
+def alias_e_vocabolario_alterati(base):
+    """Il campo cambia nome E i suoi valori cambiano: l'agente non ha piu' modo di sapere cosa
+    scrivere. Rinominare il solo campo lasciando la tabella dei valori NON deve produrre segnale,
+    e infatti non lo produce: li' l'agente sa comunque quali valori sono ammessi."""
+    p = os.path.join(base, ".claude", "agents", "venture-architect.md")
+    t = open(p, encoding="utf-8").read()
+    # OVUNQUE, non solo sull'occorrenza fra backtick nuda: il nome compare anche dentro il
+    # percorso `payload.integrations[].necessity`, e il vocabolario del prompt conta ogni
+    # segmento di un percorso puntato. Una mutazione che lasciasse quel percorso intatto si
+    # annullerebbe da sola e farebbe sembrare cieco un controllo che vede benissimo.
+    t = (t.replace("necessity", "urgenza_integrazione")
+          .replace("BLOCCANTE", "CRITICA").replace("IMPORTANTE", "UTILE")
+          .replace("NICE_TO_HAVE", "OPZIONALE"))
+    open(p, "w", encoding="utf-8").write(t)
+
+
+# Il sesto corpus. Falsificazioni dei controlli riparati o introdotti dalla micro-slice di
+# coerenza dei contratti M0.2: SC-15 esteso, le due coppie nuove di SC-14, SC-29.
+#
+# DUE FALSIFICAZIONI PREVISTE NON SONO QUI, E VA DETTO PERCHE'. L'atto autorizzativo ne elencava
+# sette; queste sono cinque. Le due mancanti — «un esempio con una forma numerica vietata dallo
+# schema» e «un ID prescritto dal prompt che il pattern rifiuta» — sono asserzioni sugli ESEMPI
+# del prompt, non sui nomi e sui vocabolari, e SC-15 come e' costruito non le vede: misurate su
+# copia isolata restano entrambe verdi, e nessun altro controllo le riprende. Coprirle richiede
+# di validare i blocchi di esempio contro gli schemi, che e' una capacita' diversa e non
+# autorizzata — e che comporterebbe una dipendenza da jsonschema in spec_check.py, oggi assente,
+# che e' precisamente cio' che lo rende eseguibile su entrambe le piattaforme.
+# Sostituirle con mutazioni piu' deboli che mordono sarebbe peggio che dichiararle mancanti:
+# darebbe per provata una garanzia che non c'e'.
+FALSIFICAZIONI_M02 = [
+    ("SC-15",
+     "F1 — il prompt perde il blocco che insegna i campi a vocabolario chiuso. E' la forma "
+     "generale del difetto che ha mandato in PARKED tutti e cinque i canali del primo canary "
+     "reale: promoted_by era required in claims.items e SC-15 guardava un solo nodo, il "
+     "payload.required di primo livello, con una copertura misurata di 48 required su 182.",
+     togli_blocco_vocabolari(".claude/agents/venture-architect.md")),
+
+    ("SC-15",
+     "F2 — il campo cambia nome e con lui il suo vocabolario. Il vecchio confronto era "
+     "`campo in testo`, una ricerca di sottostringa senza confini di parola: bootstrap-verdict "
+     "pretende `dimensions` e bootstrap-filter.md contiene `blocking_dimensions`, che il prompt "
+     "dichiara arrivare dall'input. Il controllo taceva su una coincidenza pura.",
+     alias_e_vocabolario_alterati),
+
+    ("SC-14",
+     "F5 — memory.pain_outcomes si disallinea dall'enum outcome di seen-pain.schema.json. "
+     "E' il controllo di coincidenza che Q6 impone per NON-ESEGUITO: senza la coppia in "
+     "liste_vs_enum i due vocabolari potevano divergere senza che nulla protestasse.",
+     patch_schema("config/deepsearch.config.json",
+                  lambda d: d["memory"]["pain_outcomes"].remove("KILLED"))),
+
+    ("SC-14",
+     "F6 — `verify` sparisce dall'enum stage di seen-pain.schema.json. E' il livello "
+     "'avanzamento persistito', che nessun controllo raggiungeva: lo schema non e' in "
+     "schema_per_agente, non ha properties.payload, e SC-15 non lo vede nemmeno esteso. La "
+     "mutazione era stata costruita e misurata invisibile all'INTERO verificatore.",
+     patch_schema("schemas/seen-pain.schema.json",
+                  lambda d: d["properties"]["stage"]["enum"].remove("verify"))),
+
+    ("SC-29",
+     "F7 — l'orchestratore perde la clausola che impone di fermarsi PRIMA di scrivere su una "
+     "provenienza non canonica. Senza SC-29 quella frase era prosa non falsificabile: "
+     "cancellarla non produceva alcun segnale, ed e' la riparazione della causa per cui un run "
+     "reale ha potuto comporre lo schema di una radice col prompt di un'altra.",
+     patch_testo(".claude/commands/deepsearch.md",
+                 "il run si ferma PRIMA di qualunque scrittura",
+                 "il run prosegue annotando l'anomalia")),
 ]
 
 
@@ -633,6 +712,7 @@ def main():
         ("C", "DIFETTI DELLA TERZA REVISIONE (6 su 8 passavano sulla v2.8.1)", TERZA_REVISIONE),
         ("D", "DIFETTI TROVATI DAL RUN REALE 20260802-1759", DAL_CAMPO),
         ("E", "DIFETTI DEL RUN 20260803 E DELLE LORO RIPARAZIONI", QUINTO_RUN),
+        ("F", "FALSIFICAZIONI DELLA MICRO-SLICE DI COERENZA M0.2", FALSIFICAZIONI_M02),
     ]
     esiti = []
     for atteso, storia, muta in [m for _, _, c in CORPORA for m in c]:

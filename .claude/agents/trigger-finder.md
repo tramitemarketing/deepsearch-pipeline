@@ -133,3 +133,20 @@ JSON conforme a `schemas/trigger-report.schema.json`.
 2. Budget (8 ricerche) esaurito.
 3. Saturazione: nessun trigger nuovo per `stop_rules.zero_yield_window` ricerche consecutive (dall'input).
 4. ABORT dall'orchestratore.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `type` | `payload.triggers[].type` | `normativa_nuova`, `scadenza_adempimento`, `audit_o_ispezione`, `certificazione_o_rinnovo`, `gdpr_nis2_iso`, `rinnovo_contratto_software`, `fine_supporto_prodotto`, `aumento_costi_input`, `nuove_assunzioni`, `bando_o_incentivo`, `cambio_fornitore`, `sanzione_recente_nel_settore`, `obbligo_di_filiera`, `altro` |
+| `state` | `payload.triggers[].state` | `VERIFIED`, `ESTIMATED`, `HYPOTHESIS`, `UNKNOWN` |
+| `id` | `payload.counter_evidence[].id` | `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>` |
+| `snippet_source` | `payload.counter_evidence[].evidence[].snippet_source` | `SERP`, `FETCHED` |
+| `question_id` | `payload.q1_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q1` |

@@ -136,3 +136,17 @@ JSON conforme a `schemas/market-report.schema.json`.
 3. Impossibile determinare la popolazione dopo 4 ricerche mirate → `INSUFFICIENT_DATA`, verdetto
    `PARK` con la verifica mancante esplicita.
 4. ABORT dall'orchestratore.
+
+---
+
+## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+
+Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
+deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
+lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+
+| campo | dove | valori ammessi |
+|---|---|---|
+| `pain_id` | `payload.pain_id` | l'identificatore del pain che stai lavorando, nella forma `P-<nnn>`. Te lo passa l'orchestratore nell'input: **riportalo nel payload**, non solo nell'envelope. Senza, l'artefatto non valida e il lavoro dello stage si perde |
+| `id` | `payload.claims[].id` | `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>`. Il namespace e' sempre il secondo segmento e te lo assegna l'orchestratore |
+| `snippet_source` | `payload.claims[].evidence[].snippet_source` | `SERP`, `FETCHED` |

@@ -66,7 +66,9 @@
             ],
             "properties": {
               "claim_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^C-[A-Za-z0-9]{2,20}(-contra)?-[0-9]{3}(?![\\s\\S])",
+                "description": "Riferimento incrociato a un Claim: condivide il dominio del referente, quindi il pattern e' identico BYTE A BYTE a core.schema.json#/$defs/Claim/properties/id. SC-04 raggruppa i pattern per spazio di nomi ed emette errore se il prefisso 'C-' compare con due forme diverse: divergere anche di un carattere fa fallire il verificatore."
               },
               "spend_form": {
                 "enum": [

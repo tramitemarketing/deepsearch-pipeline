@@ -58,13 +58,29 @@ non copiato da `sectors_rotation`, fascia `10-50` che non esiste (le tre sono `5
 ```
 
 `outcome`: `PUBBLICATA` | `VALIDAZIONE-SUL-CAMPO` | `MENZIONE-ONESTA` | `PARKED` | `KILLED` |
-`NOT_SELECTED` — esattamente `config.memory.pain_outcomes`. **Questo file documentava `PUBLISHED`**,
-un valore che nessun vocabolario del sistema ammette: `MIGLIORIE.md` v2.8.1 dichiarava il difetto
-chiuso, ed e' rimasto vivo qui per sei versioni come avviso `SC-05` fra dieci.
+`NOT_SELECTED` | `NON-ESEGUITO` — esattamente `config.memory.pain_outcomes`. **Questo file
+documentava `PUBLISHED`**, un valore che nessun vocabolario del sistema ammette: `MIGLIORIE.md`
+v2.8.1 dichiarava il difetto chiuso, ed e' rimasto vivo qui per sei versioni come avviso `SC-05`
+fra dieci.
 
 Cooldown (da `config.memory`): 90 giorni per `KILLED`, 14 per `PARKED`, 365 per `PUBBLICATA`.
 `NOT_SELECTED` non ha cooldown: sono pain validi che non sono entrati nel taglio del funnel e
-possono tornare subito.
+possono tornare subito. **`NON-ESEGUITO` non ha cooldown** per la stessa ragione, ed e' un esito
+diverso: `NOT_SELECTED` e' *generato e non promosso*, `NON-ESEGUITO` e' *selezionato e mai lavorato*
+— budget esaurito, troncamento del funnel, interruzione anticipata del run.
+
+La distinzione conta perche' nessuno dei due e' un giudizio di merito, ma solo il secondo dice che
+il lavoro non e' stato fatto. Prima che esistesse, un pain selezionato e non lavorato non aveva
+alcun valore veritiero da scrivere qui: la scelta era fra tacere — e perdere la traccia che quel
+pain era stato scelto — e scrivere `PARKED` o `NOT_SELECTED`, che avrebbero attribuito a un esito
+di merito cio' che era un'interruzione. E' successo davvero, sul primo canary reale: cinque pain
+selezionati sono rimasti fuori dalla memoria perche' nessun valore era vero.
+
+`stage` registra invece l'**avanzamento persistito** — quanto lontano quel pain e' arrivato nel
+funnel — ed e' un livello distinto sia dallo stato semantico di `CLAUDE.md` §5 sia dalla
+disposizione fisica delle directory del run. I tre livelli non devono avere enum identici e vanno
+controllati separatamente: `stage` e' sorvegliato dalla coppia `memory.pain_stages` di
+`liste_vs_enum`, `outcome` dalla coppia `memory.pain_outcomes`.
 
 `park_count` e' il freno alle resurrezioni: al **secondo** PARK sulla stessa `missing_to_decide` il
 pain esce dal funnel di scrivania. Senza, il ciclo `parcheggio -> 14 giorni -> stessa ricerca ->

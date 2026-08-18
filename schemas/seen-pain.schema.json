@@ -34,9 +34,10 @@
         "MENZIONE-ONESTA",
         "PARKED",
         "KILLED",
-        "NOT_SELECTED"
+        "NOT_SELECTED",
+        "NON-ESEGUITO"
       ],
-      "description": "Deve coincidere ESATTAMENTE con config.memory.pain_outcomes. NOT_SELECTED non e' un esito di idea ma di pain: generato e mai promosso allo stage successivo, nessun cooldown."
+      "description": "Deve coincidere ESATTAMENTE con config.memory.pain_outcomes. NOT_SELECTED non e' un esito di idea ma di pain: generato e mai promosso allo stage successivo, nessun cooldown. NON-ESEGUITO e' l'esito di un pain SELEZIONATO e mai lavorato — budget esaurito, troncamento del funnel, interruzione anticipata — e non e' un giudizio di merito: nessun cooldown, il pain e' riproponibile subito. Senza questo valore l'orchestratore non aveva modo veritiero di scrivere in memoria un pain selezionato e non lavorato, e la scelta era fra tacere e mentire."
     },
     "stage": {
       "enum": [
