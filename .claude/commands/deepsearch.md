@@ -39,6 +39,24 @@ Prima di caricare qualunque cosa, e prima di qualunque scrittura:
 L'ordine conta. Fermarsi dopo aver scritto lascia sul disco artefatti di provenienza ignota, che e'
 peggio del non averli: hanno la forma di dati validi.
 
+**L'ordine operativo del preflight e' vincolante, in questa sequenza:**
+
+1. **Controllo di provenienza degli input.** Si esegue `provenance_check` con il commit
+   dichiarato: e' il primo comando del run, prima di caricare qualunque prompt o schema e prima
+   di qualunque scrittura. Solo l'uscita 0 autorizza a proseguire; un errore nominato (fuori
+   radice, radice vietata, HEAD diverso, blob diverso, mapping, viste mancanti o manomesse)
+   ferma il run sul posto e il motivo va nel manifesto.
+2. **Compilazione delle due viste del contratto** — audit e delivery, dalla stessa compilazione,
+   con il compilatore e la sua opzione di vista. Nessuna delle due si salta: sono un artefatto
+   solo in due forme.
+3. **Verifica e registrazione dei loro hash** — le viste entrano nel manifesto come collezione
+   di artefatti, una voce per vista, con il legame fra la delivery e l'hash della audit
+   verificato e non soltanto scritto.
+4. **Soltanto dopo** si crea la directory del run: le scritture seguono la provenienza
+   verificata, mai il contrario.
+5. **Soltanto nella futura micro-slice di consegna** si compone e si consegna il prompt
+   all'agente: non in questa fase, e nessuna invocazione reale di agenti prima di allora.
+
 ---
 
 ## 0-pre. RIPRESA DI UN RUN INTERROTTO (controlla SEMPRE, prima di tutto)
@@ -87,7 +105,7 @@ Aggiorna anche il collegamento `runs/latest` all'ultimo run avviato.
 
 ## 0. SETUP DEL RUN
 
-**Primo comando del run, prima di qualsiasi altra cosa:**
+**Primo comando della fase di setup, subito dopo il preflight di provenienza di §0-pre-pre:**
 
 ```bash
 python3 tools/spec_check.py          # su Windows: python tools\spec_check.py
