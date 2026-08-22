@@ -32,11 +32,20 @@ ricorsione pura, e resta eseguibile su entrambe le piattaforme.
         python tools/contract_compile.py --agente evidence-researcher --out <percorso>
         python tools/contract_compile.py --agente evidence-researcher --schemi <dir>
         python tools/contract_compile.py --agente evidence-researcher --commit <sha>
+        python tools/contract_compile.py --agente evidence-researcher --vista {audit,delivery}
         exit 0 = contratto generato
              1 = errore di risoluzione   («gli schemi sono rotti»)
              2 = costrutto non compilabile («il compilatore va esteso»)
 
 I due codici sono distinti perche' confonderli fa aggiustare la cosa sbagliata.
+
+DUE VISTE, UNA COMPILAZIONE (M1.1). La vista `audit` e' il contratto completo, persistito per-run
+e NON consegnato al modello. La vista `delivery` e' la forma compatta C5d — albero rientrato, array
+fusi, opzionale implicito, nessuna `description` — ed e' l'unica che entra nel contesto del
+modello. Entrambe derivano dalla stessa lista di `Voce` di `cammina()`: nessuna seconda tabella
+manuale. La delivery porta come prima riga dati l'`sha256` della audit generata dagli stessi input
+nella stessa invocazione: e' il rinvio alla prosa, verificato da D3 e da provenance_check in M2.
+La vista audit dichiara il tipo della radice in testata (D12), cosa che M1 non faceva.
 """
 import argparse, hashlib, json, os, sys
 import sys as _sys
@@ -393,6 +402,27 @@ def compila_contratto(agente, dir_schemi=None, commit="non-dichiarato"):
     return rendi(agente, nome, c, voci, cond)
 
 
+def compila_viste(agente, dir_schemi=None, commit="non-dichiarato"):
+    """UNA sola `cammina()`, due viste: la audit completa e la delivery compatta, collegate.
+
+    La delivery incolla l'`sha256` della audit prodotta dagli stessi input in questa stessa
+    invocazione. E' il legame verificabile fra le due viste (D3): chi legge la delivery sa quale
+    audit contiene la prosa, e una mutazione di schema cambia i due hash insieme.
+    """
+    if agente not in SCHEMA_PER_AGENTE:
+        raise CostruttoNonCompilabile(
+            f"agente fuori dal perimetro di M1: {agente} (previsto solo evidence-researcher)")
+    if dir_schemi is None:
+        dir_schemi = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "schemas")
+    nome = SCHEMA_PER_AGENTE[agente]
+    c = Compilatore(dir_schemi, commit)
+    voci, cond = cammina(c, [(c.carica(nome), nome)], "", 0, [], [], [])
+    audit = rendi(agente, nome, c, voci, cond)
+    sha_audit = hashlib.sha256(audit.encode("utf-8")).hexdigest()
+    return audit, rendi_delivery(agente, nome, voci, cond, sha_audit)
+
+
 # ------------------------------------------------------------------ resa
 
 def riga(v):
@@ -403,6 +433,158 @@ def riga(v):
     return out
 
 
+# ------------------------------------------------------------------ vista delivery (C5d)
+
+TIPO_SIGLA = {"string": "s", "integer": "i", "number": "n", "boolean": "b",
+              "object": "o", "array": "a", "null": "z"}
+
+
+def _sigla_tipo(t):
+    """Il tipo nella sigla della delivery: `["integer", "null"]` → `i|z`."""
+    parti = t if isinstance(t, list) else t.split("|")
+    return "|".join(TIPO_SIGLA[x] for x in parti)
+
+
+def _gettoni_delivery(v, tabE, tabP):
+    """I gettoni di vincolo di una posizione, nell'ordine fisso: tipo, E#, P#, limite, format."""
+    kw = v.f.kw
+    out = []
+    t = kw.get("type")
+    if t is not None:
+        out.append(_sigla_tipo(t) + ("~" if v.f.nullable else ""))
+    elif v.f.nullable:
+        out.append("~")
+    if "enum" in kw:
+        out.append("E%d" % tabE[tuple(kw["enum"])])
+    if "pattern" in kw:
+        out.append("P%d" % tabP[kw["pattern"]])
+    if "maxLength" in kw:
+        out.append("<%d" % kw["maxLength"])
+    if "format" in kw:
+        out.append("@%s" % kw["format"])
+    return out
+
+
+def _vincoli_extra_delivery(v):
+    """Le parole chiave assertive che la delivery NON sa rendere: la loro presenza e' un rifiuto
+    nominato, mai un'omissione silenziosa. I banali (`minItems`/`minimum`/`minLength` = 0) sono
+    omessi anche dalla vista audit e non contano."""
+    out = []
+    for k in ("const", "maxItems", "minLength", "minimum", "maximum", "minItems",
+              "additionalProperties"):
+        if k in v.f.kw and not (k in ("minItems", "minimum", "minLength") and v.f.kw[k] == 0):
+            out.append(k)
+    return out
+
+
+def rendi_delivery(agente, nome, voci, cond, sha_audit):
+    """La vista delivery: albero rientrato, array fusi, opzionale implicito, zero prosa.
+
+    Deriva dalle STESSE `voci`/`cond` della vista audit (D2): nessuna seconda tabella manuale.
+    L'ordine e' derivato dal documento e da nient'altro (D5): figli prima nell'ordine della lista
+    `required`, poi nell'ordine delle `properties`; tabelle `E#`/`P#` in ordine di prima
+    apparizione nell'albero reso; condizionali in ordine di raccolta. Nessun `set`, nessun
+    `sorted`. Il rinvio alla prosa e' la riga `audit sha256 …` (D7).
+    """
+    per = {v.percorso: v for v in voci}
+    figli = {}
+    for v in voci:
+        p = v.percorso
+        if not p or p.endswith("[]"):
+            continue                            # la radice e gli elementi fusi non sono figli
+        gen = p.rpartition("/")[0]
+        if gen.endswith("[]"):
+            gen = gen[:-2]                      # i figli di un elemento stanno sotto l'array
+        figli.setdefault(gen, []).append(v)
+
+    def ordine(gen):
+        """I percorsi dei figli, prima nell'ordine della lista `required`, poi nell'ordine delle
+        `properties`. Percorsi VERI: i figli di un elemento fuso vivono sotto `gen + "[]"`, e la
+        lista `required` che li governa e' quella dell'ELEMENTO, non dell'array."""
+        genitore = gen + "[]" if per.get(gen + "[]") is not None else gen
+        req = per[genitore].f.req
+        vs = {v.percorso.rsplit("/", 1)[-1]: v.percorso for v in figli.get(gen, [])}
+        return [vs[x] for x in req if x in vs] + [vs[x] for x in vs if x not in req]
+
+    tabE, tabP = {}, {}
+
+    def numera(gen):
+        v = per[gen]
+        if "enum" in v.f.kw:
+            t = tuple(v.f.kw["enum"])
+            if t not in tabE:
+                tabE[t] = len(tabE) + 1
+        if "pattern" in v.f.kw:
+            if v.f.kw["pattern"] not in tabP:
+                tabP[v.f.kw["pattern"]] = len(tabP) + 1
+        elem = per.get(gen + "[]")
+        if elem is not None:
+            if "enum" in elem.f.kw:
+                t = tuple(elem.f.kw["enum"])
+                if t not in tabE:
+                    tabE[t] = len(tabE) + 1
+            if "pattern" in elem.f.kw:
+                if elem.f.kw["pattern"] not in tabP:
+                    tabP[elem.f.kw["pattern"]] = len(tabP) + 1
+        for p in ordine(gen):
+            numera(p)
+
+    numera("")
+    r = ["CONTRATTO %s <- %s" % (agente, nome),
+         "audit sha256 %s" % sha_audit,
+         "! obbligatorio  (senza ! = opzionale)  a<X> = array i cui elementi sono X  ~ nullable",
+         "tipi s=string i=integer n=number b=boolean o=object a=array z=null",
+         "E# vocabolario chiuso  P# pattern  <n maxLength  @f format",
+         "== ALBERO (rientro = annidamento)"]
+
+    def emetti(gen, prof):
+        v = per[gen]
+        elem = per.get(gen + "[]")
+        nome = "(radice)" if gen == "" else gen.rsplit("/", 1)[-1]
+        marca = "!" if v.obbligatorio else ""
+        t = v.f.kw.get("type")
+        e_array = t == "array" or t == ["array"]
+        if e_array:
+            if elem is None:
+                raise CostruttoNonCompilabile(
+                    f"array {v.percorso} senza elementi: la fusione a<X> non sa cosa rendere")
+            extra = _vincoli_extra_delivery(v) + [
+                k for k in ("enum", "pattern", "maxLength", "format") if k in v.f.kw]
+            if extra or v.f.nullable:
+                raise CostruttoNonCompilabile(
+                    f"array {v.percorso} con vincoli propri: la fusione a<X> non li rende "
+                    f"({' '.join(extra)})")
+            r.append(" " * prof + marca + nome + " a<"
+                     + " ".join(_gettoni_delivery(elem, tabE, tabP)) + ">")
+        else:
+            extra = _vincoli_extra_delivery(v)
+            if extra:
+                raise CostruttoNonCompilabile(
+                    f"vincolo non reso nella delivery su {v.percorso}: {' '.join(extra)}")
+            gett = _gettoni_delivery(v, tabE, tabP)
+            if not gett:
+                raise CostruttoNonCompilabile(
+                    f"posizione {v.percorso} senza nulla da mostrare nella delivery")
+            r.append(" " * prof + marca + nome + " " + " ".join(gett))
+        for p in ordine(gen):
+            emetti(p, prof + 1)
+
+    emetti("", 0)
+    r.append("== VOCABOLARI E PATTERN")
+    for t in tabE:
+        r.append("E%d %s" % (tabE[t], "|".join(str(x) for x in t)))
+    for x in tabP:
+        r.append("P%d %s" % (tabP[x], x))
+    r.append("== COND  +obbligatorio-se  -vietato-se-non   percorso|campo|valori")
+    for perc, x in cond:
+        base = "%s/%%s|%s|%s" % (perc, x["campo"], ",".join(x["valori"]))
+        for n in x["allora"]:
+            r.append("+" + base % n)
+        for n in x["vietati"]:
+            r.append("-" + base % n)
+    return "\n".join(r).rstrip("\n") + "\n"
+
+
 def rendi(agente, nome, c, voci, cond):
     sha_c = hashlib.sha256(leggi_normalizzato(os.path.abspath(__file__))).hexdigest()
     r = [f"# CONTRATTO — {agente} ← {nome}",
@@ -410,6 +592,12 @@ def rendi(agente, nome, c, voci, cond):
          f"<!-- schema {nome} sha256 {c.hash[nome]} · commit {c.commit} -->", ""]
     if voci[0].descrizione():
         r += [voci[0].descrizione(), ""]
+
+    # Il tipo della radice, in testata e NON in «Struttura obbligatoria»: quella sezione elenca i
+    # FIGLI obbligatori, e un lettore che cerchi «che cos'e' l'artefatto» non trova la risposta in
+    # nessuna sezione — il difetto che M1.1 ha trovato (D12). Qui e non altrove, perche' il
+    # parser di «Struttura obbligatoria» del selftest la leggerebbe come un figlio fittizio.
+    r += ["`(radice dell'artefatto)`   ASSERITO   " + voci[0].asserito(), ""]
 
     # Gli obblighi sono resi nell'ordine della LISTA `required`, non in quello delle `properties`.
     # E' la decisione 2 del §8.5 del design — «Envelope.required elenca agent, run_id, status,
@@ -477,13 +665,20 @@ def main():
     ap.add_argument("--agente", required=True)
     ap.add_argument("--schemi", default=None)
     ap.add_argument("--out")
+    ap.add_argument("--vista", choices=("audit", "delivery"), default="audit",
+                    help="audit = contratto completo, persistito per-run e non consegnato al "
+                         "modello (default); delivery = forma compatta C5d per il contesto del "
+                         "modello, con l'hash della audit")
     ap.add_argument("--commit", default="non-dichiarato",
                     help="registrato nell'intestazione. Il compilatore non lo LEGGE da git: "
                          "renderebbe l'uscita dipendente dallo stato del repository invece che "
                          "dai byte d'ingresso. Verificarlo e' compito di provenance_check.")
     a = ap.parse_args()
     try:
-        t = compila_contratto(a.agente, a.schemi, a.commit)
+        if a.vista == "delivery":
+            t = compila_viste(a.agente, a.schemi, a.commit)[1]
+        else:
+            t = compila_contratto(a.agente, a.schemi, a.commit)
     except ErroreRisoluzione as e:
         print(f"errore di risoluzione: {e}", file=sys.stderr)
         return 1

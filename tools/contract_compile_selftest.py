@@ -7,11 +7,17 @@ essere una pagina plausibile che ha perso meta' degli obblighi in silenzio: la d
 ispezionabile leggendo l'output, perche' un contratto incompleto ha lo stesso aspetto di uno
 completo. Si dimostra solo mutando gli schemi e pretendendo che il contratto cambi.
 
-VENTIQUATTRO PROVE, e la forma di ognuna e' vincolata. Il piano ne prevedeva ventuno: F22, F23 e
-F24 sono aggiunte, e ciascuna nasce da un difetto che si e' visto passare verde. F22 dalla prosa
-persa dalle posizioni d'elemento; F23 dalla guardia condizionale troncata, che faceva dichiarare al
-contratto una regola FALSA; F24 dalle rese — maxLength, nullable, tipo degli elementi, sezioni —
-che nessuna mutazione di schema tocca, perche' a cambiare non e' lo schema ma il renditore.
+TRENTASETTE PROVE: le ventiquattro di M1 (F1-F24) e le tredici della vista delivery (D1-D13).
+Le F restano identiche: la vista audit cambia solo per la riga di radice in testata (D12), che
+nessuna F legge. Delle F, F22, F23 e F24 nacquero ciascuna da un difetto visto passare verde:
+F22 dalla prosa persa dalle posizioni d'elemento; F23 dalla guardia condizionale troncata, che
+faceva dichiarare al contratto una regola FALSA; F24 dalle rese — maxLength, nullable, tipo degli
+elementi, sezioni — che nessuna mutazione di schema tocca, perche' a cambiare non e' lo schema ma
+il renditore. Le D hanno la stessa forma vincolata: le proprieta' derivate dagli schemi si
+falsificano per mutazione in quattro passi (riferimento contiene la voce; i byte mutati cambiano;
+ricompilazione senza la voce; hash diversi); le proprieta' del renditore si asseriscono sul testo
+riletto, mai sul camminatore del compilatore — il riferimento di D1 e' estratto dagli SCHEMI con
+un camminatore indipendente, mai dalla vista audit.
 
 Le prove a mutazione seguono quattro passi: si compila il riferimento e si asserisce che CONTIENE
 la voce; si muta e si asserisce che i BYTE del file mutato sono cambiati (una mutazione a vuoto e'
@@ -28,9 +34,9 @@ casi di questo corpus lo impongono, e ognuno ha gia' prodotto un falso rosso in 
   - togliere un nome da un required non toglie il campo: finisce fra gli opzionali.
 
   uso:  python tools/contract_compile_selftest.py
-        exit 0 = tutte e ventiquattro verdi
+        exit 0 = tutte e trentasette verdi
 """
-import hashlib, io, json, os, re, shutil, subprocess, sys, tempfile
+import hashlib, inspect, io, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):      # console Windows in cp1252: '·' e '←' fanno crashare
     try: _f.reconfigure(encoding="utf-8", errors="replace")
@@ -703,6 +709,716 @@ def f21():
             "Nella radice di evidence-pack `allOf` precede `properties`, quindi l'envelope "
             "precede payload: payload e' il SESTO dei dieci required.")
         assert o.index("payload") == 5, "payload non e' il sesto obbligo"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ------------------------------------------------------------------ macchina di verifica D1 … D13
+
+TIPO_INV = {"s": "string", "i": "integer", "n": "number", "b": "boolean",
+            "o": "object", "a": "array", "z": "null"}
+
+FAMIGLIE_D = ("req", "cond_obl", "cond_div", "enum_pos", "pat_pos", "lim_pos",
+              "tipo_pos", "format_pos")
+
+
+def inventario_schemi(dir_schemi):
+    """L'inventario strutturale estratto DAGLI SCHEMI, con un camminatore indipendente.
+
+    Stessa semantica dichiarata dal compilatore — allOf appiattito, anyOf [X,null] che sopprime i
+    required e marca nullable, $ref elaborato per ultimo, if/then/else raccolto a parte, gli array
+    trasparenti alla profondita' — ma riscritta qui da zero, come descrizioni_raggiungibili: una
+    prova che riusasse lo strumento che misura non sarebbe una verifica.
+    """
+    S = {n: json.load(open(os.path.join(dir_schemi, n), encoding="utf-8"))
+         for n in os.listdir(dir_schemi) if n.endswith(".json")}
+    R = {k: [] for k in FAMIGLIE_D}
+    R["percorsi"] = []
+    R["ordine"] = []
+
+    def ris(ref, cur):
+        if ref.startswith("#"):
+            doc, ptr = S[cur], ref[1:]
+        else:
+            f, _, fr = ref.partition("#")
+            cur, doc, ptr = os.path.basename(f), S[os.path.basename(f)], fr
+        n = doc
+        for p in [x for x in ptr.split("/") if x]:
+            n = n[p.replace("~1", "/").replace("~0", "~")]
+        return n, cur
+
+    def piu(f, g):
+        kw = dict(f[0])
+        kw.update(g[0])
+        prop = dict(f[1])
+        for nm, lista in g[1].items():
+            prop.setdefault(nm, []).extend(lista)
+        return (kw, prop, f[2] + g[2], list(dict.fromkeys(f[3] + g[3])),
+                f[4] or g[4], f[5] + g[5])
+
+    def fondi(nd, cur, pila):
+        kw, prop, items, req, nullable, cond = {}, {}, [], [], False, []
+        if not isinstance(nd, dict):
+            return kw, prop, items, req, nullable, cond
+        for k, v in nd.items():
+            if k in ("$ref", "then", "else") or k in ("$schema", "$id", "title", "$comment",
+                                                      "$defs", "definitions", "examples", "default"):
+                continue
+            if k == "allOf":
+                for ramo in v:
+                    acc = piu((kw, prop, items, req, nullable, cond), fondi(ramo, cur, pila))
+                    kw, prop, items, req, nullable, cond = acc
+            elif k in ("anyOf", "oneOf"):
+                r = None
+                if isinstance(v, list) and len(v) == 2:
+                    if isinstance(v[1], dict) and v[1].get("type") == "null":
+                        r = v[0]
+                    elif isinstance(v[0], dict) and v[0].get("type") == "null":
+                        r = v[1]
+                if r is None:
+                    raise AssertionError(f"disgiunzione non [X,null] in {cur}")
+                a = list(fondi(r, cur, pila))
+                a[3] = []                                   # i required del ramo non sono congiuntivi
+                a[4] = True
+                kw, prop, items, req, nullable, cond = piu(
+                    (kw, prop, items, req, nullable, cond), tuple(a))
+            elif k == "if":
+                g = v.get("properties") or {}
+                if len(g) != 1:
+                    raise AssertionError(f"guardia con piu' proprieta' in {cur}")
+                (campo, sub), = g.items()
+                valori = sub.get("enum") or ([sub["const"]] if "const" in sub else None)
+                if valori is None:
+                    raise AssertionError(f"guardia non enum/const in {cur}")
+                cond.append((campo, list(valori),
+                             list((nd.get("then") or {}).get("required") or []),
+                             list(((nd.get("else") or {}).get("not") or {}).get("required") or [])))
+            elif k == "required":
+                req = list(v)
+            elif k == "properties":
+                for nm, sub in v.items():
+                    prop.setdefault(nm, []).append((sub, cur))
+            elif k == "items":
+                items.append((v, cur))
+            else:
+                kw.setdefault(k, v)
+        if "$ref" in nd:
+            ch = (cur, nd["$ref"])
+            if ch in pila:
+                raise AssertionError(f"ciclo di $ref su {nd['$ref']}")
+            t, c2 = ris(nd["$ref"], cur)
+            kw, prop, items, req, nullable, cond = piu(
+                (kw, prop, items, req, nullable, cond), fondi(t, c2, pila | {ch}))
+        return kw, prop, items, req, nullable, cond
+
+    def fondi_molti(app, pila):
+        acc = ({}, {}, [], [], False, [])
+        for nd, cur in app:
+            acc = piu(acc, fondi(nd, cur, pila))
+        return acc
+
+    def cammina(app, perc, obb, elemento, pila):
+        kw, prop, items, req, nullable, cond = fondi_molti(app, pila)
+        R["percorsi"].append(perc)
+        for n in req:
+            R["req"].append((perc, n))
+        if "enum" in kw:
+            R["enum_pos"].append((perc, tuple(kw["enum"])))
+        if "pattern" in kw:
+            R["pat_pos"].append((perc, kw["pattern"]))
+        if "maxLength" in kw:
+            R["lim_pos"].append((perc, "maxLength", kw["maxLength"]))
+        if "format" in kw:
+            R["format_pos"].append((perc, kw["format"]))
+        t = kw.get("type")
+        tt = "|".join(t) if isinstance(t, list) else t
+        R["tipo_pos"].append((perc, tt, bool(nullable), bool(elemento), bool(obb)))
+        for campo, valori, allora, vietati in cond:
+            for n in allora:
+                R["cond_obl"].append((perc, n, campo, tuple(valori)))
+            for n in vietati:
+                R["cond_div"].append((perc, n, campo, tuple(valori)))
+        R["ordine"].append((perc, [x for x in req if x in prop]
+                            + [x for x in prop if x not in req]))
+        for nm, lista in prop.items():
+            p = f"{perc}/{nm}" if perc else nm
+            cammina(lista, p, nm in req, False, pila)
+        if items:
+            cammina(items, perc + "[]", True, True, pila)
+
+    cammina([(S["evidence-pack.schema.json"], "evidence-pack.schema.json")], "", True, False, frozenset())
+    return R
+
+
+def split_med(s):
+    """Divide su ' · ' solo a profondita' 0 di parentesi quadre (enum e regex ne hanno)."""
+    out, d, cur, i = [], 0, [], 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "[":
+            d += 1
+        elif ch == "]":
+            d -= 1
+        if d == 0 and s[i:i + 3] == " · ":
+            out.append("".join(cur))
+            cur = []
+            i += 3
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return out
+
+
+def decodi_gettoni(gett):
+    d = {}
+    for tok in gett:
+        if tok.startswith("a<"):
+            d["el"] = [x for x in tok[2:-1].split(" ") if x]
+            d["type"] = "array"
+        elif re.fullmatch(r"E\d+", tok):
+            d["E"] = int(tok[1:])
+        elif re.fullmatch(r"P\d+", tok):
+            d["P"] = int(tok[1:])
+        elif tok.startswith("<"):
+            d["max"] = int(tok[1:])
+        elif tok.startswith("@"):
+            d["format"] = tok[1:]
+        elif tok == "~":
+            d["null"] = True
+        else:
+            if tok.endswith("~"):
+                d["null"] = True
+                tok = tok[:-1]
+            d["type"] = "|".join(TIPO_INV[x] for x in tok.split("|"))
+    return d
+
+
+def leggi_delivery(t):
+    """Rilegge la vista DELIVERY dal suo testo e ricostruisce l'inventario, come farebbe un
+    lettore che ha solo quel documento: albero a rientri, tabelle E#/P#, sezione COND."""
+    sez, cur = {}, "(testa)"
+    sez[cur] = []
+    for L in t.split("\n"):
+        if L.startswith("== "):
+            cur = L[3:].split()[0]
+            sez.setdefault(cur, [])
+            continue
+        sez[cur].append(L)
+    E, P = {}, {}
+    for L in sez.get("VOCABOLARI", []):
+        m = re.match(r"^E(\d+) (.*)$", L)
+        if m:
+            E[int(m.group(1))] = tuple(m.group(2).split("|"))
+            continue
+        m = re.match(r"^P(\d+) (.*)$", L)
+        if m:
+            P[int(m.group(1))] = m.group(2)
+    R = {k: [] for k in FAMIGLIE_D}
+    R["percorsi"] = []
+    R["ordine"] = []
+
+    def emetti(path, gett, obb, elem):
+        d = decodi_gettoni(gett)
+        R["percorsi"].append(path)
+        if "E" in d:
+            R["enum_pos"].append((path, E[d["E"]]))
+        if "P" in d:
+            R["pat_pos"].append((path, P[d["P"]]))
+        if "max" in d:
+            R["lim_pos"].append((path, "maxLength", d["max"]))
+        if "format" in d:
+            R["format_pos"].append((path, d["format"]))
+        R["tipo_pos"].append((path, d.get("type"), bool(d.get("null")), elem, obb))
+        return d
+
+    stack = {}
+    for L in sez["ALBERO"]:
+        if not L.strip():
+            continue
+        prof = len(L) - len(L.lstrip(" "))
+        riga = L.lstrip(" ")
+        if riga.startswith("!"):
+            marca, resto = "!", riga[1:]
+        else:
+            marca, resto = "?", riga
+        parti = resto.split(" ")
+        nome, gett = parti[0], parti[1:]
+        gen = stack.get(prof - 1) if prof > 0 else None
+        if nome == "(radice)" and prof == 0:
+            path = ""
+        else:
+            path = ("%s/%s" % (gen, nome)) if gen else nome
+        d = emetti(path, gett, marca == "!", False)
+        if prof > 0:
+            R["ordine"].append((gen if gen is not None else "", nome))
+        if marca == "!" and path:
+            R["req"].append((gen if gen is not None else "", nome))
+        if "el" in d:
+            emetti(path + "[]", d["el"], True, True)
+            stack[prof] = path + "[]"
+        else:
+            stack[prof] = path
+    for L in sez.get("COND", []):
+        if not L or L[0] not in "+-":
+            continue
+        p, campo, vals = L[1:].split("|")
+        perc, nome = p.rsplit("/", 1)
+        v = tuple(vals.split(","))
+        (R["cond_obl"] if L[0] == "+" else R["cond_div"]).append((perc, nome, campo, v))
+    return R
+
+
+def leggi_audit_inventario(t):
+    """Rilegge la vista AUDIT dal suo testo e ricostruisce lo stesso inventario: cinque sezioni
+    piu' la riga di radice in testata. Serve a D2 e D12."""
+    R = {k: [] for k in FAMIGLIE_D}
+    R["percorsi"] = []
+    testa = t.split("## ", 1)[0]
+    m = re.search(r"^`\(radice dell'artefatto\)`   ASSERITO   (.*)$", testa, re.M)
+    assert m, "la vista audit non dichiara la riga di radice in testata"
+    corpi = {}
+
+    def corpo_radice(corpo):
+        tipo, null, obb = None, False, True
+        for tok in split_med(corpo):
+            if tok == "obbligatorio":
+                obb = True
+            elif tok == "opzionale":
+                obb = False
+            elif tok == "nullable":
+                null = True
+            elif tok.startswith("enum [") or tok.startswith("pattern ") or \
+                    tok.startswith(("maxLength ", "maxItems ", "minimum ", "maximum ")) or \
+                    tok.startswith("format ") or tok.startswith("const "):
+                pass
+            elif tok == "ogni elemento" or tok == "nessun campo extra":
+                pass
+            else:
+                tipo = tok.replace("array di ", "").replace("array", "array") or tipo
+        R["tipo_pos"].append(("", tipo, null, False, obb))
+
+    corpo_radice(m.group(1))
+    sez, attuale = "", ""
+    for L in t.split("\n"):
+        if L.startswith("## "):
+            sez = L[3:]
+            continue
+        if not sez:
+            continue                            # la testata (riga di radice compresa) e' gia' resa
+        if sez == "Struttura obbligatoria" and re.match(r"^### ", L):
+            attuale = "" if "radice dell'artefatto" in L else re.match(r"^### `([^`]*)`", L).group(1)
+            continue
+        m = re.match(r"^`([^`]+)`   ASSERITO   (.*)$", L)
+        if m:
+            p, corpo = m.group(1), m.group(2)
+            if p in corpi:
+                assert corpi[p] == corpo, (p, corpi[p], corpo)
+            corpi[p] = corpo
+            if sez == "Struttura obbligatoria" and attuale is not None and p.startswith(
+                    attuale + "/" if attuale else ""):
+                nome = p[len(attuale) + 1:] if attuale else p
+                R["req"].append((attuale, nome))
+            continue
+        m = re.match(r"^- `([^`]+)` è \*\*(obbligatorio|vietato)\*\* quando `([^`]+)` "
+                     r"[∈∉] (\[.*\])$", L)
+        if m:
+            perc, nome = m.group(1).rsplit("/", 1)
+            v = tuple(json.loads(m.group(4)))
+            (R["cond_obl"] if m.group(2) == "obbligatorio" else R["cond_div"]).append(
+                (perc, nome, m.group(3), v))
+    for p, corpo in corpi.items():
+        R["percorsi"].append(p)
+        tipo, null, elem, obb = None, False, False, False
+        for tok in split_med(corpo):
+            if tok == "obbligatorio":
+                obb = True
+            elif tok == "opzionale":
+                pass
+            elif tok == "ogni elemento":
+                elem, obb = True, True
+            elif tok == "nullable":
+                null = True
+            elif tok.startswith("enum ["):
+                R["enum_pos"].append((p, tuple(json.loads(x) for x in split_med(tok[6:-1]))))
+            elif tok.startswith("pattern "):
+                R["pat_pos"].append((p, tok[8:]))
+            elif tok.startswith("maxLength "):
+                R["lim_pos"].append((p, "maxLength", int(tok[10:])))
+            elif tok.startswith(("maxItems ", "minimum ", "maximum ")):
+                pass
+            elif tok.startswith("format "):
+                R["format_pos"].append((p, tok[7:]))
+            elif tok.startswith(("minItems ", "const ")):
+                pass
+            elif tok == "nessun campo extra":
+                pass
+            else:
+                tipo = tok[len("array di "):] and "array" if tok.startswith("array di ") else tok
+        R["tipo_pos"].append((p, tipo, null, elem, obb))
+    return R
+
+
+def budget_delivery(testo):
+    """Il messaggio informativo di D13: quanto si e' sforato e su quale voce. I quattro blocchi
+    (testa, ALBERO, VOCABOLARI E PATTERN, COND) partizionano il testo: sommano al byte."""
+    n = len(testo.encode("utf-8"))
+    if n <= 4784:
+        return None
+    i_albero = testo.index("== ALBERO")
+    i_voc = testo.index("== VOCABOLARI")
+    i_cond = testo.index("== COND")
+    testa = len(testo[:i_albero].encode("utf-8"))
+    albero = len(testo[i_albero:i_voc].encode("utf-8"))
+    voc = len(testo[i_voc:i_cond].encode("utf-8"))
+    cond = len(testo[i_cond:].encode("utf-8"))
+    return ("delivery %d byte: budget 4 784 sforato di %d (testa %d; ALBERO %d; "
+            "VOCABOLARI E PATTERN %d; COND %d)" % (n, n - 4784, testa, albero, voc, cond))
+
+
+# ------------------------------------------------------------------ D1 … D13
+
+@prova("D1", "la delivery, riletta dal testo, ha l'inventario completo degli schemi (mai dell'audit)")
+def d1():
+    d, s = copia_schemi()
+    try:
+        _, consegna = cc.compila_viste("evidence-researcher", s)
+        A = inventario_schemi(s)
+        B = leggi_delivery(consegna)
+        for k in FAMIGLIE_D:
+            a, b = set(map(repr, A[k])), set(map(repr, B[k]))
+            assert not (a - b), f"{k}: manca nella delivery {sorted(a - b)[:6]}"
+            assert not (b - a), f"{k}: in piu' nella delivery {sorted(b - a)[:6]}"
+
+        def raggruppa(ord_):
+            out = {}
+            for p, n in ord_:
+                if isinstance(n, list):
+                    out.setdefault(p, []).extend(n)
+                else:
+                    out.setdefault(p, []).append(n)
+            return {p: tuple(ns) for p, ns in out.items()}
+
+        ordA, ordB = raggruppa(A["ordine"]), raggruppa(B["ordine"])
+        div = [k for k in set(ordA) | set(ordB) if ordA.get(k, ()) != ordB.get(k, ())]
+        assert not div, (
+            "ordine dei figli diverso dagli schemi (required prima, poi properties): "
+            f"{div[:8]}")
+        assert len(A["req"]) == 70 and len(A["cond_obl"]) == 3 and len(A["cond_div"]) == 1, \
+            (len(A["req"]), len(A["cond_obl"]), len(A["cond_div"]))
+        assert len(A["enum_pos"]) == 22 and sum(len(v) for _, v in A["enum_pos"]) == 114
+        assert len(A["pat_pos"]) == 7 and len({r for _, r in A["pat_pos"]}) == 5
+        assert len(A["lim_pos"]) == 2 and len(A["tipo_pos"]) == 174 and len(A["format_pos"]) == 1
+        rif = consegna
+        muta_json(s, "evidence-pack.schema.json", lambda o: o["properties"]["payload"]
+                  ["properties"]["coverage"].__setitem__("required", ["angles_covered"]))
+        _, mut = cc.compila_viste("evidence-researcher", s)
+        assert ("payload/coverage", "gaps") not in leggi_delivery(mut)["req"], "passo 3"
+        assert sha(rif) != sha(mut), "passo 4: gli hash coincidono"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D2", "le due viste vengono dalla stessa compilazione: inventari identici, radice inclusa")
+def d2():
+    d, s = copia_schemi()
+    try:
+        audit, consegna = cc.compila_viste("evidence-researcher", s)
+        A = leggi_audit_inventario(audit)
+        B = leggi_delivery(consegna)
+        for k in FAMIGLIE_D:
+            a, b = set(map(repr, A[k])), set(map(repr, B[k]))
+            assert a == b, (
+                f"{k}: le due viste differiscono. soloA={sorted(a - b)[:4]} soloB={sorted(b - a)[:4]}")
+        assert ("", "object", False, False, True) in A["tipo_pos"], \
+            "la radice non e' object/obbligatoria nell'inventario della audit"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D3", "la delivery porta l'hash della audit generata nella stessa invocazione")
+def d3():
+    d, s = copia_schemi()
+    try:
+        audit, consegna = cc.compila_viste("evidence-researcher", s)
+        assert consegna.splitlines()[1] == "audit sha256 " + sha(audit), \
+            "l'hash incollato non e' quello della audit della stessa invocazione"
+        muta_json(s, "core.schema.json",
+                  lambda o: o["$defs"]["Claim"].__setitem__(
+                      "required", [x for x in o["$defs"]["Claim"]["required"] if x != "state"]))
+        audit2, consegna2 = cc.compila_viste("evidence-researcher", s)
+        assert consegna2.splitlines()[1] == "audit sha256 " + sha(audit2), "passo 3"
+        assert sha(audit) != sha(audit2) and \
+            consegna.splitlines()[1] != consegna2.splitlines()[1], \
+            "passo 4: una mutazione di schema non ha cambiato gli hash"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D4", "determinismo della delivery: in-process, processi distinti, copia CRLF")
+def d4():
+    d, s = copia_schemi()
+    d2, s2 = copia_schemi()
+    try:
+        a = sha(cc.compila_viste("evidence-researcher", s)[1])
+        b = sha(cc.compila_viste("evidence-researcher", s)[1])
+        c1, o1, e1 = esegui(s, ("--vista", "delivery"))
+        c2, o2, e2 = esegui(s, ("--vista", "delivery"))
+        assert c1 == 0 and c2 == 0, f"uscite {c1}/{c2}: {e1}{e2}"
+        per, da = sha(o1), sha(o2)
+        for nome in os.listdir(s2):
+            p = os.path.join(s2, nome)
+            t = open(p, "rb").read().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+            open(p, "wb").write(t)
+        e = sha(cc.compila_viste("evidence-researcher", s2)[1])
+        assert a == b == per == da == e, (
+            f"cinque compilazioni, hash diversi:\n  in-process {a}\n  in-process {b}\n"
+            f"  processo    {per}\n  processo    {da}\n  CRLF        {e}")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(d2, ignore_errors=True)
+
+
+@prova("D5", "ordine derivato dal documento: required prima, tabelle per prima apparizione, "
+             "nessun set/sorted")
+def d5():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        src = "\n".join(inspect.getsource(f) for f in (
+            cc.rendi_delivery, cc._gettoni_delivery, cc._vincoli_extra_delivery, cc._sigla_tipo))
+        assert not re.search(r"\bset\s*\(", src), "set() nel percorso di resa della delivery"
+        assert not re.search(r"\bsorted\s*\(", src), "sorted() nel percorso di resa della delivery"
+        albero = c.split("== VOCABOLARI E PATTERN", 1)[0].split("== ALBERO", 1)[1]
+        figli = []
+        for L in albero.splitlines()[1:]:       # la prima riga e' il resto dell'intestazione
+            if len(L) - len(L.lstrip(" ")) == 1:
+                riga = L.strip()
+                figli.append((riga[1:] if riga.startswith("!") else riga).split(" ")[0])
+        assert figli == ["agent", "run_id", "status", "budget_used", "stop_reason", "payload",
+                         "new_sources", "queries_run", "unreachable_sources", "self_check",
+                         "pain_id"], f"ordine di radice: {figli}"
+        assert figli.index("payload") == 5, "payload non e' il sesto dei dieci obblighi"
+        tabelle = c.split("== COND", 1)[0].split("== VOCABOLARI E PATTERN", 1)[1]
+        seqE = [tuple(L.split(" ", 1)[1].split("|")) for L in tabelle.splitlines()
+                if re.match(r"^E\d+ ", L)]
+        attesiE = [
+            ("OK", "PARTIAL", "FAILED"),
+            ("COMPLETED", "BUDGET_EXHAUSTED", "INSUFFICIENT_DATA", "KILL_TRIGGERED",
+             "ABORTED_BY_ORCHESTRATOR", "ZERO_YIELD"),
+            ("normativa", "statistica_ufficiale", "community", "pricing_mercato",
+             "trend_adozione"),
+            ("FP0", "FP1", "FP2", "FP3", "FP4", "FP5"),
+            ("VERIFIED", "ESTIMATED", "UNKNOWN"),
+            ("VERIFIED", "ESTIMATED", "HYPOTHESIS", "UNKNOWN"),
+            ("SERP", "FETCHED"),
+            ("PUBBLICAZIONE", "COMPORTAMENTO", "ARTEFATTO"),
+            ("Q1", "Q2", "Q3", "Q4", "Q5"),
+            ("software", "personale_interno", "consulenza_esterna", "penali_o_sanzioni",
+             "perdite_operative"),
+            ("T1", "T2", "T3", "T4", "T5"),
+            ("OK", "PAYWALL", "BLOCKED", "NOT_FOUND", "ROBOTS", "PARTIAL", "API_LIMIT",
+             "LOGIN_REQUIRED", "NO_PUBLIC_DATA"),
+            ("normativa", "statistica_ufficiale", "competitor", "pricing", "community",
+             "trend_adozione", "fallimenti_storici", "job_posting", "bilanci", "recensioni",
+             "wayback", "integrazioni", "falsificazione", "stagionalita", "capitolati_e_bandi",
+             "mietitura_annunci", "mietitura_marketplace_integrazioni",
+             "mietitura_forum_assistenza", "mietitura_capitolati", "mietitura_circolari_categoria"),
+            ("USEFUL", "PARTIAL", "EMPTY"),
+            ("PAYWALL", "BLOCKED", "NOT_FOUND", "ROBOTS", "API_LIMIT", "LOGIN_REQUIRED",
+             "NO_PUBLIC_DATA", "BUDGET_EXHAUSTED", "STOP_RULE"),
+            ("IC-1", "IC-2", "IC-3", "IC-4", "SEP-RETRIEVAL", "SEP-JUDGMENT", "TRE-STATI",
+             "NUMERI")]
+        assert seqE == attesiE, f"sequenza E# sbagliata: {seqE[:4]} …"
+        seqP = [L.split(" ", 1)[1] for L in tabelle.splitlines() if re.match(r"^P\d+ ", L)]
+        assert seqP == ["^[0-9]{8}(-[0-9]{4})?$",
+                        "^C-[A-Za-z0-9]{2,20}(-contra)?-[0-9]{3}(?![\\s\\S])",
+                        "^S-[0-9]{8}(-[0-9]{4})?-[0-9]{4}$",
+                        "^([0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?|UNKNOWN)$",
+                        "^P-[0-9]{3}$"], f"sequenza P# sbagliata: {seqP}"
+        conds = [L for L in c.split("== COND", 1)[1].splitlines() if L.startswith(("+", "-"))]
+        assert conds == [
+            "+payload/claims[]/promotion_rule_met|state|VERIFIED",
+            "+payload/contradictory_evidence[]/promotion_rule_met|state|VERIFIED",
+            "+unreachable_sources[]/source_id|why|PAYWALL,BLOCKED,NOT_FOUND,ROBOTS,API_LIMIT,"
+            "LOGIN_REQUIRED,NO_PUBLIC_DATA",
+            "-unreachable_sources[]/source_id|why|PAYWALL,BLOCKED,NOT_FOUND,ROBOTS,API_LIMIT,"
+            "LOGIN_REQUIRED,NO_PUBLIC_DATA"], f"ordine dei condizionali: {conds}"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D6", "nessun letterale di campo, enum o regex che non provenga dagli schemi")
+def d6():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        A = inventario_schemi(s)
+        B = leggi_delivery(c)
+        assert set(B["percorsi"]) == set(A["percorsi"]), (
+            "percorsi diversi dagli schemi:\n  in piu' "
+            f"{sorted(set(B['percorsi']) - set(A['percorsi']))[:5]}\n  mancanti "
+            f"{sorted(set(A['percorsi']) - set(B['percorsi']))[:5]}")
+        valori = {v for _, t in A["enum_pos"] for v in t}
+        regex = {r for _, r in A["pat_pos"]}
+        assert all(v in valori for _, t in B["enum_pos"] for v in t), "un valore d'enum inventato"
+        assert all(r in regex for _, r in B["pat_pos"]), "una regex inventata"
+        # controprova: un valore fantasma incollato in una tabella E# deve far scattare il
+        # rilevatore. La riga da gonfiare si trova nel testo, non con un letterale: la prova
+        # deve sopravvivere a una rinumerazione legittima delle tabelle.
+        m = re.search(r"^E\d+ .+$", c, re.M)
+        assert m, "nessuna tabella E# nel testo della delivery"
+        gonfio = c.replace(m.group(0), m.group(0) + "|FANTASMA", 1)
+        B2 = leggi_delivery(gonfio)
+        assert any(v not in valori for _, t in B2["enum_pos"] for v in t), \
+            "il rilevatore non vede un valore d'enum inventato"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D7", "la delivery non porta prosa, e lo dichiara")
+def d7():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        assert c.startswith("CONTRATTO evidence-researcher <- evidence-pack.schema.json\n"
+                            "audit sha256 "), "manca la riga che rinvia alla vista audit"
+        for p, t in descrizioni_raggiungibili(s):
+            assert t not in c, f"la description di {p} compare nella delivery"
+        # controprova: una description incollata deve far scattare il rilevatore
+        testo = "ignoto  " + descrizioni_raggiungibili(s)[0][1] + "  ignoto"
+        assert any(t in testo for _, t in descrizioni_raggiungibili(s)), \
+            "la controprova non rileva una description incollata"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D8", "la trappola dei vocabolari omonimi: pricing mai nella tabella di pricing_mercato")
+def d8():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        B = leggi_delivery(c)
+        canale = [v for p, v in B["enum_pos"] if p.endswith("/channel")]
+        angolo = [v for p, v in B["enum_pos"] if p.endswith("queries_run[]/angle")]
+        assert len(canale) == 1 and len(angolo) == 1, (canale, angolo)
+        assert "pricing_mercato" in canale[0] and "pricing" not in canale[0], \
+            "pricing_mercato non sta nella sua tabella, o pricing ci e' finito dentro"
+        assert "pricing" in angolo[0] and "pricing_mercato" not in angolo[0], \
+            "pricing non sta nella sua tabella, o pricing_mercato ci e' finito dentro"
+        # la controprova che la trappola esiste: per SOTTOSTRINGA pricing e' in entrambi
+        assert any("pricing" in x for x in canale[0]), \
+            "confrontare per sottostringa darebbe l'esito sbagliato, e questa prova lo dichiara"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D9", "l'asimmetria di Claim sopravvive: promoted_by solo sotto claims[]")
+def d9():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        B = leggi_delivery(c)
+        assert ("payload/claims[]", "promoted_by") in B["req"], "promoted_by manca sotto claims[]"
+        assert ("payload/contradictory_evidence[]", "promoted_by") not in B["req"], \
+            "promoted_by e' comparso sotto contradictory_evidence[]"
+        assert "payload/claims[]/promoted_by" in B["percorsi"]
+        assert "payload/contradictory_evidence[]/promoted_by" not in B["percorsi"]
+        rif = c
+        muta_json(s, "evidence-pack.schema.json", lambda o: o["properties"]["payload"]
+                  ["properties"]["claims"]["items"].pop("required"))
+        _, mut = cc.compila_viste("evidence-researcher", s)
+        assert ("payload/claims[]", "promoted_by") not in leggi_delivery(mut)["req"], "passo 3"
+        assert sha(rif) != sha(mut), "passo 4"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D10", "la disgiunzione: zero obblighi sotto statement/quantity, 16 figlie, amount ne ha 4")
+def d10():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        A = inventario_schemi(s)
+        B = leggi_delivery(c)
+        Q = "payload/claims[]/statement/quantity"
+        assert all(p != Q for p, _ in B["req"]), "required sotto la disgiunzione anyOf"
+        figli = [p for p in A["percorsi"] if p.startswith(Q + "/")]
+        assert len(figli) == 16, \
+            f"attese 16 posizioni figlie (14 proprieta' + 2 elementi), lette {len(figli)}"
+        assert any(p == Q and null for p, _, null, _, _ in A["tipo_pos"]), \
+            "quantity non e' nullable"
+        req_amount = {n for p, n in A["req"] if p == "payload/spend_evidence[]/amount"}
+        assert req_amount == {"label", "value", "unit", "state"}, \
+            f"amount ($ref diretto) non ha i suoi quattro: {req_amount}"
+        # falsificazione: rimuovere la disgiunzione (anyOf → $ref nudo) fa tornare i quattro
+        # required di Numeric congiuntivi, e la delivery deve dichiararli obblighi
+        rif = c
+        muta_json(s, "core.schema.json",
+                  lambda o: o["$defs"]["Claim"]["properties"]["statement"]["properties"]
+                  .__setitem__("quantity", {"$ref": "core.schema.json#/$defs/Numeric"}))
+        _, mut = cc.compila_viste("evidence-researcher", s)
+        assert ("payload/claims[]/statement/quantity", "label") in leggi_delivery(mut)["req"], \
+            "passo 3: senza disgiunzione i required di Numeric devono tornare obblighi"
+        assert sha(rif) != sha(mut), "passo 4"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D11", "la guardia condizionale per intero, e il const mai come vincolo di state")
+def d11():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        B = leggi_delivery(c)
+        guardie = [v for p, n, campo, v in B["cond_obl"] + B["cond_div"]
+                   if n == "source_id" and campo == "why"]
+        assert len(guardie) == 2 and all(v == tuple(SETTE) for v in guardie), \
+            f"guardia non resa per intero: {guardie}"
+        stati = [v for p, v in B["enum_pos"] if p.endswith("[]/state")]
+        assert all(set(v) == {"VERIFIED", "ESTIMATED", "HYPOTHESIS", "UNKNOWN"} for v in stati), \
+            f"state non porta i quattro stati: {stati}"
+        assert "const" not in c, "un const e' comparso nella delivery"
+        rif = c
+        muta_json(s, "core.schema.json", lambda o: o["$defs"]["UnreachableSource"]["allOf"][0]
+                  ["if"]["properties"]["why"].__setitem__("enum", SETTE[:1]))
+        _, mut = cc.compila_viste("evidence-researcher", s)
+        g2 = [v for p, n, campo, v in leggi_delivery(mut)["cond_obl"]
+              + leggi_delivery(mut)["cond_div"] if n == "source_id"]
+        assert all(v != tuple(SETTE) for v in g2), "passo 3: la guardia troncata non e' scomparsa"
+        assert sha(rif) != sha(mut), "passo 4"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D12", "il tipo di radice, nella vista audit")
+def d12():
+    d, s = copia_schemi()
+    try:
+        audit, _ = cc.compila_viste("evidence-researcher", s)
+        riga = "`(radice dell'artefatto)`   ASSERITO   obbligatorio · object"
+        testa = audit.split("## ", 1)[0]
+        assert riga in testa, "la radice non e' dichiarata object, o non sta in testata"
+        assert riga not in sezione(audit, "Struttura obbligatoria"), (
+            "la riga di radice sta in «Struttura obbligatoria»: il parser obblighi() la "
+            "leggerebbe come un figlio fittizio")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("D13", "budget di crescita: la delivery non supera 4 784 byte senza dichiararlo")
+def d13():
+    d, s = copia_schemi()
+    try:
+        _, c = cc.compila_viste("evidence-researcher", s)
+        assert budget_delivery(c) is None, budget_delivery(c)
+        # controprova: gonfiata, il messaggio di sforamento nomina lo scarto e le voci.
+        # Lo scarto atteso e' calcolato dalla misura corrente, non da un letterale: la prova
+        # deve sopravvivere a una crescita legittima entro il budget.
+        n0 = len(c.encode("utf-8"))
+        msg = budget_delivery(c + "x" * 500)
+        assert msg and ("sforato di %d" % (n0 + 500 - 4784)) in msg \
+            and "testa" in msg and "COND" in msg, msg
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
