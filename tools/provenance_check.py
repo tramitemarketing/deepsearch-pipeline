@@ -151,6 +151,12 @@ def main(argv=None):
     ap.add_argument("--audit", default=None)
     ap.add_argument("--delivery", default=None)
     ap.add_argument("--prompt-consegnato", default=None)
+    ap.add_argument("--mandato", nargs="*", default=[], metavar="PERCORSO",
+                    help="i mandati per istanza: registrati nel manifesto con pain_id, channel, "
+                         "percorso, digest e dimensione")
+    ap.add_argument("--pagine", nargs="*", default=[], metavar="PERCORSO",
+                    help="eventuali pagine consegnate all'agente: registrate, mai verificate "
+                         "contro un blob (sono artefatti del run)")
     ap.add_argument("--manifest", default=None)
     ap.add_argument("--config", default=None)
     a = ap.parse_args(argv)
@@ -214,8 +220,8 @@ def main(argv=None):
         raise AmbienteRotto(f"compilatore non importabile: {e}")
 
     # ------------------------------------------------------- la lista dei componenti
-    componenti = list(a.componente)
-    componenti.append(a.config if a.config else "config/deepsearch.config.json")
+    componenti = [(rel, "componente") for rel in a.componente]
+    componenti.append((a.config if a.config else "config/deepsearch.config.json", "config"))
     if a.agente:
         if a.agente not in mapping:
             raise ViolazioneProvenienza(f"mapping agente→schema mancante: {a.agente}")
@@ -224,8 +230,8 @@ def main(argv=None):
             raise ViolazioneProvenienza(
                 f"mapping agente→schema differente: il config dichiara {schema_agente}, "
                 f"il compilatore {cc.SCHEMA_PER_AGENTE[a.agente]}")
-        componenti.append(f".claude/agents/{a.agente}.md")
-        componenti.append(f"schemas/{schema_agente}")
+        componenti.append((f".claude/agents/{a.agente}.md", "prompt_base"))
+        componenti.append((f"schemas/{schema_agente}", "schema"))
         percorso_schema = os.path.join(radice, "schemas", schema_agente)
         try:
             with open(percorso_schema, encoding="utf-8") as f:
@@ -235,11 +241,12 @@ def main(argv=None):
         for f in sorted(refs_esterni(doc)):
             if not re.match(r"^[\w.-]+$", f):
                 raise AmbienteRotto(f"chiusura $ref non risolvibile: {f}")
-            componenti.append(f"schemas/{f}")
-        componenti.append("tools/contract_compile.py")
+            componenti.append((f"schemas/{f}", "schema"))
+        componenti.append(("tools/contract_compile.py", "compilatore"))
     visti = set()
     registro = []
-    for rel in componenti:
+    prompt_base = None
+    for rel, ruolo in componenti:
         if rel in visti:
             continue
         visti.add(rel)
@@ -265,13 +272,18 @@ def main(argv=None):
         if not identico_al_blob(grezzi, normalizzati, blob):
             raise ViolazioneProvenienza(
                 f"blob diverso: {rel} non e' byte-identico al commit dichiarato")
-        registro.append({
+        voce = {
             "percorso": blob_rel,
+            "ruolo": ruolo,
             "sha256_grezzo": sha256_di(grezzi),
             "sha256_normalizzato": sha256_di(normalizzati),
             "dimensione": len(grezzi),
             "identico_al_blob": True,
-        })
+        }
+        if ruolo == "prompt_base":
+            prompt_base = voce
+        else:
+            registro.append(voce)
 
     # ------------------------------------------------------- le viste del contratto
     contratti = []
@@ -322,19 +334,67 @@ def main(argv=None):
                 raise ViolazioneProvenienza("giunzione non canonica o contenuto estraneo")
 
     # ------------------------------------------------------- il manifesto, solo a fine verifiche
-    compilatore = registro[[c["percorso"] for c in registro].index("tools/contract_compile.py")] \
-        if any(c["percorso"] == "tools/contract_compile.py" for c in registro) else None
+    comp = next((c for c in registro if c["percorso"] == "tools/contract_compile.py"), None)
+    if comp is None:
+        b = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "contract_compile.py"), "rb").read()
+        comp = {"percorso": "tools/contract_compile.py", "sha256_grezzo": sha256_di(b),
+                "dimensione": len(b)}
+    compilatore = {"percorso": comp["percorso"], "ruolo": "compilatore",
+                   "versione": cc.VERSIONE, "sha256": comp["sha256_grezzo"],
+                   "dimensione": comp["dimensione"]}
+    mandati = []
+    for mp in a.mandato:
+        try:
+            with open(mp, "rb") as f:
+                mand = json.loads(f.read().decode("utf-8"))
+        except (OSError, ValueError) as e:
+            raise AmbienteRotto(f"mandato illeggibile: {mp} — {e}")
+        pain_id = (mand.get("pain") or {}).get("id")
+        channel = mand.get("channel")
+        if not pain_id or not channel:
+            raise AmbienteRotto(f"mandato senza pain.id o channel: {mp}")
+        b = open(mp, "rb").read()
+        p = os.path.realpath(os.path.abspath(mp))
+        rel = os.path.relpath(p, radice).replace(os.sep, "/")
+        if rel.startswith(".."):
+            rel = p
+        mandati.append({"pain_id": pain_id, "channel": channel, "percorso": rel,
+                        "sha256": sha256_di(b), "dimensione": len(b), "ruolo": "mandato"})
+    pagine = []
+    for pp in a.pagine:
+        if not os.path.exists(pp):
+            raise AmbienteRotto(f"pagina inesistente: {pp}")
+        b = open(pp, "rb").read()
+        p = os.path.realpath(os.path.abspath(pp))
+        rel = os.path.relpath(p, radice).replace(os.sep, "/")
+        if rel.startswith(".."):
+            rel = p
+        pagine.append({"percorso": rel, "sha256": sha256_di(b), "dimensione": len(b),
+                       "ruolo": "pagina"})
+    prompt_finale = None
+    if a.prompt_consegnato is not None:
+        b = open(a.prompt_consegnato, "rb").read()
+        p = os.path.realpath(os.path.abspath(a.prompt_consegnato))
+        rel = os.path.relpath(p, radice).replace(os.sep, "/")
+        if rel.startswith(".."):
+            rel = p
+        prompt_finale = {"percorso": rel, "ruolo": "prompt_finale",
+                         "sha256": sha256_di(b), "dimensione": len(b)}
     manifesto = {
         "provenance_check_version": VERSIONE,
         "commit": a.commit,
         "radice_canonica": radice,
-        "compiler_version": cc.VERSIONE,
-        "compiler_sha256": compilatore["sha256_grezzo"] if compilatore else sha256_di(
-            open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              "contract_compile.py"), "rb").read()),
+        "compilatore": compilatore,
         "mapping_agente_schema": mapping,
         "componenti": registro,
+        "prompt_base": prompt_base,
         "contratti": contratti,
+        "prompt_finale": prompt_finale,
+        "mandati": mandati,
+        "pagine": pagine,
+        "_nota": "prompt_finale e' la sola composizione contrattuale norm(base)+giunzione+delivery; "
+                "il mandato dinamico sta nelle voci «mandati», le pagine nelle voci «pagine».",
     }
     testo = json.dumps(manifesto, ensure_ascii=False, indent=2) + "\n"
     if a.manifest:

@@ -8,13 +8,13 @@ guardando il manifesto, perche' i due manifesti hanno lo stesso aspetto. Si dimo
 costruendo repository ISOLATI in directory temporanee e pretendendo l'arresto nominato: nessun
 repository reale viene mai toccato, nessuna directory di run viene mai creata.
 
-VENTIDUE PROVE (P0 cammino felice + P1..P21). Le falsificazioni seguono il registro del
+VENTICINQUE PROVE (P0 cammino felice + P1..P24). Le falsificazioni seguono il registro del
 progetto: ogni violazione ha un errore NOMINATO e un exit code preciso (1 = violazione di
-provenienza), e la prova asserisce entrambi. Le mutazioni che devono far cadere il rivelatore
-girano su COPIE del tool in temp, mai sul file del repository.
+provenienza, 3 = ambiente rotto), e la prova asserisce entrambi. Le mutazioni che devono far
+cadere il rivelatore girano su COPIE del tool in temp, mai sul file del repository.
 
   uso:  python tools/provenance_check_selftest.py
-        exit 0 = tutte e ventidue verdi
+        exit 0 = tutte e venticinque verdi
 """
 import hashlib, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -174,24 +174,32 @@ def p0():
         assert b.endswith(b"\n"), "il manifesto non ha l'unica newline finale"
         m = json.loads(b.decode("utf-8"))
         assert m["commit"] == commit and m["radice_canonica"] == os.path.realpath(root)
-        assert re.fullmatch(r"[0-9a-f]{64}", m["compiler_sha256"])
-        assert m["compiler_version"] and m["mapping_agente_schema"] == \
+        assert re.fullmatch(r"[0-9a-f]{64}", m["compilatore"]["sha256"])
+        assert m["compilatore"]["versione"] and m["compilatore"]["ruolo"] == "compilatore" \
+            and m["compilatore"]["dimensione"] > 0
+        assert m["mapping_agente_schema"] == \
             {"evidence-researcher": "evidence-pack.schema.json"}
         percorsi = [c["percorso"] for c in m["componenti"]]
         assert "schemas/core.schema.json" in percorsi and \
             "config/deepsearch.config.json" in percorsi and \
             "tools/contract_compile.py" in percorsi, f"componenti incompleti: {percorsi}"
         for c in m["componenti"]:
+            assert c["ruolo"] in ("schema", "config", "compilatore", "componente"), c
             assert re.fullmatch(r"[0-9a-f]{64}", c["sha256_grezzo"])
             assert re.fullmatch(r"[0-9a-f]{64}", c["sha256_normalizzato"])
             assert c["identico_al_blob"] is True and c["dimensione"] > 0
             assert "\\" not in c["percorso"], "percorso non canonico (separatori di piattaforma)"
+        assert m["prompt_base"]["ruolo"] == "prompt_base" and \
+            m["prompt_base"]["identico_al_blob"] is True
+        assert m["prompt_base"]["percorso"] == ".claude/agents/evidence-researcher.md"
         assert isinstance(m["contratti"], list) and len(m["contratti"]) == 2, \
             "i contratti non sono una collezione di due viste"
         viste_let = {c["vista"] for c in m["contratti"]}
         assert viste_let == {"audit", "delivery"}, viste_let
         for c in m["contratti"]:
             assert re.fullmatch(r"[0-9a-f]{64}", c["sha256"]) and c["dimensione"] > 0
+        assert m["pagine"] == [] and m["mandati"] == [], \
+            "le voci del run devono essere vuote senza input"
         residui = [f for f in os.listdir(out) if f != "manifest.json" and "tmp" in f]
         assert not residui, f"residui temporanei accanto al manifesto: {residui}"
     finally:
@@ -705,6 +713,67 @@ def p21():
         assert codice == 1 and "fuori repository" in err, (codice, err)
         shutil.rmtree(root, ignore_errors=True)
     finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("P22", "un mandato illeggibile o senza pain/channel: arresto nominato")
+def p22():
+    root, commit = repo_fixture()
+    out = tempfile.mkdtemp(prefix="pc-out-")
+    try:
+        v = viste(root, commit, out)
+        m = os.path.join(out, "mandato.json")
+        open(m, "w", encoding="utf-8").write("{ non-json")
+        codice, _, err = esegui(root, "--radice-da", radice_da(root), "--commit", commit,
+                                "--agente", "evidence-researcher", "--audit", v["audit"],
+                                "--delivery", v["delivery"], "--mandato", m)
+        assert codice == 3 and "mandato illeggibile" in err, (codice, err)
+        open(m, "w", encoding="utf-8").write('{"run_id": "x"}')
+        codice, _, err = esegui(root, "--radice-da", radice_da(root), "--commit", commit,
+                                "--agente", "evidence-researcher", "--audit", v["audit"],
+                                "--delivery", v["delivery"], "--mandato", m)
+        assert codice == 3 and "mandato" in err, (codice, err)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("P23", "una pagina dichiarata ma inesistente: arresto nominato")
+def p23():
+    root, commit = repo_fixture()
+    out = tempfile.mkdtemp(prefix="pc-out-")
+    try:
+        v = viste(root, commit, out)
+        codice, _, err = esegui(root, "--radice-da", radice_da(root), "--commit", commit,
+                                "--agente", "evidence-researcher", "--audit", v["audit"],
+                                "--delivery", v["delivery"], "--pagine",
+                                os.path.join(out, "pagina-inesistente.txt"))
+        assert codice == 3 and "pagina inesistente" in err, (codice, err)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("P24", "un prompt finale manomesso: la composizione non regge, arresto")
+def p24():
+    root, commit = repo_fixture()
+    out = tempfile.mkdtemp(prefix="pc-out-")
+    try:
+        v = viste(root, commit, out)
+        pc = os.path.join(out, "consegnato.txt")
+        open(pc, "wb").write(consegnato(root, commit, out))
+        codice, _, err = esegui(root, "--radice-da", radice_da(root), "--commit", commit,
+                                "--agente", "evidence-researcher", "--audit", v["audit"],
+                                "--delivery", v["delivery"], "--prompt-consegnato", pc)
+        assert codice == 0, f"cammino felice non passa: {err}"
+        b = open(pc, "rb").read()
+        open(pc, "wb").write(b + b"\n// manomesso\n")
+        codice, _, err = esegui(root, "--radice-da", radice_da(root), "--commit", commit,
+                                "--agente", "evidence-researcher", "--audit", v["audit"],
+                                "--delivery", v["delivery"], "--prompt-consegnato", pc)
+        assert codice == 1, (codice, err)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
         shutil.rmtree(out, ignore_errors=True)
 
 

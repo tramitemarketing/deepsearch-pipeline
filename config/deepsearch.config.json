@@ -1057,6 +1057,10 @@
       "M0.1-R2-WORKTREE"
     ],
     "_radici_vietate_nota": "I basenomi di albero che NON possono alimentare un run canonico, letti da provenance_check. Confronto ESATTO sul basename della radice derivata, mai percorsi assoluti della macchina (una lista di percorsi assoluti non e' portabile e il controllo ne dipenderebbe: condizione d'arresto del mandato). Aggiungere qui un nome e' il gesto deliberato con cui si dichiara vietato un altro albero. La radice canonica e' identificata per contenimento — l'albero versionato che contiene il prompt in esecuzione — e il nome di quell'albero NON puo' stare in questa lista.",
+    "agenti_con_delivery": [
+      "evidence-researcher"
+    ],
+    "_agenti_con_delivery_nota": "Gli agenti il cui prompt base NON porta i vincoli strutturali: li riceve dalla vista delivery in coda al contesto (M3). SC-15 verifica questi agenti sul testo base+delivery (delivery generata dal compilatore), e SC-30 pretende che il base non reintroduca i listati manuali rimossi. Svuotare la lista non spegne nulla: SC-15 torna a guardare il base nudo, che per un agente redatto va subito rosso. Aggiungere un agente qui prima che la sua consegna esista fa ERRARE SC-15: e' la catena rotta che non deve mai tacere.",
     "schema_per_agente": [
       {
         "schema": "pain.schema.json",

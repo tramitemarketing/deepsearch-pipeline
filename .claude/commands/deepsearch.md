@@ -54,8 +54,11 @@ peggio del non averli: hanno la forma di dati validi.
    verificato e non soltanto scritto.
 4. **Soltanto dopo** si crea la directory del run: le scritture seguono la provenienza
    verificata, mai il contrario.
-5. **Soltanto nella futura micro-slice di consegna** si compone e si consegna il prompt
-   all'agente: non in questa fase, e nessuna invocazione reale di agenti prima di allora.
+5. **Composizione e consegna del prompt all'agente** — per `evidence-researcher` segue l'ordine
+   in sette passi della WAVE 2 (compilazione in memoria, verifica, scritture atomiche,
+   verifica post-scrittura, invocazione); nessuna invocazione di agenti prima che il manifesto
+   copra tutti gli artefatti, e il replay dei cinque canali richiede un'autorizzazione
+   separata.
 
 ---
 
@@ -404,6 +407,27 @@ Salva in `runs/<run_id>/01-pains/`.
 
 Per **ciascuno** dei pain selezionati, lancia **5 istanze di evidence-researcher in parallelo**, una
 per canale: `normativa`, `statistica_ufficiale`, `community`, `pricing_mercato`, `trend_adozione`.
+
+**Consegna del contratto a `evidence-researcher` — ordine vincolante, prima di ogni invocazione:**
+
+1. **Provenienza degli input** — `provenance_check` sul commit dichiarato; solo l'uscita 0
+   autorizza a proseguire.
+2. **Compilazione in memoria** — le viste audit e delivery, dalla stessa compilazione.
+3. **Verifica in memoria** — doppia compilazione con confronto hash e legame fra la delivery e
+   l'hash della audit, prima di scrivere qualunque file.
+4. **Sottodirectory del pain** — `runs/<run_id>/02-evidence/<pain>/`, solo dopo i passi 1–3.
+5. **Scritture atomiche** — `contract_compile --consegna` scrive, sotto `_contracts/`,
+   `_prompts/` e `02-evidence/<pain>/`, ogni file con sostituzione atomica: mai un artefatto
+   parziale con nome definitivo.
+6. **Verifica post-scrittura** — `provenance_check --manifest` sui file appena scritti:
+   l'hash registrato e' l'hash del file su disco, non quello atteso.
+7. **Invocazione dell'agente** — solo con tutti i passi verdi: il task dell'istanza e' il
+   mandato piu' la giunzione piu' la delivery, con la delivery **copiata byte-per-byte dal file
+   verificato** — mai riscritta ne' parafrasata. La delivery e' l'ultimo blocco del contesto.
+
+Un sottoinsieme di questi file non e' mai un run valido: il run e' valido solo quando il
+manifesto esiste e copre tutti gli artefatti. Il replay dei cinque canali del contratto
+consegnato richiede un'autorizzazione separata e NON fa parte di questa wave.
 
 Rispetta `config.parallelism.max_concurrent_subagents` (8): elabora i pain a lotti, ma **non
 aspettare che tutti i pain finiscano la wave 2 prima di far partire la wave 3 su quelli gia'

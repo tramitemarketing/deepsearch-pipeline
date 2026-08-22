@@ -7,17 +7,18 @@ essere una pagina plausibile che ha perso meta' degli obblighi in silenzio: la d
 ispezionabile leggendo l'output, perche' un contratto incompleto ha lo stesso aspetto di uno
 completo. Si dimostra solo mutando gli schemi e pretendendo che il contratto cambi.
 
-TRENTASETTE PROVE: le ventiquattro di M1 (F1-F24) e le tredici della vista delivery (D1-D13).
-Le F restano identiche: la vista audit cambia solo per la riga di radice in testata (D12), che
-nessuna F legge. Delle F, F22, F23 e F24 nacquero ciascuna da un difetto visto passare verde:
-F22 dalla prosa persa dalle posizioni d'elemento; F23 dalla guardia condizionale troncata, che
-faceva dichiarare al contratto una regola FALSA; F24 dalle rese — maxLength, nullable, tipo degli
-elementi, sezioni — che nessuna mutazione di schema tocca, perche' a cambiare non e' lo schema ma
-il renditore. Le D hanno la stessa forma vincolata: le proprieta' derivate dagli schemi si
-falsificano per mutazione in quattro passi (riferimento contiene la voce; i byte mutati cambiano;
-ricompilazione senza la voce; hash diversi); le proprieta' del renditore si asseriscono sul testo
-riletto, mai sul camminatore del compilatore — il riferimento di D1 e' estratto dagli SCHEMI con
-un camminatore indipendente, mai dalla vista audit.
+CINQUANTUNO PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
+le quattordici della consegna M3 (E1-E13 + E7bis). Le F restano identiche: la vista audit cambia
+solo per la riga di radice in testata (D12), che nessuna F legge. Delle F, F22, F23 e F24
+nacquero ciascuna da un difetto visto passare verde: F22 dalla prosa persa dalle posizioni
+d'elemento; F23 dalla guardia condizionale troncata, che faceva dichiarare al contratto una
+regola FALSA; F24 dalle rese — maxLength, nullable, tipo degli elementi, sezioni — che nessuna
+mutazione di schema tocca, perche' a cambiare non e' lo schema ma il renditore. Le D e le E
+hanno la stessa forma vincolata: le proprieta' derivate dagli schemi si falsificano per
+mutazione in quattro passi (riferimento contiene la voce; i byte mutati cambiano;
+ricompilazione senza la voce; hash diversi); le proprieta' del renditore si asseriscono sul
+testo riletto, mai sul camminatore del compilatore — il riferimento di D1 e' estratto dagli
+SCHEMI con un camminatore indipendente, mai dalla vista audit.
 
 Le prove a mutazione seguono quattro passi: si compila il riferimento e si asserisce che CONTIENE
 la voce; si muta e si asserisce che i BYTE del file mutato sono cambiati (una mutazione a vuoto e'
@@ -34,7 +35,7 @@ casi di questo corpus lo impongono, e ognuno ha gia' prodotto un falso rosso in 
   - togliere un nome da un required non toglie il campo: finisce fra gli opzionali.
 
   uso:  python tools/contract_compile_selftest.py
-        exit 0 = tutte e trentasette verdi
+        exit 0 = tutte e cinquantuno verdi
 """
 import hashlib, inspect, io, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -1421,6 +1422,359 @@ def d13():
             and "testa" in msg and "COND" in msg, msg
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# ------------------------------------------------------------------ E1 … E13 (consegna, M3)
+
+def fixture_consegna(marcatore=None):
+    """Un repository usa-e-getta col layout minimo per la consegna: schemi veri, prompt base
+    REALE (il file redatto del repo), copie del compilatore e di provenance_check, git locale.
+    La directory del run e' una temp dir separata: nessun `runs/` reale viene mai toccato.
+    `marcatore` rende il commit diverso da quello di un fixture gemello."""
+    d = tempfile.mkdtemp(prefix="cc-consegna-")
+    root = os.path.join(d, "repo")
+    os.makedirs(os.path.join(root, "schemas"))
+    os.makedirs(os.path.join(root, ".claude", "agents"))
+    os.makedirs(os.path.join(root, "config"))
+    os.makedirs(os.path.join(root, "tools"))
+    for nome in ("evidence-pack.schema.json", "core.schema.json"):
+        shutil.copy(os.path.join(SCHEMI, nome), os.path.join(root, "schemas", nome))
+    shutil.copy(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                os.path.join(root, ".claude", "agents", "evidence-researcher.md"))
+    with open(os.path.join(root, "config", "deepsearch.config.json"), "w",
+              encoding="utf-8", newline="\n") as f:
+        json.dump({"verifica_specifica": {
+            "radici_vietate": [],
+            "schema_per_agente": [
+                {"schema": "evidence-pack.schema.json", "agente": "evidence-researcher"}]}},
+            f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    if marcatore is not None:
+        open(os.path.join(root, "marcatore.txt"), "w", encoding="utf-8").write(marcatore + "\n")
+    for nome in ("contract_compile.py", "provenance_check.py"):
+        shutil.copy(os.path.join(QUI, nome), os.path.join(root, "tools", nome))
+
+    def g(*args):
+        r = subprocess.run(["git", "-C", root] + list(args), capture_output=True, timeout=120)
+        assert r.returncode == 0, f"git {args}: {r.stderr.decode('utf-8', 'replace')}"
+        return r
+    g("init")
+    for k, v in (("core.autocrlf", "false"), ("core.safecrlf", "false")):
+        g("config", k, v)
+    g("add", "-A")
+    g("-c", "user.name=selftest", "-c", "user.email=selftest@locale", "commit", "-m", "fixture")
+    commit = g("rev-parse", "HEAD").stdout.decode().strip()
+    return d, root, commit
+
+
+def consegna(root, commit, dir_run, mandati=()):
+    r = subprocess.run(
+        [sys.executable, os.path.join(root, "tools", "contract_compile.py"),
+         "--agente", "evidence-researcher", "--schemi", os.path.join(root, "schemas"),
+         "--commit", commit, "--consegna", dir_run]
+        + (["--mandato"] + list(mandati) if mandati else []),
+        capture_output=True, timeout=180)
+    return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace")
+
+
+def provenance(root, commit, *args):
+    r = subprocess.run(
+        [sys.executable, os.path.join(root, "tools", "provenance_check.py"),
+         "--radice-da", os.path.join(root, ".claude", "agents", "evidence-researcher.md"),
+         "--commit", commit] + list(args),
+        capture_output=True, timeout=180)
+    return r.returncode, r.stdout.decode("utf-8", "replace"), r.stderr.decode("utf-8", "replace")
+
+
+def mandato(root, pain_id="P-003", channel="normativa"):
+    p = os.path.join(root, f"mandato-{channel}.json")
+    with open(p, "w", encoding="utf-8", newline="\n") as f:
+        json.dump({"run_id": "20260822-0000", "pain": {"id": pain_id}, "channel": channel,
+                   "evidence_seeds": [], "budget": {"searches": 8, "fetches": 16}}, f,
+                  ensure_ascii=False, indent=2)
+        f.write("\n")
+    return p
+
+
+@prova("E1", "il prompt finale e' norm(base) + giunzione + delivery, nell'ordine esatto")
+def e1():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        base = open(os.path.join(root, ".claude", "agents", "evidence-researcher.md"),
+                    "rb").read()
+        consegnato = open(os.path.join(out, "_prompts", "evidence-researcher.md"), "rb").read()
+        delivery = open(os.path.join(out, "_contracts", "evidence-researcher.delivery.txt"),
+                        "rb").read()
+        assert consegnato == base.replace(b"\r\n", b"\n").rstrip(b"\n") + b"\n" \
+            + b"\n\n---\n\n" + delivery, "ordine o contenuto del prompt finale sbagliati"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E2", "la giunzione e' byte-esatta e la delivery e' l'ultimo blocco")
+def e2():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        consegnato = open(os.path.join(out, "_prompts", "evidence-researcher.md"), "rb").read()
+        delivery = open(os.path.join(out, "_contracts", "evidence-researcher.delivery.txt"),
+                        "rb").read()
+        base = open(os.path.join(root, ".claude", "agents", "evidence-researcher.md"),
+                    "rb").read().replace(b"\r\n", b"\n").rstrip(b"\n") + b"\n"
+        assert consegnato == base + b"\n\n---\n\n" + delivery, \
+            "la giunzione non e' byte-esatta (o la composizione non e' quella prescritta)"
+        assert consegnato.endswith(delivery), "la delivery non e' l'ultimo blocco del documento"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E3", "il prompt finale e' ricostruibile dai suoi componenti")
+def e3():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        base = open(os.path.join(root, ".claude", "agents", "evidence-researcher.md"),
+                    "rb").read().replace(b"\r\n", b"\n").rstrip(b"\n") + b"\n"
+        delivery = open(os.path.join(out, "_contracts", "evidence-researcher.delivery.txt"),
+                        "rb").read()
+        consegnato = open(os.path.join(out, "_prompts", "evidence-researcher.md"), "rb").read()
+        assert consegnato == base + b"\n\n---\n\n" + delivery
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E4", "le scritture sono atomiche: mai file parziali con nome definitivo")
+def e4():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        for p in ("_contracts/evidence-researcher.audit.md",
+                  "_contracts/evidence-researcher.delivery.txt",
+                  "_prompts/evidence-researcher.md"):
+            f = os.path.join(out, *p.split("/"))
+            b = open(f, "rb").read()
+            assert b.endswith(b"\n"), f"{p} troncato o senza newline finale"
+            residui = [x for x in os.listdir(os.path.dirname(f))
+                       if x.startswith(".consegna-") and x.endswith(".tmp")]
+            assert not residui, f"residui temporanei accanto a {p}: {residui}"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E5", "i mandati finiscono nella sottodirectory del pain, atomici")
+def e5():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        m1 = mandato(root, pain_id="P-003", channel="normativa")
+        m2 = mandato(root, pain_id="P-003", channel="community")
+        codice, _, err = consegna(root, commit, out, mandati=(m1, m2))
+        assert codice == 0, f"uscita {codice}: {err}"
+        p = os.path.join(out, "02-evidence", "P-003", "mandato-normativa.json")
+        assert os.path.exists(p), "mandato normativa assente"
+        assert json.load(open(p, encoding="utf-8"))["channel"] == "normativa"
+        p2 = os.path.join(out, "02-evidence", "P-003", "mandato-community.json")
+        assert os.path.exists(p2), "mandato community assente"
+        assert json.load(open(p2, encoding="utf-8"))["channel"] == "community"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E6", "la doppia compilazione in memoria deve coincidere (determinismo della consegna)")
+def e6():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        for _ in range(2):
+            codice, _, err = consegna(root, commit, out)
+            assert codice == 0, f"uscita {codice}: {err}"
+        a = open(os.path.join(out, "_contracts", "evidence-researcher.audit.md"), "rb").read()
+        c = open(os.path.join(out, "_prompts", "evidence-researcher.md"), "rb").read()
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0
+        assert a == open(os.path.join(out, "_contracts", "evidence-researcher.audit.md"),
+                         "rb").read(), "due consegne, audit diversi"
+        assert c == open(os.path.join(out, "_prompts", "evidence-researcher.md"),
+                         "rb").read(), "due consegne, prompt diversi"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E7", "il base non contiene i due marker della sezione manuale rimossa")
+def e7():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    assert "| campo | dove | valori ammessi |" not in base, "la tabella manuale e' ricomparsa"
+    assert "mietitura_circolari_categoria" not in base, "l'enumerazione degli angoli e' ricomparsa"
+
+
+@prova("E7bis", "il base committato coincide con la redazione esatta: 12 958 byte, digest atteso")
+def e7bis():
+    b = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"), "rb").read()
+    b = b.replace(b"\r\n", b"\n")
+    assert len(b) == 12958, f"base {len(b)} byte, attesi 12 958: la redazione non e' quella esatta"
+    assert hashlib.sha256(b).hexdigest() == \
+        "1f7d8ba9fb3b19c3d16b5adbca9c66798932be54282455c3d0fff607e868f544", \
+        "il base e' cambiato rispetto alla redazione inchiodata: E7bis va riaperto deliberatamente"
+
+
+@prova("E8", "consegna senza la vista delivery: il preflight la pretende")
+def e8():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        codice, _, err = provenance(root, commit, "--agente", "evidence-researcher",
+                                    "--audit", os.path.join(out, "_contracts",
+                                                           "evidence-researcher.audit.md"))
+        assert codice == 1 and "viste incomplete" in err, (codice, err)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E9", "una delivery di un altro schema/agente non passa")
+def e9():
+    d, root, commit = fixture_consegna(marcatore="primo")
+    d2, root2, commit2 = fixture_consegna(marcatore="secondo")
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    out2 = tempfile.mkdtemp(prefix="cc-run2-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        # la delivery di UN ALTRO albero (altro commit, altra audit): il legame hash non regge
+        # e la ricompilazione dagli schemi verificati non la riproduce
+        codice, _, err = consegna(root2, commit2, out2)
+        assert codice == 0, f"uscita {codice}: {err}"
+        assert commit != commit2, "i due fixture hanno lo stesso commit: prova rotta"
+        codice, _, err = provenance(root, commit, "--agente", "evidence-researcher",
+                                    "--audit", os.path.join(out, "_contracts",
+                                                           "evidence-researcher.audit.md"),
+                                    "--delivery", os.path.join(
+                                        out2, "_contracts", "evidence-researcher.delivery.txt"))
+        assert codice == 1 and ("non coincidente" in err or "vista non riprodotta" in err), \
+            (codice, err)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(d2, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+        shutil.rmtree(out2, ignore_errors=True)
+
+
+@prova("E10", "audit e delivery non collegati non passano")
+def e10():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        audit_p = os.path.join(out, "_contracts", "evidence-researcher.audit.md")
+        delivery_p = os.path.join(out, "_contracts", "evidence-researcher.delivery.txt")
+        # si scollegano: la delivery dichiara un audit che non e' quello su disco
+        t = open(delivery_p, encoding="utf-8").read()
+        open(delivery_p, "w", encoding="utf-8", newline="\n").write(
+            t.replace(t.splitlines()[1], "audit sha256 " + "0" * 64, 1))
+        codice, _, err = provenance(root, commit, "--agente", "evidence-researcher",
+                                    "--audit", audit_p, "--delivery", delivery_p)
+        assert codice == 1 and "non coincidente" in err, (codice, err)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E11", "un prompt scritto parzialmente blocca la consegna: nessuna invocazione")
+def e11():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        prompt_p = os.path.join(out, "_prompts", "evidence-researcher.md")
+        b = open(prompt_p, "rb").read()
+        open(prompt_p, "wb").write(b[:len(b) // 2])          # troncato a meta'
+        codice, _, err = provenance(root, commit, "--agente", "evidence-researcher",
+                                    "--audit", os.path.join(out, "_contracts",
+                                                           "evidence-researcher.audit.md"),
+                                    "--delivery", os.path.join(
+                                        out, "_contracts", "evidence-researcher.delivery.txt"),
+                                    "--prompt-consegnato", prompt_p)
+        assert codice == 1, (codice, err)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E12", "la consegna non tenta rete: nessun import e nessun socket")
+def e12():
+    import socket
+    tentativi = []
+    vero = socket.socket.connect
+
+    def spia(self, *a, **k):
+        tentativi.append(a)
+        raise AssertionError("la consegna ha tentato una connessione")
+    socket.socket.connect = spia
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        assert not tentativi
+    finally:
+        socket.socket.connect = vero
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
+    for src in (os.path.join(QUI, "contract_compile.py"),
+                os.path.join(QUI, "provenance_check.py")):
+        testo = open(src, encoding="utf-8").read()
+        for lib in ("socket", "http", "urllib", "requests", "ftplib", "smtplib"):
+            assert not re.search(r"^\s*(import|from)\s+" + lib + r"\b", testo, re.M), \
+                f"{os.path.basename(src)} importa {lib}"
+
+
+@prova("E13", "il preflight verifica il prompt finale e lo registra nel manifesto")
+def e13():
+    d, root, commit = fixture_consegna()
+    out = tempfile.mkdtemp(prefix="cc-run-")
+    try:
+        codice, _, err = consegna(root, commit, out)
+        assert codice == 0, f"uscita {codice}: {err}"
+        audit_p = os.path.join(out, "_contracts", "evidence-researcher.audit.md")
+        delivery_p = os.path.join(out, "_contracts", "evidence-researcher.delivery.txt")
+        prompt_p = os.path.join(out, "_prompts", "evidence-researcher.md")
+        m1 = mandato(root)
+        manifesto = os.path.join(out, "manifest.json")
+        codice, _, err = provenance(root, commit, "--agente", "evidence-researcher",
+                                    "--audit", audit_p, "--delivery", delivery_p,
+                                    "--prompt-consegnato", prompt_p, "--mandato", m1,
+                                    "--manifest", manifesto)
+        assert codice == 0, f"uscita {codice}: {err}"
+        m = json.load(open(manifesto, encoding="utf-8"))
+        assert m["prompt_finale"]["sha256"] == hashlib.sha256(
+            open(prompt_p, "rb").read()).hexdigest()
+        assert m["mandati"][0]["pain_id"] == "P-003" and m["mandati"][0]["channel"] == "normativa"
+        assert all("ruolo" in c for c in m["componenti"])
+        assert m["prompt_base"]["ruolo"] == "prompt_base"
+        assert m["compilatore"]["ruolo"] == "compilatore" and m["compilatore"]["dimensione"] > 0
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(out, ignore_errors=True)
 
 
 # ------------------------------------------------------------------ esecuzione

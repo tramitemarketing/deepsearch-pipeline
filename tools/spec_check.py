@@ -960,6 +960,30 @@ def sc15_schema_verso_prompt(cfg, schemi):
                      "esenti verrebbe calcolato vuoto e ogni campo d'envelope sarebbe segnalato",
             "schemas")
 
+    con_delivery = set((cfg.get("verifica_specifica") or {}).get("agenti_con_delivery") or [])
+
+    def delivery_di(agente):
+        """La vista delivery generata dal compilatore, per un agente dichiarato 'con delivery'.
+
+        Una catena schema→delivery rotta e' un ERRORE, mai un silenzio: se la delivery non e'
+        generabile, il prompt consegnato non puo' esistere e nessun controllo statico deve
+        fingere il contrario. Il compilatore e' importato qui (stesso albero tools/, stdlib,
+        deterministico): nessuna rete, nessun jsonschema."""
+        try:
+            import contract_compile as cc
+        except Exception as e:
+            err("SC-15", f"compilatore non importabile per la verifica della delivery: {e}",
+                "tools")
+            return None
+        try:
+            _, consegna = cc.compila_viste(agente, os.path.join(ROOT, "schemas"),
+                                           "non-dichiarato")
+        except Exception as e:
+            err("SC-15", f"la delivery per {agente} non e' generabile: la catena "
+                         f"schema→delivery e' rotta ({type(e).__name__}: {e})", f"{agente}.md")
+            return None
+        return consegna
+
     def risolvi(nodo, corrente, giri=0):
         """Segue i `$ref` locali e verso altri schemi. I fratelli di un `$ref` in Draft 2020-12
         SI SOMMANO al referente invece di sostituirlo: e' il meccanismo su cui poggia
@@ -1024,20 +1048,37 @@ def sc15_schema_verso_prompt(cfg, schemi):
                 campi_chiusi(sub, corrente, percorso, fuori, prof + 1)
         return fuori
 
-    def vocabolario_del_prompt(testo):
+    def vocabolario_del_prompt(testo, con_delivery=False):
         """Identificatori che il prompt nomina COME CAMPI. Non `campo in testo`: la posizione
         lessicale distingue `dimensions` da `blocking_dimensions`.
 
         I percorsi puntati fra backtick contano per OGNI segmento: `summary.fabricated_sources`
         nomina sia `summary` sia `fabricated_sources`, e `payload.ranking[].grounded_questions`
         nomina anche `ranking`. Senza questa scomposizione il controllo sparava su campi che il
-        prompt documenta per esteso — ed e' il primo modo in cui un controllo si fa disattivare.
+        prompt documenta per esteso - ed e' il primo modo in cui un controllo si fa disattivare.
+
+        Con `con_delivery` (M3) il testo include la vista delivery, la cui grammatica non ha
+        backtick ne' blocchi json: si estraggono i NOMI DI RIGA dell'albero e i nomi di campo
+        dei percorsi della sezione COND. Nessuna esenzione per campo: la copertura passa per la
+        sola grammatica della delivery, altrimenti sarebbe la whitelist vietata.
         """
         v = set()
         for span in re.findall(r"`([^`\n]+)`", testo):
             v |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", span))
         for blocco in re.findall(r"```json(.*?)```", testo, re.S):
             v |= set(re.findall(r'"([A-Za-z_][A-Za-z0-9_]*)"\s*:', blocco))
+        if con_delivery:
+            for riga in testo.splitlines():
+                s = riga.lstrip(" ")
+                if s.startswith("!"):
+                    s = s[1:]
+                m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\b", s)
+                if m and m.group(1) != "radice":
+                    v.add(m.group(1))
+                if s[:1] in ("+", "-"):
+                    percorso = s[1:].split("|")[0]
+                    for seg in percorso.split("/"):
+                        v |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", seg))
         return v
 
     def insegna_i_valori(testo, vincolo):
@@ -1068,7 +1109,13 @@ def sc15_schema_verso_prompt(cfg, schemi):
                          "tacerebbe", "config.verifica_specifica")
             continue
         testo = leggi(p)
-        vocab = vocabolario_del_prompt(testo)
+        consegna = None
+        if agente in con_delivery:
+            consegna = delivery_di(agente)
+            if consegna is None:
+                continue
+            testo = testo + "\n\n---\n\n" + consegna
+        vocab = vocabolario_del_prompt(testo, con_delivery=consegna is not None)
         visti = set()
 
         # PASSO 1 — la garanzia originale, invariata nella portata: OGNI campo di
@@ -1877,6 +1924,36 @@ CONTROLLI = {
     "SC-28": ("quanti controlli dice di avere", lambda c, s, p: sc28_quanti_controlli_dice_di_avere(normativi(p) + pagine_pubblicate())),
     "SC-29": ("clausole di provenienza nell'orchestratore", lambda c, s, p: sc29_clausole_dell_orchestratore(c)),
 }
+
+
+# ---------------------------------------------------------------- SC-30
+def sc30_nessuna_duplicazione_manuale(cfg):
+    """Per gli agenti con delivery, il base non deve riportare i listati strutturali rimossi in
+    M3: sarebbero una SECONDA fonte manuale che puo' divergere dalla delivery, cioe' il difetto
+    che l'architettura esiste per eliminare. Gate NEGATIVO (assenza di due marker), con la via
+    d'uscita per riga IGNORA: un futuro testo di metodo legittimo che nomini quei token non deve
+    produrre un falso rosso. Una reintroduzione con marker alterati sfugge ai due gate: e' un
+    residuo dichiarato, non risolvibile senza una whitelist."""
+    con_delivery = set((cfg.get("verifica_specifica") or {}).get("agenti_con_delivery") or [])
+    for agente in sorted(con_delivery):
+        p = os.path.join(AGENTI, agente + ".md")
+        if not os.path.exists(p):
+            err("SC-30", f"agente con delivery inesistente: {agente}",
+                "config.verifica_specifica")
+            continue
+        for riga in leggi(p).splitlines():
+            if IGNORA in riga:
+                continue
+            for marker in ("| campo | dove | valori ammessi |", "mietitura_circolari_categoria"):
+                if marker in riga:
+                    err("SC-30", f"il base di {agente} reintroduce il listato strutturale "
+                                 f"rimosso in M3: «{marker}». E' la seconda fonte manuale che "
+                                 "la delivery ha sostituito", f"{agente}.md")
+                    break
+
+
+CONTROLLI["SC-30"] = ("nessuna duplicazione strutturale manuale con delivery",
+                      lambda c, s, p: sc30_nessuna_duplicazione_manuale(c))
 
 
 def main():

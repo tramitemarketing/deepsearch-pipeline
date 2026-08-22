@@ -33,9 +33,11 @@ ricorsione pura, e resta eseguibile su entrambe le piattaforme.
         python tools/contract_compile.py --agente evidence-researcher --schemi <dir>
         python tools/contract_compile.py --agente evidence-researcher --commit <sha>
         python tools/contract_compile.py --agente evidence-researcher --vista {audit,delivery}
+        python tools/contract_compile.py --agente evidence-researcher --consegna <dir> --commit <sha>
         exit 0 = contratto generato
              1 = errore di risoluzione   («gli schemi sono rotti»)
              2 = costrutto non compilabile («il compilatore va esteso»)
+             3 = consegna non riuscita   (verifica interna o scrittura fallita)
 
 I due codici sono distinti perche' confonderli fa aggiustare la cosa sbagliata.
 
@@ -47,7 +49,7 @@ manuale. La delivery porta come prima riga dati l'`sha256` della audit generata 
 nella stessa invocazione: e' il rinvio alla prosa, verificato da D3 e da provenance_check in M2.
 La vista audit dichiara il tipo della radice in testata (D12), cosa che M1 non faceva.
 """
-import argparse, hashlib, json, os, sys
+import argparse, hashlib, json, os, re, sys, tempfile
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):      # console Windows in cp1252: '·' e '←' fanno crashare
     try: _f.reconfigure(encoding="utf-8", errors="replace", newline="\n")
@@ -80,6 +82,10 @@ class ErroreRisoluzione(Exception):
 
 class CostruttoNonCompilabile(Exception):
     """Il compilatore va esteso: una forma di JSON Schema che questa versione non sa rendere."""
+
+
+class ErroreConsegna(Exception):
+    """La consegna (M3) non puo' completare: verifica interna non passata o scrittura fallita."""
 
 
 def leggi_normalizzato(percorso):
@@ -423,6 +429,86 @@ def compila_viste(agente, dir_schemi=None, commit="non-dichiarato"):
     return audit, rendi_delivery(agente, nome, voci, cond, sha_audit)
 
 
+# ------------------------------------------------------------------ consegna (M3)
+
+GIUNZIONE = "\n\n---\n\n"
+
+
+def norm_base(b):
+    """La normalizzazione del prompt base prima della giunzione (§8.5 punto 8): CRLF→LF ovunque,
+    esattamente UNA newline finale. La stessa regola che `provenance_check.norm` verifica."""
+    b = b.replace(b"\r\n", b"\n")
+    while b.endswith(b"\n\n"):
+        b = b[:-1]
+    if not b.endswith(b"\n"):
+        b += b"\n"
+    return b
+
+
+def _scrivi_atomico(percorso, testo):
+    d = os.path.dirname(percorso)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".consegna-", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(testo.encode("utf-8"))
+        os.replace(tmp, percorso)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def consegna(agente, dir_schemi, commit, dir_run, mandati=None):
+    """M3 passo 5: compila DUE volte in memoria, verifica, poi scrive — atomico, mai parziale.
+
+    L'ordine e' quello del piano: la doppia compilazione e il legame `audit sha256` sono
+    verificati PRIMA di creare qualunque file; ogni file viene scritto con temp+replace, quindi
+    nessun artefatto parziale puo' assumere la forma di un run valido. I mandati finiscono
+    sotto `02-evidence/<pain>/`, uno per canale.
+    """
+    if agente not in SCHEMA_PER_AGENTE:
+        raise CostruttoNonCompilabile(
+            f"agente fuori dal perimetro di M1: {agente} (previsto solo evidence-researcher)")
+    audit1, delivery1 = compila_viste(agente, dir_schemi, commit)
+    audit2, delivery2 = compila_viste(agente, dir_schemi, commit)
+    if audit1 != audit2 or delivery1 != delivery2:
+        raise ErroreConsegna("doppia compilazione divergente: determinismo violato")
+    righe = delivery1.split("\n")
+    m = re.fullmatch(r"audit sha256 ([0-9a-f]{64})", righe[1]) if len(righe) > 1 else None
+    sha_audit = hashlib.sha256(audit1.encode("utf-8")).hexdigest()
+    if m is None or m.group(1) != sha_audit:
+        raise ErroreConsegna("legame audit→delivery non verificato")
+    radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base = open(os.path.join(radice, ".claude", "agents", f"{agente}.md"), "rb").read()
+    prompt_finale = (norm_base(base) + GIUNZIONE.encode("utf-8")
+                     + delivery1.encode("utf-8")).decode("utf-8")
+    _scrivi_atomico(os.path.join(dir_run, "_contracts", f"{agente}.audit.md"), audit1)
+    _scrivi_atomico(os.path.join(dir_run, "_contracts", f"{agente}.delivery.txt"), delivery1)
+    _scrivi_atomico(os.path.join(dir_run, "_prompts", f"{agente}.md"), prompt_finale)
+    registrati = []
+    for mp in mandati or []:
+        try:
+            with open(mp, "rb") as f:
+                mand = json.loads(f.read().decode("utf-8"))
+        except (OSError, ValueError) as e:
+            raise ErroreConsegna(f"mandato illeggibile: {mp} — {e}")
+        pain_id = (mand.get("pain") or {}).get("id")
+        channel = mand.get("channel")
+        if not pain_id or not channel:
+            raise ErroreConsegna(f"mandato senza pain.id o channel: {mp}")
+        _scrivi_atomico(os.path.join(dir_run, "02-evidence", pain_id,
+                                     f"mandato-{channel}.json"),
+                        json.dumps(mand, ensure_ascii=False, indent=2) + "\n")
+        registrati.append({"pain_id": pain_id, "channel": channel})
+    return {"audit": os.path.join(dir_run, "_contracts", f"{agente}.audit.md"),
+            "delivery": os.path.join(dir_run, "_contracts", f"{agente}.delivery.txt"),
+            "prompt_finale": os.path.join(dir_run, "_prompts", f"{agente}.md"),
+            "mandati": registrati}
+
+
 # ------------------------------------------------------------------ resa
 
 def riga(v):
@@ -669,12 +755,24 @@ def main():
                     help="audit = contratto completo, persistito per-run e non consegnato al "
                          "modello (default); delivery = forma compatta C5d per il contesto del "
                          "modello, con l'hash della audit")
+    ap.add_argument("--consegna", default=None, metavar="DIR_RUN",
+                    help="M3: compila due volte in memoria, verifica il legame, scrive atomico "
+                         "audit, delivery, prompt finale e mandati sotto DIR_RUN")
+    ap.add_argument("--mandato", nargs="*", default=[], metavar="PERCORSO",
+                    help="con --consegna: i mandati per istanza da copiare sotto "
+                         "02-evidence/<pain>/")
     ap.add_argument("--commit", default="non-dichiarato",
                     help="registrato nell'intestazione. Il compilatore non lo LEGGE da git: "
                          "renderebbe l'uscita dipendente dallo stato del repository invece che "
                          "dai byte d'ingresso. Verificarlo e' compito di provenance_check.")
     a = ap.parse_args()
     try:
+        if a.consegna:
+            if not a.commit or a.commit == "non-dichiarato":
+                ap.error("--consegna richiede --commit")
+            t = consegna(a.agente, a.schemi, a.commit, a.consegna, a.mandato)
+            sys.stdout.write(json.dumps(t, ensure_ascii=False) + "\n")
+            return 0
         if a.vista == "delivery":
             t = compila_viste(a.agente, a.schemi, a.commit)[1]
         else:
@@ -694,4 +792,14 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except ErroreRisoluzione as e:
+        print(f"errore di risoluzione: {e}", file=sys.stderr)
+        sys.exit(1)
+    except CostruttoNonCompilabile as e:
+        print(f"costrutto non compilabile: {e}", file=sys.stderr)
+        sys.exit(2)
+    except ErroreConsegna as e:
+        print(f"consegna non riuscita: {e}", file=sys.stderr)
+        sys.exit(3)

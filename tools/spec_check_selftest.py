@@ -577,7 +577,7 @@ QUINTO_RUN = [
      "sommando i nuovi a una base contata male (SC-01..SC-24 invece di SC-00..SC-24). Nessun "
      "controllo poteva vederlo, perche' le pagine HTML erano fuori perimetro: erano l'unico "
      "artefatto pubblico che nessuno confrontava.",
-     patch_ovunque("index.html", "30 controlli", "27 controlli")),
+     patch_ovunque("index.html", "31 controlli", "27 controlli")),
 
     ("SC-27",
      "la deroga resta in config e l'agente non ha lo slot per dichiararla: E_IL_SISTEMA_DI_RECORD "
@@ -663,13 +663,45 @@ FALSIFICAZIONI_M02 = [
                   lambda d: d["properties"]["stage"]["enum"].remove("verify"))),
 
     ("SC-29",
-     "F7 — l'orchestratore perde la clausola che impone di fermarsi PRIMA di scrivere su una "
+     "F7 - l'orchestratore perde la clausola che impone di fermarsi PRIMA di scrivere su una "
      "provenienza non canonica. Senza SC-29 quella frase era prosa non falsificabile: "
      "cancellarla non produceva alcun segnale, ed e' la riparazione della causa per cui un run "
      "reale ha potuto comporre lo schema di una radice col prompt di un'altra.",
      patch_testo(".claude/commands/deepsearch.md",
                  "il run si ferma PRIMA di qualunque scrittura",
                  "il run prosegue annotando l'anomalia")),
+]
+
+
+# Corpus G: le falsificazioni della consegna M3. Per un agente con delivery la duplicazione
+# manuale dei vincoli e' una SECONDA fonte che puo' divergere (SC-30 deve essere rosso), e una
+# catena schema→delivery rotta non deve mai tacere (SC-15 deve ERRARE). La mutazione della
+# catena tocca uno schema: per gli agenti senza delivery SC-15 resta invariato.
+FALSIFICAZIONI_M03 = [
+    ("SC-30",
+     "M3 - la tabella manuale dei vocabolari chiusi reintrodotta nel base di un agente con "
+     "delivery: e' la seconda fonte manuale che l'architettura esiste per eliminare.",
+     patch_testo(".claude/agents/evidence-researcher.md",
+                 "## REGOLE CHE IL CONTRATTO NON DICE",
+                 "## VOCABOLARI CHIUSI - i valori che non puoi indovinare\n\n"
+                 "| campo | dove | valori ammessi |")),
+
+    ("SC-30",
+     "M3 - l'enumerazione manuale degli angoli reintrodotta nel base.",
+     patch_testo(".claude/agents/evidence-researcher.md",
+                 "Gli angoli ammessi sono nel CONTRATTO in coda",
+                 "Gli angoli ammessi sono normativa, statistica_ufficiale, competitor, pricing, "
+                 "community, trend_adozione, fallimenti_storici, job_posting, bilanci, recensioni, "
+                 "wayback, integrazioni, falsificazione, stagionalita, capitolati_e_bandi, "
+                 "mietitura_annunci, mietitura_marketplace_integrazioni, "
+                 "mietitura_forum_assistenza, mietitura_capitolati, "
+                 "mietitura_circolari_categoria")),
+
+    ("SC-15",
+     "M3 - la catena schema→delivery e' rotta: il $ref punta a una definizione inesistente e la "
+     "delivery non e' generabile. Per un agente con delivery SC-15 deve ERRARE, mai tacere.",
+     patch_testo("schemas/evidence-pack.schema.json", "core.schema.json#/$defs/Claim",
+                 "core.schema.json#/$defs/ClaimRotta")),
 ]
 
 
@@ -713,6 +745,7 @@ def main():
         ("D", "DIFETTI TROVATI DAL RUN REALE 20260802-1759", DAL_CAMPO),
         ("E", "DIFETTI DEL RUN 20260803 E DELLE LORO RIPARAZIONI", QUINTO_RUN),
         ("F", "FALSIFICAZIONI DELLA MICRO-SLICE DI COERENZA M0.2", FALSIFICAZIONI_M02),
+        ("G", "FALSIFICAZIONI DELLA CONSEGNA M3", FALSIFICAZIONI_M03),
     ]
     esiti = []
     for atteso, storia, muta in [m for _, _, c in CORPORA for m in c]:

@@ -29,7 +29,7 @@ Divieto lessicale assoluto: `opportunita'`, `promettente`, `interessante`, `enor
 {
   "run_id": "20260807",
   "pain": { },
-  "channel": "normativa | statistica_ufficiale | community | pricing_mercato | trend_adozione",
+  "channel": "<il tuo canale, dall'input>",
   "evidence_seeds": [ ],
   "budget": { "searches": 4 },
   "source_id_range": { "start": 1240, "end": 1259 }
@@ -138,7 +138,7 @@ Il campo `language_of_the_problem` e' obbligatorio per il canale `community` e s
 kill criterion G3: se il target non ha parole proprie per descrivere il problema, il mercato va
 educato, e in bootstrap non si puo'.
 
-**Campi obbligatori del `payload`** (lo schema li pretende tutti; ometterne uno fa fallire la validazione e manda l'idea in `PARKED` al secondo tentativo): `pain_id`, `channel`, `claims`, `q4_answer`, `coverage`.
+**Campi obbligatori del `payload`** — lo schema li pretende tutti e sono elencati nel CONTRATTO in coda: ometterne uno fa fallire la validazione e manda l'idea in `PARKED` al secondo tentativo.
 
 ## CRITERI DI SUCCESSO
 
@@ -194,19 +194,19 @@ pack su dieci fallivano la validazione. Ora l'etichetta c'e'.
 
 ---
 
-## VOCABOLARI CHIUSI — i valori che non puoi indovinare
+## REGOLE CHE IL CONTRATTO NON DICE
 
-Lo schema pretende questi campi e ne ammette **solo** i valori elencati. Non sono nomi che si
-deducono dal contesto: un valore fuori elenco fa fallire la validazione dell'intero artefatto, e il
-lavoro dello stage si perde a run avviato. Erano gia' obbligatori; qui sono scritti.
+I vincoli strutturali e i vocabolari chiusi dello schema sono nel CONTRATTO in coda a questo
+prompt: nomi, valori ammessi, pattern e limiti stanno li', e valgono come se fossero scritti
+qui. Qui restano le regole che il contratto non dice.
 
-| campo | dove | valori ammessi |
-|---|---|---|
-| `id` | `payload.claims[].id` | `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>` per `contradictory_evidence`. Il namespace e' **sempre** il secondo segmento e te lo assegna l'orchestratore. Nessun altro suffisso e' legale |
-| `snippet_source` | `payload.claims[].evidence[].snippet_source` | `SERP`, `FETCHED` |
-| `claim_id` | `payload.spend_evidence[].claim_id` | stessa forma di `payload.claims[].id`: e' un riferimento incrociato e deve risolvere a un claim che hai davvero emesso |
-| `spend_form` | `payload.spend_evidence[].spend_form` | `software`, `personale_interno`, `consulenza_esterna`, `penali_o_sanzioni`, `perdite_operative` |
-| `question_id` | `payload.q4_answer.question_id` | `Q1`, `Q2`, `Q3`, `Q4`, `Q5` — per te e' sempre `Q4` |
+**Tre regole che il contratto non dice.**
+
+| campo | regola |
+|---|---|
+| `id` dei claim | il namespace te lo assegna l'orchestratore nell'input: e' **sempre** il secondo segmento, e nessun suffisso oltre a `-contra-` e' legale |
+| `claim_id` | riferimento incrociato: deve risolvere a un claim che hai davvero emesso |
+| `question_id` | per te e' **sempre** `Q4` |
 
 **`promoted_by` e `promotion_rule_met` sono campi diversi e non si deducono l'uno dall'altro.**
 
@@ -234,8 +234,4 @@ significa «grandezza applicabile, valore non noto». Zero e' esclusivamente una
 **`queries_run[].angle` NON coincide con `channel`.** Sono due vocabolari distinti e il tuo canale
 non e' automaticamente un angolo legale. In particolare il canale `pricing_mercato` corrisponde
 all'angolo `pricing`: scrivere `pricing_mercato` in `angle` produce un errore per ogni query
-registrata. Gli angoli ammessi sono `normativa`, `statistica_ufficiale`, `competitor`, `pricing`,
-`community`, `trend_adozione`, `fallimenti_storici`, `job_posting`, `bilanci`, `recensioni`,
-`wayback`, `integrazioni`, `falsificazione`, `stagionalita`, `capitolati_e_bandi`,
-`mietitura_annunci`, `mietitura_marketplace_integrazioni`, `mietitura_forum_assistenza`,
-`mietitura_capitolati`, `mietitura_circolari_categoria`.
+registrata. Gli angoli ammessi sono nel CONTRATTO in coda.
