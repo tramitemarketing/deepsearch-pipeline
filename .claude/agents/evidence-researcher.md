@@ -204,7 +204,7 @@ qui. Qui restano le regole che il contratto non dice.
 
 | campo | regola |
 |---|---|
-| `id` dei claim | il namespace te lo assegna l'orchestratore nell'input: e' **sempre** il secondo segmento, e nessun suffisso oltre a `-contra-` e' legale |
+| `id` dei claim | la forma letterale e' `C-<namespace>-<nnn>`, oppure `C-<namespace>-contra-<nnn>` per `contradictory_evidence`: il namespace te lo assegna l'orchestratore nell'input, ed e' **sempre** il secondo segmento. Nessun suffisso oltre a `-contra-` e' legale |
 | `claim_id` | riferimento incrociato: deve risolvere a un claim che hai davvero emesso |
 | `question_id` | per te e' **sempre** `Q4` |
 

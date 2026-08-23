@@ -7,10 +7,10 @@ essere una pagina plausibile che ha perso meta' degli obblighi in silenzio: la d
 ispezionabile leggendo l'output, perche' un contratto incompleto ha lo stesso aspetto di uno
 completo. Si dimostra solo mutando gli schemi e pretendendo che il contratto cambi.
 
-CINQUANTUNO PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
-le quattordici della consegna M3 (E1-E13 + E7bis). Le F restano identiche: la vista audit cambia
-solo per la riga di radice in testata (D12), che nessuna F legge. Delle F, F22, F23 e F24
-nacquero ciascuna da un difetto visto passare verde: F22 dalla prosa persa dalle posizioni
+CINQUANTADUE PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
+le quindici della consegna M3/M3.1 (E1-E14 + E7bis). Le F restano identiche: la vista audit
+cambia solo per la riga di radice in testata (D12), che nessuna F legge. Delle F, F22, F23 e
+F24 nacquero ciascuna da un difetto visto passare verde: F22 dalla prosa persa dalle posizioni
 d'elemento; F23 dalla guardia condizionale troncata, che faceva dichiarare al contratto una
 regola FALSA; F24 dalle rese — maxLength, nullable, tipo degli elementi, sezioni — che nessuna
 mutazione di schema tocca, perche' a cambiare non e' lo schema ma il renditore. Le D e le E
@@ -35,7 +35,7 @@ casi di questo corpus lo impongono, e ognuno ha gia' prodotto un falso rosso in 
   - togliere un nome da un required non toglie il campo: finisce fra gli opzionali.
 
   uso:  python tools/contract_compile_selftest.py
-        exit 0 = tutte e cinquantuno verdi
+        exit 0 = tutte e cinquantadue verdi
 """
 import hashlib, inspect, io, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -1623,13 +1623,13 @@ def e7():
     assert "mietitura_circolari_categoria" not in base, "l'enumerazione degli angoli e' ricomparsa"
 
 
-@prova("E7bis", "il base committato coincide con la redazione esatta: 12 958 byte, digest atteso")
+@prova("E7bis", "il base committato coincide con la redazione esatta: 13 070 byte, digest atteso")
 def e7bis():
     b = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"), "rb").read()
     b = b.replace(b"\r\n", b"\n")
-    assert len(b) == 12958, f"base {len(b)} byte, attesi 12 958: la redazione non e' quella esatta"
+    assert len(b) == 13070, f"base {len(b)} byte, attesi 13 070: la redazione non e' quella esatta"
     assert hashlib.sha256(b).hexdigest() == \
-        "1f7d8ba9fb3b19c3d16b5adbca9c66798932be54282455c3d0fff607e868f544", \
+        "168ae6ac6587cd78e0779ec6343d87593c4f15d5265f0ab503c290f6e9561c41", \
         "il base e' cambiato rispetto alla redazione inchiodata: E7bis va riaperto deliberatamente"
 
 
@@ -1775,6 +1775,17 @@ def e13():
     finally:
         shutil.rmtree(d, ignore_errors=True)
         shutil.rmtree(out, ignore_errors=True)
+
+
+@prova("E14", "il base insegna la forma letterale C-<namespace>-<nnn> degli id dei claim")
+def e14():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    assert "C-<namespace>-<nnn>" in base, (
+        "il modello letterale degli id non e' insegnato: la redazione M3 l'aveva perso e il "
+        "replay 20260822-2331 lo ha misurato (27 errori pattern su 45, tutti della stessa "
+        "classe: id scritti senza il prefisso C-)")
+    assert "C-<namespace>-contra-<nnn>" in base, "la forma -contra- non e' insegnata"
 
 
 # ------------------------------------------------------------------ esecuzione
