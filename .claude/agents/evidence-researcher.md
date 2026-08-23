@@ -229,7 +229,13 @@ frequente di questo agente. `state` ammette `VERIFIED`, `ESTIMATED`, `UNKNOWN`.
 significa «nessuna grandezza applicabile a questo claim», un `Numeric` con `state: UNKNOWN`
 significa «grandezza applicabile, valore non noto». Zero e' esclusivamente una misura reale.
 
-**`snippet` ha `maxLength: 300`.** Piu' lungo di cosi' non e' una citazione, e l'artefatto non valida.
+**Opzionale non significa nullable.** Un campo opzionale si OMETTE: `null` e' ammesso SOLO dove
+il CONTRATTO lo dichiara — con la tilde `~` oppure con la `z` nella sigla del tipo (es. `s|z`).
+In particolare: `promotion_rule_met` sui claim non `VERIFIED` va omesso, mai scritto a `null`;
+e `spend_evidence[].amount` va omesso quando non applicabile, mai scritto a `null`.
+
+**`snippet` ha `maxLength: 300`.** Piu' lungo di cosi' non e' una citazione, e l'artefatto non
+valida: scegli il passaggio essenziale che sostiene il claim e resta entro i 300 caratteri.
 
 **`queries_run[].angle` NON coincide con `channel`.** Sono due vocabolari distinti e il tuo canale
 non e' automaticamente un angolo legale. In particolare il canale `pricing_mercato` corrisponde

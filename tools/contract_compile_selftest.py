@@ -7,8 +7,8 @@ essere una pagina plausibile che ha perso meta' degli obblighi in silenzio: la d
 ispezionabile leggendo l'output, perche' un contratto incompleto ha lo stesso aspetto di uno
 completo. Si dimostra solo mutando gli schemi e pretendendo che il contratto cambi.
 
-CINQUANTADUE PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
-le quindici della consegna M3/M3.1 (E1-E14 + E7bis). Le F restano identiche: la vista audit
+CINQUANTAQUATTRO PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
+le diciassette della consegna M3/M3.1/M3.2 (E1-E16 + E7bis). Le F restano identiche: la vista audit
 cambia solo per la riga di radice in testata (D12), che nessuna F legge. Delle F, F22, F23 e
 F24 nacquero ciascuna da un difetto visto passare verde: F22 dalla prosa persa dalle posizioni
 d'elemento; F23 dalla guardia condizionale troncata, che faceva dichiarare al contratto una
@@ -35,7 +35,7 @@ casi di questo corpus lo impongono, e ognuno ha gia' prodotto un falso rosso in 
   - togliere un nome da un required non toglie il campo: finisce fra gli opzionali.
 
   uso:  python tools/contract_compile_selftest.py
-        exit 0 = tutte e cinquantadue verdi
+        exit 0 = tutte e cinquantaquattro verdi
 """
 import hashlib, inspect, io, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -1623,13 +1623,13 @@ def e7():
     assert "mietitura_circolari_categoria" not in base, "l'enumerazione degli angoli e' ricomparsa"
 
 
-@prova("E7bis", "il base committato coincide con la redazione esatta: 13 070 byte, digest atteso")
+@prova("E7bis", "il base committato coincide con la redazione esatta: 13 528 byte, digest atteso")
 def e7bis():
     b = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"), "rb").read()
     b = b.replace(b"\r\n", b"\n")
-    assert len(b) == 13070, f"base {len(b)} byte, attesi 13 070: la redazione non e' quella esatta"
+    assert len(b) == 13528, f"base {len(b)} byte, attesi 13 528: la redazione non e' quella esatta"
     assert hashlib.sha256(b).hexdigest() == \
-        "168ae6ac6587cd78e0779ec6343d87593c4f15d5265f0ab503c290f6e9561c41", \
+        "92a0d68c0cf9efcfd4f6440d1afee5cbc29f4dfa1c76b659c7eab2108cc74658", \
         "il base e' cambiato rispetto alla redazione inchiodata: E7bis va riaperto deliberatamente"
 
 
@@ -1786,6 +1786,26 @@ def e14():
         "replay 20260822-2331 lo ha misurato (27 errori pattern su 45, tutti della stessa "
         "classe: id scritti senza il prefisso C-)")
     assert "C-<namespace>-contra-<nnn>" in base, "la forma -contra- non e' insegnata"
+
+
+@prova("E15", "il base insegna «opzionale non significa nullable» con i due casi misurati")
+def e15():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    assert "Opzionale non significa nullable" in base, (
+        "la regola non c'e': il replay 20260823-0211 ha misurato 5 errori type, tutti campi "
+        "opzionali scritti a null (promotion_rule_met x4, spend_evidence[].amount x1)")
+    assert "promotion_rule_met" in base and "spend_evidence[].amount" in base, \
+        "la regola non nomina i due casi misurati"
+
+
+@prova("E16", "il base insegna a restare entro i 300 caratteri nello snippet")
+def e16():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    assert "entro i 300 caratteri" in base, (
+        "l'istruzione manca: il replay 20260823-0211 ha misurato 2 errori maxLength su snippet "
+        "oltre i 300 caratteri")
 
 
 # ------------------------------------------------------------------ esecuzione
