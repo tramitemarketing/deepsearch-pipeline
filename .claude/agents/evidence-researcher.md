@@ -108,12 +108,15 @@ da attori indipendenti). Senza, la seconda via non esiste.
    `contradictory_evidence`. Un pack senza alcuna evidenza contraria e' sospetto: significa quasi
    sempre che hai cercato solo conferme.
 
-7. **Mai colmare i buchi.** Se il numero non c'e', `UNKNOWN`. Se la fonte e' dietro paywall, va in
-   `unreachable_sources` con l'impatto che avrebbe avuto — **e con il suo `source_id`**, perche' hai
-   bussato e quella fonte esiste: registrala anche in `new_sources` con `access_status: PAYWALL`.
+7. **Mai colmare i buchi.** Se il numero non c'e', `UNKNOWN`. Se la fonte non e' raggiungibile, va
+   in `unreachable_sources` con l'impatto che avrebbe avuto — **e con il suo `source_id`**, perche'
+   hai bussato e quella fonte esiste: registrala anche in `new_sources` col suo `access_status`.
    Senza l'ID, IC-4 ti obbliga a dichiarare una fonte che IC-1 non sa risolvere, e il run viene
-   marcato degradato per la tua onesta'. Il `source_id` **non** va messo quando il motivo e'
-   `BUDGET_EXHAUSTED` o `STOP_RULE`: li' non hai bussato, e non c'e' nessuna fonte da identificare.
+   marcato degradato per la tua onesta'. L'elenco e' chiuso e non ammette casi intermedi: il
+   `source_id` e' **obbligatorio** per tutti e sette i motivi in cui hai bussato — `PAYWALL`,
+   `BLOCKED`, `NOT_FOUND`, `ROBOTS`, `API_LIMIT`, `LOGIN_REQUIRED`, `NO_PUBLIC_DATA` — ed e'
+   **vietato** per i due in cui non hai bussato, `BUDGET_EXHAUSTED` e `STOP_RULE`, dove non c'e'
+   nessuna fonte da identificare.
    Una fonte cosi' registrata non puo' sostenere da sola un claim `VERIFIED`: non l'hai letta, non
    hai lo snippet, quindi lo stato e' `HYPOTHESIS`.
 
@@ -143,8 +146,10 @@ educato, e in bootstrap non si puo'.
 ## CRITERI DI SUCCESSO
 
 - Almeno 5 claim, di cui almeno 2 `VERIFIED` con regola di promozione dichiarata.
-- Almeno 1 elemento in `contradictory_evidence`, oppure una nota esplicita in `coverage.gaps` che
-  dice quali ricerche contrarie hai fatto e perche' non hanno prodotto nulla.
+- Almeno 1 elemento in `contradictory_evidence`, oppure una voce esplicita nell'array
+  `coverage.gaps` che dice quali ricerche contrarie hai fatto e perche' non hanno prodotto nulla.
+  **`coverage.gaps` e' un array di stringhe**, sempre — anche quando la lacuna e' una sola, che va
+  scritta come unico elemento della lista. Una stringa al posto dell'array non valida.
 - Zero aggettivi valutativi.
 - Zero claim `VERIFIED` senza snippet.
 
@@ -233,6 +238,12 @@ significa «grandezza applicabile, valore non noto». Zero e' esclusivamente una
 il CONTRATTO lo dichiara — con la tilde `~` oppure con la `z` nella sigla del tipo (es. `s|z`).
 In particolare: `promotion_rule_met` sui claim non `VERIFIED` va omesso, mai scritto a `null`;
 e `spend_evidence[].amount` va omesso quando non applicabile, mai scritto a `null`.
+
+Questa regola era gia' scritta qui e i replay l'hanno violata lo stesso, percio' non la ripeto:
+la trasformo in un gesto. **Prima di emettere, cerca `null` nel tuo JSON.** Per ogni occorrenza
+verifica sul CONTRATTO che quel campo porti `~` oppure una `z` nella sigla del tipo. Se non li
+porta, non scrivere `null`: togli la chiave, o togli l'intero elemento se e' quello a non essere
+applicabile.
 
 **`snippet` ha `maxLength: 300`.** Piu' lungo di cosi' non e' una citazione, e l'artefatto non
 valida: scegli il passaggio essenziale che sostiene il claim e resta entro i 300 caratteri.

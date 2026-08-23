@@ -7,8 +7,8 @@ essere una pagina plausibile che ha perso meta' degli obblighi in silenzio: la d
 ispezionabile leggendo l'output, perche' un contratto incompleto ha lo stesso aspetto di uno
 completo. Si dimostra solo mutando gli schemi e pretendendo che il contratto cambi.
 
-CINQUANTAQUATTRO PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
-le diciassette della consegna M3/M3.1/M3.2 (E1-E16 + E7bis). Le F restano identiche: la vista audit
+CINQUANTASETTE PROVE: le ventiquattro di M1 (F1-F24), le tredici della vista delivery (D1-D13) e
+le venti della consegna M3/M3.1/M3.2/M3.3 (E1-E19 + E7bis). Le F restano identiche: la vista audit
 cambia solo per la riga di radice in testata (D12), che nessuna F legge. Delle F, F22, F23 e
 F24 nacquero ciascuna da un difetto visto passare verde: F22 dalla prosa persa dalle posizioni
 d'elemento; F23 dalla guardia condizionale troncata, che faceva dichiarare al contratto una
@@ -35,7 +35,7 @@ casi di questo corpus lo impongono, e ognuno ha gia' prodotto un falso rosso in 
   - togliere un nome da un required non toglie il campo: finisce fra gli opzionali.
 
   uso:  python tools/contract_compile_selftest.py
-        exit 0 = tutte e cinquantaquattro verdi
+        exit 0 = tutte e cinquantasette verdi
 """
 import hashlib, inspect, io, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -1623,13 +1623,13 @@ def e7():
     assert "mietitura_circolari_categoria" not in base, "l'enumerazione degli angoli e' ricomparsa"
 
 
-@prova("E7bis", "il base committato coincide con la redazione esatta: 13 528 byte, digest atteso")
+@prova("E7bis", "il base committato coincide con la redazione esatta: 14 342 byte, digest atteso")
 def e7bis():
     b = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"), "rb").read()
     b = b.replace(b"\r\n", b"\n")
-    assert len(b) == 13528, f"base {len(b)} byte, attesi 13 528: la redazione non e' quella esatta"
+    assert len(b) == 14342, f"base {len(b)} byte, attesi 14 342: la redazione non e' quella esatta"
     assert hashlib.sha256(b).hexdigest() == \
-        "92a0d68c0cf9efcfd4f6440d1afee5cbc29f4dfa1c76b659c7eab2108cc74658", \
+        "8a66f6d714c2a92fc68066a4a41b3f4e080daf70bf0141e9740f65914da4e80b", \
         "il base e' cambiato rispetto alla redazione inchiodata: E7bis va riaperto deliberatamente"
 
 
@@ -1806,6 +1806,56 @@ def e16():
     assert "entro i 300 caratteri" in base, (
         "l'istruzione manca: il replay 20260823-0211 ha misurato 2 errori maxLength su snippet "
         "oltre i 300 caratteri")
+
+
+@prova("E17", "il base enumera i SETTE motivi che rendono `source_id` obbligatorio (IC-4)")
+def e17():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    # Il replay 20260823-1647 ha misurato 2 errori `required` su community: le voci con
+    # why=BLOCKED e why=NOT_FOUND senza source_id, mentre quella con why=API_LIMIT ce l'aveva.
+    # Il base insegnava il solo caso del paywall e nominava le DUE esclusioni: i cinque motivi
+    # in mezzo restavano non detti, e l'agente li ha trattati come se fossero esclusi.
+    for motivo in ("PAYWALL", "BLOCKED", "NOT_FOUND", "ROBOTS", "API_LIMIT",
+                   "LOGIN_REQUIRED", "NO_PUBLIC_DATA"):
+        assert motivo in base, (
+            f"il motivo {motivo} non e' enumerato: il base insegna l'obbligo per esempi invece "
+            "che per elenco, e il replay 20260823-1647 ha misurato 2 errori `required` "
+            "esattamente sui motivi non nominati")
+    assert "BUDGET_EXHAUSTED" in base and "STOP_RULE" in base, \
+        "le due esclusioni non sono piu' nominate: il divieto e' altrettanto vincolante"
+
+
+@prova("E18", "il base insegna `coverage.gaps` come ARRAY e non invita a una nota narrativa")
+def e18():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    # Il replay 20260823-1647 ha misurato 1 errore `type` su trend_adozione: gaps scritto come
+    # stringa narrativa. Il base NON era neutro: diceva «una nota esplicita in coverage.gaps»,
+    # e «nota» al singolare invita esattamente la stringa che il contratto rifiuta (`!gaps a<s>`).
+    assert re.search(r"`coverage\.gaps`[^\n]*\barray\b", base) or \
+           re.search(r"\barray\b[^\n]*`coverage\.gaps`", base), \
+        "il base non dice che `coverage.gaps` e' un array di stringhe"
+    assert not re.search(r"una nota esplicita in `coverage\.gaps`", base), (
+        "il base invita ancora a una NOTA in coverage.gaps: e' la formulazione che ha prodotto "
+        "la stringa narrativa misurata nel replay 20260823-1647")
+
+
+@prova("E19", "il base prescrive la verifica dei `null` prima di emettere")
+def e19():
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    # La regola «opzionale non significa nullable» c'era gia' (E15) e nominava gia'
+    # spend_evidence[].amount, e il replay 20260823-1647 l'ha violata di nuovo. Enunciarla una
+    # terza volta non aggiunge nulla: quello che mancava era un GESTO da compiere prima di
+    # emettere, non un'altra affermazione da leggere.
+    m = re.search(r"Prima di emettere, cerca `null` nel tuo JSON\.(.{0,400})", base, re.S)
+    assert m, "manca l'istruzione di cercare i null nel proprio JSON prima di emetterlo"
+    # L'ancora al GESTO, non al documento: `~` e `z` comparivano gia' nel paragrafo
+    # «Opzionale non significa nullable», quindi cercarli ovunque rendeva la prova cieca —
+    # togliere il rimando dalla verifica la lasciava verde. Misurato.
+    assert "`~`" in m.group(1) and "`z`" in m.group(1), \
+        "la verifica non rimanda ai due marcatori del contratto che ammettono null"
 
 
 # ------------------------------------------------------------------ esecuzione
