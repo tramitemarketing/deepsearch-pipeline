@@ -10,8 +10,9 @@ monitoraggio per-canale sotto-contava i diff a file singolo, cosi' la condizione
 veniva accertata a fine corsa invece che alla prima scrittura.
 
 TRE LIVELLI, e il rilevatore e' quello che conta. (a) PREVENTIVO: `regole_settings()` genera un
-file di settings per il CLI (`--settings`) con regole `permissions.deny` per `Write` fuori dal
-perimetro, e l'invocazione prescritta porta `--disallowedTools Write` — difesa in profondita',
+file di settings per il CLI (`--settings`) con regole `permissions.deny` per `Edit` fuori dal
+perimetro (il formato riconosciuto: le regole `Write(...)` sono rifiutate dal CLI), e
+l'invocazione prescritta porta `--disallowedTools Write` — difesa in profondita',
 la cui onoranza dipende dalla versione del CLI e NON e' assunta. (b) RILEVATORE: istantanee
 prima/dopo delle zone monitorate, confronto su insiemi di tuple (percorso, dimensione,
 mtime_ns) in Python — il diff a file singolo che ha eluso il monitoraggio precedente e' coperto
@@ -20,11 +21,11 @@ perimetro, in modo atomico.
 
 Nessuna rete in questo file: il comando eseguito e' responsabilita' del chiamante.
 
-  uso:  python tools/replay_guard.py --perimetro <dir> [--zona <dir>]... -- <comando...>
+  uso:  python tools/replay_guard.py --perimetro <dir> [--cwd <dir>] [--zona <dir>]... -- <comando...>
   exit  0 = comando completato, nessuna scrittura fuori perimetro
         1 = violazioni rilevate (inventario in 00-guard-report.json e su stdout)
         2 = uso errato
-        3 = ambiente rotto (perimetro o zone inesistenti)
+        3 = ambiente rotto (perimetro, cwd o zone inesistenti)
 """
 import argparse, json, os, subprocess, sys, tempfile
 import sys as _sys
@@ -77,17 +78,20 @@ def violazioni(prima, dopo, perimetro, zone_extra):
 
 
 def regole_settings(perimetro, zone_extra):
-    """Le regole di negazione per il CLI: Write vietato fuori dal perimetro. Best effort: la
-    semantica delle regole dipende dalla versione del CLI; il rilevatore non dipende da loro."""
+    """Le regole di negazione per il CLI: modifiche vietate fuori dal perimetro. Il formato e'
+    `Edit(...)`, non `Write(...)`: il replay 20260823-1522 ha misurato che il CLI rifiuta le
+    regole Write («only Edit(path) rules are»). Best effort: la semantica delle regole dipende
+    dalla versione del CLI; il rilevatore non dipende da loro."""
     deny = []
     for zona in zone_extra:
         if os.path.realpath(zona) != os.path.realpath(perimetro):
-            deny.append("Write(%s/**)" % zona.replace(os.sep, "/"))
+            deny.append("Edit(%s/**)" % zona.replace(os.sep, "/"))
     doc = {
         "permissions": {"deny": deny},
-        "_nota": ("Regole generate da replay_guard.py %s: Write vietato fuori dal perimetro. "
-                  "L'onoranza dipende dalla versione del CLI; il rilevatore del guard resta la "
-                  "fonte di verita'.") % VERSIONE,
+        "_nota": ("Regole generate da replay_guard.py %s: modifiche vietate fuori dal perimetro "
+                  "(regole Edit, che coprono tutti gli strumenti di scrittura). L'onoranza "
+                  "dipende dalla versione del CLI; il rilevatore del guard resta la fonte di "
+                  "verita'.") % VERSIONE,
     }
     return json.dumps(doc, ensure_ascii=False, indent=2)
 
@@ -101,11 +105,19 @@ def main(argv=None):
         prima, comando = argv, []
     ap = argparse.ArgumentParser(description="contenimento e monitoraggio delle scritture")
     ap.add_argument("--perimetro", required=True)
+    ap.add_argument("--cwd", default=None,
+                    help="directory di lavoro del comando (default: il perimetro). Serve quando "
+                         "il comando deve girare nel PROGETTO — es. perche' il CLI risolve gli "
+                         "agenti da .claude/agents/ della directory corrente — mentre il confine "
+                         "di scrittura resta il perimetro")
     ap.add_argument("--zona", nargs="*", default=[], metavar="DIR")
     a = ap.parse_args(prima)
     perimetro = os.path.realpath(a.perimetro)
     if not os.path.isdir(perimetro):
         raise AmbienteRotto(f"perimetro inesistente: {a.perimetro}")
+    cwd = os.path.realpath(a.cwd) if a.cwd else perimetro
+    if not os.path.isdir(cwd):
+        raise AmbienteRotto(f"cwd inesistente: {a.cwd}")
     zone = [perimetro] + [os.path.realpath(z) for z in a.zona]
     inesistenti = [z for z in a.zona if not os.path.isdir(os.path.realpath(z))]
     if inesistenti:
@@ -114,12 +126,12 @@ def main(argv=None):
         ap.error("nessun comando dopo «--»")
     prima_foto = {z: fotografia(z) for z in zone}
     try:
-        r = subprocess.run(comando, cwd=perimetro)
+        r = subprocess.run(comando, cwd=cwd)
     except (FileNotFoundError, OSError) as e:
         raise AmbienteRotto(f"comando non eseguibile: {e}")
     dopo_foto = {z: fotografia(z) for z in zone}
     vio = violazioni(prima_foto, dopo_foto, perimetro, zone[1:])
-    report = {"guard_version": VERSIONE, "perimetro": perimetro,
+    report = {"guard_version": VERSIONE, "perimetro": perimetro, "cwd": cwd,
               "comando": comando, "exit_comando": r.returncode,
               "violazioni": vio}
     testo = json.dumps(report, ensure_ascii=False, indent=2) + "\n"

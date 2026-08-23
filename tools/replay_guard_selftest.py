@@ -9,7 +9,7 @@ mai claude, mai rete, mai C:\\tmp reale, mai il worktree, mai i ledger — e pre
 nominato.
 
   uso:  python tools/replay_guard_selftest.py
-        exit 0 = tutte le otto prove verdi
+        exit 0 = tutte le dieci prove verdi
 """
 import hashlib, json, os, shutil, subprocess, sys, tempfile
 import sys as _sys
@@ -113,7 +113,7 @@ def g4():
         shutil.rmtree(d, ignore_errors=True)
 
 
-@prova("G5", "il settings generato porta le regole deny con i glob delle zone")
+@prova("G5", "il settings generato porta le regole Edit con i glob delle zone")
 def g5():
     import replay_guard as G
     perimetro = os.path.join(tempfile.gettempdir(), "rg-p")
@@ -122,7 +122,42 @@ def g5():
     d = json.loads(t)
     assert "permissions" in d and "deny" in d["permissions"], t
     posix = zona.replace(os.sep, "/")
-    assert any(posix in r for r in d["permissions"]["deny"]), t
+    assert any(r.startswith("Edit(") and posix in r for r in d["permissions"]["deny"]), \
+        ("le regole non sono nel formato Edit(...) riconosciuto dal CLI: il replay 20260823-1522 "
+         "ha misurato che Write(...) viene rifiutato («only Edit(path) rules are»).\n" + t)
+
+
+@prova("G9", "nessuna regola Write(...) nel settings: il CLI la rifiuta")
+def g9():
+    import replay_guard as G
+    perimetro = os.path.join(tempfile.gettempdir(), "rg-p")
+    zona = os.path.join(tempfile.gettempdir(), "rg-z")
+    t = G.regole_settings(perimetro, [zona])
+    assert "Write(" not in t, t
+
+
+@prova("G10", "--cwd separa la directory di lavoro del comando dal perimetro di scrittura")
+def g10():
+    d, perimetro, zona = fixture()
+    try:
+        cwd = os.path.join(d, "progetto")
+        os.makedirs(cwd)
+        # il comando scrive la propria CWD dentro il perimetro: nessuna violazione attesa
+        comando = ("import os, pathlib; "
+                   "p = pathlib.Path(%s); p.parent.mkdir(parents=True, exist_ok=True); "
+                   "p.write_text(os.getcwd(), encoding='utf-8')"
+                   % json.dumps(os.path.join(perimetro, "02-output", "cwd.txt")))
+        r = subprocess.run([sys.executable, GUARD, "--perimetro", perimetro,
+                            "--cwd", cwd, "--zona", zona,
+                            "--", sys.executable, "-c", comando],
+                           capture_output=True, timeout=120)
+        assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+        letto = open(os.path.join(perimetro, "02-output", "cwd.txt"), encoding="utf-8").read()
+        assert os.path.realpath(letto) == os.path.realpath(cwd), \
+            f"il comando e' girato in {letto}, atteso {cwd}"
+        assert rapporto(perimetro)["violazioni"] == []
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 @prova("G6", "determinismo: due esecuzioni identiche danno lo stesso rapporto (modulo mtime)")
