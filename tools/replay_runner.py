@@ -2,14 +2,18 @@
 """
 replay_runner.py — il runner di invocazione dei replay: task su stdin, uscita su file raw.
 
-PERCHE' ESISTE. Il replay 20260823-1548 si e' arrestato per un errore dell'harness
-d'invocazione: un `json.dumps` mal posto aveva avvolto il percorso del file raw in virgolette
-letterali, e il processo e' fallito con OSError 22 PRIMA che il CLI girasse. Questo runner e'
-il posto UNICO in cui il task e il percorso raw vengono passati, ed e' costruito per rendere
-quel modo di fallire impossibile: i percorsi arrivano come elementi di argv LETTERALI e sono
-aperti cosi' come sono; questo file non importa `json` — non c'e' alcuna serializzazione in cui
-un percorso possa ritrovarsi quotato. Il selftest inchioda entrambi i lati: R1 riproduce il
-fallimento del percorso quotato, R2 verifica il percorso letterale (con spazi e apostrofo).
+PERCHE' ESISTE. Due errori dell'harness d'invocazione hanno arrestato i replay, e questo
+runner e' il posto UNICO in cui vanno resi impossibili:
+
+1. (20260823-1548) un `json.dumps` mal posto aveva avvolto il percorso del file raw in
+   virgolette letterali: i percorsi arrivano come elementi di argv LETTERALI e sono aperti
+   cosi' come sono; questo file non importa `json`.
+2. (20260823-1623) il nome nudo `claude` non veniva risolto: su PATH c'e' lo shim npm
+   (claude.cmd), non claude.exe, e CreateProcess non esegue gli shim. Il runner risolve
+   l'eseguibile con `shutil.which` PRIMA di avviarlo e usa il percorso reale.
+
+Il selftest inchioda entrambi i lati: R1 riproduce il fallimento del percorso quotato, R5
+riproduce il fallimento del nome nudo (rosso su HEAD), R2/R6 verificano i percorsi risolti.
 
 Il runner NON fa rete: esegue il comando del chiamante (tipicamente il CLI con l'agente) e si
 limita a trasmettere stdin, raccogliere stdout+stderr sul file raw e propagare l'exit code.
@@ -17,7 +21,7 @@ limita a trasmettere stdin, raccogliere stdout+stderr sul file raw e propagare l
   uso:  python tools/replay_runner.py --stdin <task> --raw <percorso-uscita> -- <comando...>
   exit  = l'exit code del comando (0..N); 2 = uso errato; 3 = ambiente rotto
 """
-import argparse, os, subprocess, sys
+import argparse, os, shutil, subprocess, sys
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):
     try: _f.reconfigure(encoding="utf-8", errors="replace", newline="\n")
@@ -54,6 +58,13 @@ def main(argv=None):
     if not os.path.isdir(padre):
         raise AmbienteRotto(f"directory del raw inesistente: {padre}")
     task = open(a.stdin, "rb").read()
+    risolto = shutil.which(comando[0])
+    if risolto is None:
+        raise AmbienteRotto(
+            f"eseguibile non trovato: {comando[0]} — il replay 20260823-1623 si e' arrestato "
+            "proprio qui: CreateProcess non risolve gli shim (.cmd) su PATH; il runner risolve "
+            "con shutil.which e usa il percorso reale")
+    comando = [risolto] + comando[1:]
     try:
         out = open(a.raw, "wb")
         try:

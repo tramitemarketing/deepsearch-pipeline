@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-replay_runner_selftest.py — dimostra che il runner di replay passa i percorsi LETTERALMENTE.
+replay_runner_selftest.py — dimostra che il runner di replay passa i percorsi LETTERALMENTE e
+risolve l'eseguibile prima di avviarlo.
 
-Il replay 20260823-1548 si e' arrestato per un errore dell'harness d'invocazione: un
-`json.dumps` mal posto aveva avvolto il percorso del file raw in virgolette letterali, e il
-processo e' fallito con OSError 22 prima che il CLI girasse. Queste prove inchiodano il modo
-di fallire (percorso quotato) e il modo corretto (percorso letterale), con processi
-usa-e-getta e nessuna rete, nessun CLI, nessun artefatto reale toccato.
+Due errori dell'harness hanno arrestato i replay, e queste prove li inchiodano entrambi: il
+20260823-1548 (un `json.dumps` mal posto aveva avvolto il percorso del file raw in virgolette
+letterali -> OSError 22) e il 20260823-1623 (il nome nudo `claude` non risolto: su PATH c'e'
+lo shim .cmd, non l'eseguibile -> WinError 2). R1 riproduce il modo di fallire del percorso
+quotato, R5 quello del nome nudo; R2/R6 verificano i percorsi risolti. Processi usa-e-getta,
+nessuna rete, nessun CLI reale, nessun artefatto reale toccato.
 
   uso:  python tools/replay_runner_selftest.py
         exit 0 = tutte le prove verdi
@@ -101,6 +103,57 @@ def r4():
         assert r.returncode == 3, f"uscita {r.returncode}: {r.stderr.decode()}"
         assert "oltre il timeout" in r.stderr.decode("utf-8", "replace")
         assert "comando interrotto" in open(raw, "rb").read().decode("utf-8", "replace")
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("R5", "nome nudo risolto via shim: il runner risolve con shutil.which e lo esegue")
+def r5():
+    """La prova ROSSA del difetto 20260823-1623: con il runner di HEAD, su Windows, un nome nudo
+    che esiste solo come shim .cmd su PATH fallisce con WinError 2 (CreateProcess non risolve
+    gli shim). Dopo la correzione il runner risolve il percorso reale e lo esegue. Su POSIX il
+    nome nudo era gia' risolto da execvp: la prova resta come guardia di non regressione."""
+    d = tempfile.mkdtemp(prefix="rr-selftest-")
+    try:
+        bin_dir = os.path.join(d, "bin")
+        os.makedirs(bin_dir)
+        if os.name == "nt":
+            shim = os.path.join(bin_dir, "agente-echo.cmd")
+            open(shim, "w", encoding="utf-8", newline="\n").write("@echo off\necho SHIM-OK\n")
+        else:
+            shim = os.path.join(bin_dir, "agente-echo")
+            open(shim, "w", encoding="utf-8").write("#!/bin/sh\necho SHIM-OK\n")
+            os.chmod(shim, 0o755)
+        task = os.path.join(d, "task.txt")
+        open(task, "wb").write(b"t\n")
+        raw = os.path.join(d, "raw.txt")
+        env = dict(os.environ)
+        env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
+        r = subprocess.run([sys.executable, RUNNER, "--stdin", task, "--raw", raw,
+                            "--", "agente-echo"],
+                           capture_output=True, timeout=120, env=env)
+        assert r.returncode == 0, (
+            f"il nome nudo non e' stato risolto: {r.returncode} / {r.stderr.decode()}")
+        contenuto = open(raw, "rb").read().replace(b"\r\n", b"\n")
+        assert contenuto == "SHIM-OK\n".encode("utf-8"), \
+            f"lo shim non e' stato eseguito: {open(raw, 'rb').read()!r}"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("R6", "percorso risolto esplicito: passa e continua a passare")
+def r6():
+    d = tempfile.mkdtemp(prefix="rr-selftest-")
+    try:
+        task = os.path.join(d, "task.txt")
+        open(task, "wb").write(b"t\n")
+        raw = os.path.join(d, "raw.txt")
+        comando_finto = ("import sys; sys.stdout.buffer.write(b'OK'); sys.exit(0)")
+        r = subprocess.run([sys.executable, RUNNER, "--stdin", task, "--raw", raw,
+                            "--", sys.executable, "-c", comando_finto],
+                           capture_output=True, timeout=120)
+        assert r.returncode == 0, r.stderr.decode()
+        assert open(raw, "rb").read() == b"OK"
     finally:
         shutil.rmtree(d, ignore_errors=True)
 
