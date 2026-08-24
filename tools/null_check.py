@@ -52,11 +52,15 @@ class ContrattoIlleggibile(Exception):
 class Nodo:
     """Una posizione del contratto: se ammette `null`, e i suoi figli per nome."""
 
-    __slots__ = ("nome", "tipo", "nullable", "figli")
+    __slots__ = ("nome", "tipo", "nullable", "obbligatorio", "figli")
 
-    def __init__(self, nome, tipo):
+    def __init__(self, nome, tipo, obbligatorio=False):
         self.nome, self.tipo = nome, tipo
         self.nullable = ammette_null(tipo)
+        # Il `!` del contratto. `null_check` non lo usa: distinguere una chiave omessa da una
+        # chiave a `null` non e' affar suo. Lo usa chi deve decidere se una chiave si puo'
+        # TOGLIERE, e quel lettore non deve avere un secondo parser del contratto.
+        self.obbligatorio = obbligatorio
         self.figli = {}
 
 
@@ -126,7 +130,7 @@ def leggi_contratto(testo):
         pezzi = riga.strip().split()
         nome = pezzi[0].lstrip("!")
         tipo = pezzi[1] if len(pezzi) > 1 else ""
-        n = Nodo(nome, tipo)
+        n = Nodo(nome, tipo, obbligatorio=pezzi[0].startswith("!"))
         if prof == 0:
             if radice is not None:
                 raise ContrattoIlleggibile("due radici nell'albero")
