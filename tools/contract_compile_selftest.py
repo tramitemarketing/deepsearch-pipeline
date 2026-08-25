@@ -1623,13 +1623,18 @@ def e7():
     assert "mietitura_circolari_categoria" not in base, "l'enumerazione degli angoli e' ricomparsa"
 
 
-@prova("E7bis", "il base committato coincide con la redazione esatta: 14 342 byte, digest atteso")
+@prova("E7bis", "il base committato coincide con la redazione esatta: 15 968 byte, digest atteso")
 def e7bis():
+    # Riaperto deliberatamente per la correzione C (rapporto 43): il gesto sui `null` guadagna
+    # il secondo ramo — il campo obbligatorio e nullable si SCRIVE a `null` — e
+    # `promotion_rule_met` passa dalla forma negativa a quella positiva sui claim `VERIFIED`.
+    # Pin precedente, di M3.3: 14 342 byte,
+    # 8a66f6d714c2a92fc68066a4a41b3f4e080daf70bf0141e9740f65914da4e80b
     b = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"), "rb").read()
     b = b.replace(b"\r\n", b"\n")
-    assert len(b) == 14342, f"base {len(b)} byte, attesi 14 342: la redazione non e' quella esatta"
+    assert len(b) == 15968, f"base {len(b)} byte, attesi 15 968: la redazione non e' quella esatta"
     assert hashlib.sha256(b).hexdigest() == \
-        "8a66f6d714c2a92fc68066a4a41b3f4e080daf70bf0141e9740f65914da4e80b", \
+        "f68c537dd29d59dcd7fe0e05e5e6b4bb2ace75bb484cb788e4ae20fe08c425de", \
         "il base e' cambiato rispetto alla redazione inchiodata: E7bis va riaperto deliberatamente"
 
 
@@ -1856,6 +1861,142 @@ def e19():
     # togliere il rimando dalla verifica la lasciava verde. Misurato.
     assert "`~`" in m.group(1) and "`z`" in m.group(1), \
         "la verifica non rimanda ai due marcatori del contratto che ammettono null"
+
+
+def gesto_sui_null(base):
+    """La finestra del gesto sui `null`, dall'apertura fino al titolo in grassetto successivo.
+
+    Delimitata dal CONTENUTO e non da un numero di caratteri: una finestra a lunghezza fissa
+    sconfina nel paragrafo dopo, e le prove finiscono per trovare li' le parole che cercano.
+    """
+    m = re.search(r"Prima di emettere, cerca `null` nel tuo JSON\.(.*?)(?=\n\*\*`|\Z)", base, re.S)
+    assert m, "manca il gesto di cercare i null prima di emettere"
+    return m.group(1)
+
+
+def rami_del_gesto(finestra):
+    """Le voci d'elenco del gesto, che sono i suoi rami."""
+    return re.findall(r"^- (.+?)(?=\n- |\n\n|\Z)", finestra, re.S | re.M)
+
+
+def regola_intervallo(base):
+    """Il capoverso che prescrive la forma dell'intervallo, delimitato dal CONTENUTO.
+
+    Delimitarlo a lunghezza fissa lo faceva sconfinare nel capoverso su `statement.quantity`, che
+    contiene `` `value` `` e `` `null` `` per conto suo: la prova restava verde anche riportando
+    la regola a «omettendo del tutto la chiave `value`», cioe' al difetto sotto riparazione.
+    """
+    m = re.search(r"Per un \*\*intervallo\*\*(.*?)\n\n", base, re.S)
+    assert m, "e' sparita la regola dell'intervallo (`fd7ff267`)"
+    return m.group(1)
+
+
+@prova("E20", "il gesto sui `null` ha DUE rami: togliere la chiave, e scriverla quando e' prescritto")
+def e20():
+    """Il difetto che questa prova esiste per impedire e' documentato.
+
+    La regola dell'intervallo — «per un intervallo si compilano `value_min` e `value_max`
+    lasciando `value` a `null`» — e' nel base dal commit `fd7ff267` (2026-08-18) e nomina se
+    stessa «il difetto piu' frequente di questo agente». Cinque righe piu' sotto, `M3.3`
+    (`7b8d371`) ha aggiunto un gesto che dice «non scrivere `null`: togli la chiave». Le due
+    convivono nella stessa pagina dal 2026-08-23, e nel primo replay successivo — `20260824-2143`
+    — il modello ha seguito la seconda: `value` OMESSO quattro volte su `pricing_mercato`, che
+    nel replay precedente era l'unico canale valido e scriveva `value: null` quattro volte.
+
+    Un gesto con un ramo solo insegna una regola sola. La prova pretende che il gesto ne porti
+    DUE, e li cerca dentro la sua stessa finestra: `~`/`z` comparivano gia' nel paragrafo
+    precedente, e cercarli nel documento renderebbe la prova cieca — e' gia' successo con `E19`.
+    """
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    finestra = gesto_sui_null(base)
+    # I DUE RAMI COME STRUTTURA, non come parole nella finestra. Una prima stesura cercava
+    # `obbligator` e «scrivere null» ovunque dentro il gesto: sei regressioni su otto restavano
+    # verdi, perche' quelle parole ricompaiono nel capoverso che chiude il gesto. E' lo stesso
+    # difetto che il commento di E19 dichiara e che ho ripetuto piu' in piccolo: si assertisce
+    # sul RAMO, e i rami sono voci d'elenco.
+    rami = rami_del_gesto(finestra)
+    assert len(rami) == 2, f"il gesto ha {len(rami)} rami: senza il secondo «togli la chiave» " \
+                           f"resta incondizionato, e un terzo ramo puo' contraddire i primi due"
+    omissione, scrittura = rami
+    assert "togli la chiave" in omissione, "il primo ramo non prescrive piu' l'omissione"
+    # PRESCRIZIONE, non parola: una stesura precedente cercava `prescritt|va scritta` ovunque nel
+    # ramo, e restava verde su un ramo che diceva «e' prescritto: la chiave va comunque TOLTA».
+    assert "la chiave va scritta" in scrittura, \
+        "il secondo ramo non prescrive di SCRIVERE la chiave"
+    for r in rami[1:]:
+        assert not re.search(r"(va|vanno|deve essere|devono essere)\s+(comunque\s+|sempre\s+)?tolt", r), \
+            "un ramo dopo il primo prescrive di TOGLIERE: contraddice il ramo che deve scrivere"
+        assert "togli sempre" not in r, "un ramo prescrive di togliere sempre"
+    # IL CRITERIO DI RICONOSCIMENTO DEVE COPRIRE ENTRAMBI I CASI MISURATI. Il `!` da solo e'
+    # FALSO contro il contratto reale: `!value n|z` compare una volta sola, sotto
+    # `spend_evidence[]/amount`. Sotto `claims[]/statement/quantity` la riga e' `value n|z`,
+    # senza `!`, perche' `quantity` e' `anyOf[Numeric, null]` e i `required` del disgiunto non
+    # sono obblighi — e' la tesi di F15 e D10. Due delle quattro omissioni misurate stanno li'.
+    # e si assertisce sulla FRASE che enuncia il criterio, non sul token: `` `!` `` e
+    # `` `Numeric` `` ricompaiono nel ramo per altre ragioni, quindi cercarli come parole
+    # lasciava verde la cancellazione del criterio stesso. Misurato.
+    assert "!value n|z" in scrittura, \
+        "il secondo ramo non mostra il `!` sul CONTRATTO reale: manca il criterio per `amount`"
+    assert re.search(r"ogni `Numeric`.{0,160}quattro", scrittura, re.S), \
+        "manca il secondo criterio: sotto `statement.quantity` il `!` non c'e' — e li' cadono " \
+        "due delle quattro omissioni misurate — quindi il `!` da solo e' un criterio FALSO"
+
+
+@prova("E21", "il base prescrive `promotion_rule_met` in POSITIVO sui claim `VERIFIED`")
+def e21():
+    """Il base lo nominava solo in negativo — «sui claim non VERIFIED va omesso» — e nel replay
+    `20260824-2143` il modello l'ha omesso su due claim che erano `VERIFIED`. Una regola
+    enunciata solo per il caso in cui non si scrive non dice quando si scrive."""
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    m = re.search(r"`promotion_rule_met`[^\n]*\n?[^\n]*", base)
+    assert m, "il base non nomina `promotion_rule_met`"
+    # la frase che lo prescrive deve legare VERIFIED all'obbligo, non solo il suo contrario
+    assert re.search(r"`promotion_rule_met`(?:(?!\n\n).){0,320}`VERIFIED`"
+                     r"(?:(?!\n\n).){0,320}obbligator", base, re.S) or \
+           re.search(r"claim\s+`VERIFIED`(?:(?!\n\n).){0,320}`promotion_rule_met`"
+                     r"(?:(?!\n\n).){0,320}obbligator", base, re.S), \
+        "`promotion_rule_met` non e' prescritto come obbligatorio sui claim VERIFIED"
+
+
+@prova("E22", "nessun conflitto residuo: la regola dell'intervallo e il gesto sui null concordano")
+def e22():
+    """La regola dell'intervallo e il gesto sui `null` stanno nella stessa pagina a cinque righe
+    di distanza. Se il gesto tornasse a dire incondizionatamente di togliere le chiavi a `null`,
+    il conflitto si riaprirebbe e questa prova deve diventare rossa."""
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    intervallo = regola_intervallo(base)
+    assert re.search(r"lasciando `value` a `null`", intervallo), \
+        "la regola dell'intervallo non prescrive piu' `value` a `null`"
+    assert not re.search(r"omett\w+|togli\w*", intervallo), \
+        "la regola dell'intervallo invita a OMETTERE `value`: e' il difetto sotto riparazione"
+    # e il conflitto si chiude solo se il RAMO che scrive nomina proprio quel caso: cercarlo
+    # nell'intera finestra del gesto lasciava passare la cancellazione della clausola, perche'
+    # «intervallo» ricompare nel capoverso che chiude il gesto
+    rami = rami_del_gesto(gesto_sui_null(base))
+    assert len(rami) >= 2 and "intervallo" in rami[1], \
+        "il ramo che prescrive di scrivere non nomina l'intervallo: il conflitto resta aperto"
+
+
+@prova("E23", "il gesto ha anche il verso opposto: cercare le chiavi obbligatorie NON scritte")
+def e23():
+    """Cercare i `null` per toglierli e' meta' del lavoro. L'altra meta' — cercare i campi che il
+    contratto vuole a `null` e che non hai scritto — e' quella che nel replay `20260824-2143` non
+    e' stata fatta: `value` omesso quattro volte."""
+    base = open(os.path.join(ROOT, ".claude", "agents", "evidence-researcher.md"),
+                encoding="utf-8").read()
+    coda = gesto_sui_null(base).split("\n\n")[-1]
+    assert "al contrario" in coda, "manca il capoverso che chiude il gesto"
+    assert re.search(r"cerca[^.]{0,120}obbligator", coda, re.S), \
+        "manca l'istruzione di cercare i campi obbligatori che ammettono `null`"
+    # la PRESCRIZIONE, non la parola: un capoverso che dice «cerca i campi obbligatori … e togli
+    # quelli che non sai riempire» soddisfa la ricerca e prescrive l'errore
+    assert "verifica di averli scritti" in coda, \
+        "il gesto al contrario non prescrive di VERIFICARE di averli scritti"
+    assert "`Numeric`" in coda, \
+        "il gesto al contrario cerca solo le righe col `!`, e sotto `statement.quantity` non c'e'"
 
 
 # ------------------------------------------------------------------ esecuzione

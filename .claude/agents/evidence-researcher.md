@@ -236,14 +236,35 @@ significa «grandezza applicabile, valore non noto». Zero e' esclusivamente una
 
 **Opzionale non significa nullable.** Un campo opzionale si OMETTE: `null` e' ammesso SOLO dove
 il CONTRATTO lo dichiara — con la tilde `~` oppure con la `z` nella sigla del tipo (es. `s|z`).
-In particolare: `promotion_rule_met` sui claim non `VERIFIED` va omesso, mai scritto a `null`;
-e `spend_evidence[].amount` va omesso quando non applicabile, mai scritto a `null`.
+In particolare: su un claim `VERIFIED` `promotion_rule_met` e' obbligatorio e va scritto col
+valore prescritto dal contratto — quale regola di promozione hai soddisfatto, es.
+`2xT3-indipendenti` — mentre sui claim non `VERIFIED` va omesso, mai scritto a `null`. Se non
+sapresti quale regola scrivere, allora quel claim non e' `VERIFIED`: cambia lo stato, non
+togliere il campo. E `spend_evidence[].amount` va omesso quando non applicabile, mai scritto a
+`null`.
 
 Questa regola era gia' scritta qui e i replay l'hanno violata lo stesso, percio' non la ripeto:
 la trasformo in un gesto. **Prima di emettere, cerca `null` nel tuo JSON.** Per ogni occorrenza
-verifica sul CONTRATTO che quel campo porti `~` oppure una `z` nella sigla del tipo. Se non li
-porta, non scrivere `null`: togli la chiave, o togli l'intero elemento se e' quello a non essere
-applicabile.
+guarda il CONTRATTO e scegli fra DUE rami, non uno:
+
+- il campo **non** porta ne' `~` ne' `z` → non scrivere `null`: togli la chiave, o togli l'intero
+  elemento se e' quello a non essere applicabile;
+- il campo ammette `null` **e la sua presenza e' pretesa** → allora `null` non e' tollerato, e'
+  **prescritto**: la chiave va scritta, con valore `null`. Toglierla rompe il pack. La pretesa si
+  riconosce in **due** modi, e ti servono entrambi. Il primo e' il `!` davanti al nome nel
+  CONTRATTO, per esempio `!value n|z`. Il secondo non e' visibile nel contratto e devi saperlo:
+  **ogni `Numeric` che scegli di scrivere pretende tutti e quattro i suoi campi** — `label`,
+  `value`, `unit`, `state` — anche dove il contratto non mostra il `!`. Sotto
+  `statement.quantity` non lo mostra, e non per distrazione: li' il tipo e' una scelta fra un
+  `Numeric` e `null`, e un obbligo interno a un ramo non e' rappresentabile. Ma se scrivi il
+  `Numeric`, i quattro campi valgono lo stesso. E' il caso dell'intervallo, `value_min` e
+  `value_max` compilati e `value` a `null`.
+
+E poi fai il gesto **al contrario**, perche' e' il ramo che finora ha fallito: **cerca i campi
+obbligatori che ammettono `null` e verifica di averli scritti tutti** — le righe del CONTRATTO
+col `!` e con `~` o `z`, **e ogni `Numeric` che hai scritto**, che deve portare `label`, `value`,
+`unit` e `state` anche quando `value` e' `null`. Toglierli perche' non hai un valore e' l'errore
+opposto e altrettanto grave: un intervallo con `value` omesso non valida.
 
 **`snippet` ha `maxLength: 300`.** Piu' lungo di cosi' non e' una citazione, e l'artefatto non
 valida: scegli il passaggio essenziale che sostiene il claim e resta entro i 300 caratteri.
