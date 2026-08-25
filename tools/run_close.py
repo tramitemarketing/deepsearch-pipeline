@@ -268,6 +268,7 @@ def claim_verificati(nodo):
 
 def chiudi(run_dir, fase="finale"):
     esiti, gravi, avvisi = [], 0, 0
+    ic5, ic5_conte = [], {}          # IC-5: il dettaglio si stampa dopo la tabella degli esiti
     run_id = os.path.basename(os.path.normpath(run_dir))
 
     def check(nome, ok, dett="", grave=True):
@@ -377,6 +378,10 @@ def chiudi(run_dir, fase="finale"):
 
     if artefatti_json:
         nel_ledger = set()
+        # IC-5 ha bisogno di piu' del solo id: gli servono il tier e lo stato d'accesso. Si
+        # affianca una mappa alla stessa lettura invece di riaprire il file — due letture dello
+        # stesso ledger sono due occasioni di divergere.
+        fonte = {}
         lp = os.path.join(radice_stato(), "source-ledger.jsonl")
         if os.path.exists(lp):
             for l in open(lp, encoding="utf-8"):
@@ -384,6 +389,7 @@ def chiudi(run_dir, fase="finale"):
                     o = json.loads(l)
                     if isinstance(o, dict) and o.get("id"):
                         nel_ledger.add(o["id"])
+                        fonte[o["id"]] = (o.get("tier"), o.get("access_status"))
                 except Exception:
                     pass
 
@@ -433,6 +439,90 @@ def chiudi(run_dir, fase="finale"):
         check("nessun VERIFIED poggia solo su fonti mai lette", not solo_irr,
               f"{len(solo_irr)} claim da declassare a HYPOTHESIS: {', '.join(solo_irr[:3])}"
               if solo_irr else "")
+
+        # ------------------------------------------------------------------ IC-5 (canary)
+        # «state = VERIFIED richiede almeno una regola FP soddisfatta» — la regola sta in
+        # config.sources.fact_promotion_rules e non e' mai stata verificata da nulla.
+        #
+        # E' un FALSIFICATORE, non un verificatore: l'indipendenza che FP3 e FP4 pretendono
+        # («2 fonti T3 INDIPENDENTI») non e' ricostruibile dal pack — l'asse dipende da
+        # evidence_kind e, per COMPORTAMENTO, dall'attore che ha speso — quindi il controllo
+        # guarda la sola CARDINALITA' e ne esce un LIMITE INFERIORE. Il bucket che ne discende
+        # si chiama NON_FALSIFICATA e non VALIDA: la differenza non e' di stile.
+        #
+        # Entra come AVVISO (grave=False): non tocca gravi, ne' il verdetto, ne' l'uscita.
+        # Promuoverlo a grave e' una slice separata, e i criteri C1-C5 del mandato 49 oggi
+        # non sono soddisfatti.
+        #
+        # Tre determinazioni dell'autorita' sono cablate qui e non sono negoziabili nel codice:
+        #   - PARTIAL non e' letta: concorre alla cardinalita' solo access_status == "OK";
+        #   - FP5 non e' implementata, perche' il suo vincolo e' semantico («fatti
+        #     auto-descrittivi di cui il vendor e' fonte primaria») e nessuna cardinalita' lo
+        #     verifica: un claim promuovibile solo per quella via esce dal perimetro DICHIARANDOLO;
+        #   - l'etichetta si giudica solo se c'e'. La determinazione parla dello STATO, non del
+        #     codice: in evidence-pack.schema.json `claims.items` pretende `promoted_by`, ma
+        #     `contradictory_evidence.items` e' un `$ref` nudo che non lo pretende. Dentro lo
+        #     stesso artefatto convivono claim obbligati all'etichetta e claim che non lo sono.
+        CARDINALITA = (("FP1", "T1", 1), ("FP2", "T2", 1), ("FP3", "T3", 2), ("FP4", "T4", 4))
+        for p, o in artefatti_json:
+            pay = o.get("payload") if isinstance(o, dict) else None
+            if not isinstance(pay, dict):
+                continue
+            rel = os.path.relpath(p, run_dir).replace(os.sep, "/")
+            # PER PERCORSO, non per forma. `claim_verificati()` riconosce la forma ed e' larga
+            # apposta per la guardia grave qui sopra; qui sarebbe sbagliata: un Numeric porta
+            # per conto proprio uno `state` VERIFIED e dei `source_ids`, e sul corpus dei due
+            # replay il riconoscimento per forma trova 60 oggetti contro i 36 per percorso —
+            # i 24 in piu' sono `statement.quantity` e `spend_evidence[].amount`, cioe'
+            # QUANTITA' giudicate come se fossero claim.
+            for ramo in ("claims", "contradictory_evidence"):
+                for c in (pay.get(ramo) or []):
+                    if not isinstance(c, dict) or c.get("state") != "VERIFIED":
+                        continue
+                    # DEDUPLICATI, in ordine di documento. FP3 pretende «2 fonti T3
+                    # INDIPENDENTI»: la stessa fonte citata due volte non e' due fonti, e
+                    # l'identita' e' l'unico caso in cui l'indipendenza si verifica a macchina.
+                    # Deduplicare non inventa una regola: applica quella scritta nel punto in cui
+                    # e' verificabile, e stringe il limite inferiore invece di allargarlo.
+                    # `core#/$defs/Claim.source_ids` non pone `uniqueItems`, quindi il caso e'
+                    # ammesso dal contratto: sui 36 claim reali non capita mai, e la ripartizione
+                    # e' identica con e senza — misurato.
+                    ids = list(dict.fromkeys(
+                        x for x in (c.get("source_ids") or []) if isinstance(x, str)))
+                    letti = {}
+                    for x in ids:
+                        t, a = fonte.get(x, (None, None))
+                        if a == "OK" and t:
+                            letti[t] = letti.get(t, 0) + 1
+                    sodd = [fp for fp, t, n in CARDINALITA if letti.get(t, 0) >= n]
+                    pb = c.get("promoted_by")
+                    if sodd:
+                        # min() lessicografico su FP1..FP4 coincide col numerico finche' i
+                        # codici hanno una cifra sola. Non e' falsificabile oggi — nessun claim
+                        # del corpus soddisfa piu' di una regola — e resta scritto qui perche'
+                        # il giorno di un FP10 diventi visibile.
+                        if pb is None or (pb in sodd and pb == min(sodd)):
+                            classe, nota = "NON_FALSIFICATA", ""
+                        else:
+                            classe, nota = "ETICHETTA_ERRATA", "soddisfa " + min(sodd)
+                    elif letti.get("T5", 0) >= 1:
+                        classe, nota = "SOLO_FP5", "fuori perimetro del controllo"
+                    elif any(x not in fonte for x in ids):
+                        # MONOTONIA: una fonte ignota puo' solo AGGIUNGERE evidenza, mai
+                        # toglierla. Percio' si guarda l'ignoto solo DOPO aver constatato che il
+                        # noto non basta: se bastava, l'ignoto e' irrilevante.
+                        classe, nota = "DATO_INSUFFICIENTE", "source_id che non risolvono"
+                    else:
+                        classe, nota = "CERTAMENTE_FALSA", \
+                            "nessuna regola raggiunge la cardinalita'"
+                    ic5_conte[classe] = ic5_conte.get(classe, 0) + 1
+                    if classe != "NON_FALSIFICATA":       # il caso silente
+                        ic5.append((classe, f"{rel}:{c.get('id', '?')}", pb, letti, nota))
+        ic5_tot = sum(ic5_conte.values())
+        if ic5_tot:
+            falsi = ic5_conte.get("CERTAMENTE_FALSA", 0)
+            check("IC-5 (canary): promozione non sostenuta", falsi == 0,
+                  f"{falsi} CERTAMENTE_FALSA su {ic5_tot} VERIFIED", grave=False)
 
         # ------------------------------------------------------------------ TACHIMETRO
         # Non misura la qualita' del run: misura se il run e' MISURABILE.
@@ -637,6 +727,29 @@ def chiudi(run_dir, fase="finale"):
         print(f"  {'ok  ' if ok else 'FAIL'}  {nome:<46} {dett}")
     print(f"  {'-'*68}")
     print(f"  VERDETTO DEL RUN: {verdetto}   ({gravi} post-condizioni fallite, {avvisi} avvisi)\n")
+
+    # IC-5 stampa QUI e non accanto al proprio check: `check()` accumula in `esiti` e non
+    # stampa, e tutta l'emissione avviene a valle del verdetto. Un print messo accanto alla
+    # chiamata uscirebbe prima dell'intestazione e dell'intera tabella. Il ciclo delle righe
+    # resta intoccato: il `dett` del check e' di una riga, il dettaglio e' un blocco a se'.
+    if ic5_conte:
+        ordine = ("CERTAMENTE_FALSA", "DATO_INSUFFICIENTE", "SOLO_FP5",
+                  "ETICHETTA_ERRATA", "NON_FALSIFICATA")
+        print("  IC-5 (canary) — dettaglio")
+        print(f"    {sum(ic5_conte.values())} VERIFIED esaminati · " +
+              " · ".join(f"{ic5_conte.get(k, 0)} {k}" for k in ordine))
+        print("    NON_FALSIFICATA non significa valida: l'indipendenza non e' verificabile,")
+        print("    e questo controllo e' un limite inferiore.")
+        if ic5:
+            print()
+            for classe, dove, pb, letti, nota in ic5:
+                # ordine di documento per le righe, T1..T5 dentro `letti`: due ordinamenti
+                # dichiarati, perche' due esecuzioni sullo stesso run diano lo stesso blocco
+                agg = ",".join(f"{t}:{letti[t]}"
+                               for t in ("T1", "T2", "T3", "T4", "T5") if t in letti)
+                print(f"    {classe:<18}{dove}")
+                print(f"    {'':<18}promoted_by={pb}  letti={{{agg}}}  {nota}")
+        print()
 
     if decisioni:
         neg = [v for v in decisioni if v.get("verdetto") in ("PARK", "KILL")]
