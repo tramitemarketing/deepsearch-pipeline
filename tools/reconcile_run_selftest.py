@@ -17,7 +17,7 @@
   prudenza ma il vincolo che la root M0.2 sta FUORI dal repository, dove un
   rmtree della copia non arriverebbe.
 """
-import ast, hashlib, json, os, shutil, subprocess, sys, tempfile
+import ast, hashlib, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):
     try: _f.reconfigure(encoding="utf-8", errors="replace")
@@ -1272,9 +1272,180 @@ def t_t():
           not det, "; ".join(det))
 
 
+# ---------------------------------------------------------------- censimento dei seam
+
+SEAM = re.compile(r"DEEPSEARCH_[A-Z0-9_]+")
+
+# L'INVENTARIO. Per ogni seam: il file di PRODUZIONE che lo possiede e usa, e i file di
+# TEST O POLICY autorizzati soltanto a NOMINARLO.
+#
+# QUESTO FILE COMPARE PER TUTTI E TRE I NOMI, ed e' dichiarato, non nascosto: e' il file che
+# porta l'inventario, e i nomi devono starci in chiaro. Spezzarli in concatenazioni, costruirli
+# a runtime o escludere questo file dalla camminata renderebbe il criterio cieco a se stesso —
+# e un criterio che non si vede e' la premessa di ogni difetto che questa catena ha inseguito.
+#
+# Con l'inventario ai soli due seam storici il criterio e' ROSSO su `gate_all.py`: quel rosso e'
+# la voce aperta della ricevuta 59 §8.6, ed e' il motivo per cui questa prova esiste.
+SEAM_INVENTARIO = {
+    "DEEPSEARCH_STATE_ROOT":
+        ("reconcile_run.py", ("reconcile_run_selftest.py", "run_close_selftest.py")),
+    "DEEPSEARCH_TELEMETRY_ROOT":
+        ("reconcile_run.py", ("reconcile_run_selftest.py",)),
+    "DEEPSEARCH_GATE_ROOTS":
+        ("gate_all.py", ("reconcile_run_selftest.py",)),
+}
+
+
+def _seam_trovati(radice):
+    """Per ogni seam trovato, l'insieme dei file di `radice` che lo NOMINANO."""
+    fuori = {}
+    for nome in sorted(os.listdir(radice)):
+        p = os.path.join(radice, nome)
+        if not nome.endswith(".py") or not os.path.isfile(p):
+            continue
+        with open(p, encoding="utf-8") as g:
+            sorgente = g.read()
+        try:
+            albero = ast.parse(sorgente, p)
+        except SyntaxError:
+            continue
+        for n in ast.walk(albero):
+            if isinstance(n, ast.Constant) and isinstance(n.value, str):
+                for s in SEAM.findall(n.value):
+                    fuori.setdefault(s, set()).add(nome)
+    return fuori
+
+
+def _seam_problemi(radice, inventario):
+    trovati = _seam_trovati(radice)
+    det = []
+    for s in sorted(set(trovati) - set(inventario)):
+        det.append(f"seam non dichiarato {s} in {sorted(trovati[s])}")
+    for s in sorted(set(inventario) - set(trovati)):
+        det.append(f"seam dichiarato e non trovato: {s}")
+    for s in sorted(set(inventario) & set(trovati)):
+        proprietario, menzioni = inventario[s]
+        atteso = {proprietario} | set(menzioni)
+        piu_ = sorted(trovati[s] - atteso)
+        meno = sorted(atteso - trovati[s])
+        if piu_:
+            det.append(f"{s}: file in piu' {piu_}")
+        if meno:
+            det.append(f"{s}: file dichiarato che non lo nomina {meno}")
+    return det
+
+
+# DEROGA DICHIARATA, e vale SOLO da qui in giu' e SOLO per le fixture sintetiche.
+#
+# La prova della chiusura pretende, nella copia, un nome che nell'inventario non c'e'. Ma questo
+# file finisce nel censimento che esso stesso esegue: scrivere qui il nome per esteso lo farebbe
+# trovare QUI, e il caso `a` diventerebbe rosso. Dichiararlo nell'inventario sarebbe peggio —
+# metterebbe nel registro un nome che NON e' un seam, cioe' una falsita' nel documento che il
+# criterio esiste per tenere vero, e la chiusura perderebbe l'unica prova che la osserva.
+#
+# Quindi il nome sintetico si costruisce a runtime. La deroga **non** si estende ai tre seam
+# reali, all'inventario, al criterio `t_y` ne' ad alcun codice di produzione: quelli restano in
+# chiaro, ed e' il §5 del mandato 60 a pretenderlo.
+#
+# NELLA COPIA il nome arriva come COSTANTE LETTERALE COMPLETA — `_Q = "DEEPSEARCH_QUARTO"` — per
+# cui la chiusura vi si esercita davvero, su un albero indistinguibile da uno in cui qualcuno
+# avesse introdotto un quarto seam per davvero.
+_SEAM_FINTO = "DEEPSEARCH_" + "QUARTO"
+
+
+def _seam_copia(muta):
+    """Una copia usa-e-getta di tools/, mutata. Il tools/ reale non si tocca mai."""
+    d = tempfile.mkdtemp(prefix="seam-")
+    t = os.path.join(d, "tools")
+    shutil.copytree(QUI, t, ignore=shutil.ignore_patterns("__pycache__"))
+    muta(t)
+    return d, t
+
+
+def _seam_appendi(t, nome, testo):
+    with open(os.path.join(t, nome), "a", encoding="utf-8", newline="\n") as g:
+        g.write(testo)
+
+
+def _seam_togli(t, nome, quale):
+    p = os.path.join(t, nome)
+    with open(p, encoding="utf-8") as g:
+        s = g.read()
+    if quale not in s:
+        raise AssertionError(f"ancoraggio assente: {quale} in {nome}")
+    with open(p, "w", encoding="utf-8", newline="\n") as g:
+        g.write(s.replace(quale, "XX_" + quale[len("DEEPSEARCH_"):]))
+
+
+def t_y():
+    """Il censimento dei seam d'ambiente. Mandato 60, redazione 2 (`ba358ddb...`).
+
+    UNA REGOLA SOLA: per ogni seam dichiarato, l'insieme dei file che lo NOMINANO e'
+    esattamente {proprietario} unito alle menzioni dichiarate. Piu' una chiusura
+    sull'insieme dei nomi.
+
+    Il ruolo e' DICHIARATO, NON DEDOTTO: per un file non dichiarato il criterio non
+    puo' sapere in quale ruolo cadrebbe, quindi non lo assegna a nessuno dei due — lo
+    rifiuta e basta. E' il caso `d` a inchiodarlo, con una fixture che si chiama
+    `*_selftest.py` e cade lo stesso.
+
+    La seconda meta' della chiusura — «un nome dichiarato e sparito» — e' STRUTTURALMENTE
+    INERTE su un albero che contiene questo file: l'inventario tiene vivo ogni nome che
+    dichiara. Resta nel codice perche' su un albero che NON contiene questo file (mutazione
+    9) e' l'unica cosa che parla. La sparizione dal proprietario la coglie la regola unica.
+
+    I sette casi sintetici girano su COPIE usa-e-getta di tools/. Il tools/ reale lo si
+    LEGGE soltanto, nel caso `a`."""
+    det = []
+
+    def prova(etichetta, radice, deve_fallire, atteso=None):
+        p = _seam_problemi(radice, SEAM_INVENTARIO)
+        if bool(p) is not deve_fallire:
+            det.append(f"{etichetta}: atteso {'rosso' if deve_fallire else 'verde'}, "
+                       f"ottenuto {'; '.join(p) if p else 'verde'}")
+        elif atteso and not any(atteso in x for x in p):
+            det.append(f"{etichetta}: rosso ma senza «{atteso}» — {'; '.join(p)}")
+
+    prova("a", QUI, False)
+
+    casi = (
+        # (etichetta, mutazione, deve_fallire, frammento atteso nel messaggio)
+        ("b", lambda t: _seam_appendi(t, "null_check.py", '\n_Q = "%s"\n' % _SEAM_FINTO),
+         True, "seam non dichiarato " + _SEAM_FINTO),
+        ("c", lambda t: _seam_appendi(t, "null_check.py", '\n_X = "DEEPSEARCH_STATE_ROOT"\n'),
+         True, "file in piu' ['null_check.py']"),
+        ("d", lambda t: _seam_appendi(t, "pack_repair_selftest.py",
+                                      '\n_X = "DEEPSEARCH_STATE_ROOT"\n'),
+         True, "file in piu' ['pack_repair_selftest.py']"),
+        ("e", lambda t: _seam_togli(t, "reconcile_run.py", "DEEPSEARCH_TELEMETRY_ROOT"),
+         True, "che non lo nomina ['reconcile_run.py']"),
+        ("f", lambda t: _seam_togli(t, "run_close_selftest.py", "DEEPSEARCH_STATE_ROOT"),
+         True, "che non lo nomina ['run_close_selftest.py']"),
+        ("g", lambda t: _seam_appendi(t, "null_check.py", "\n# %s\n" % _SEAM_FINTO),
+         False, None),
+        ("h", lambda t: _seam_appendi(
+            t, "null_check.py",
+            '\n\ndef _prosa():\n    """Una nota che cita %s dentro la prosa."""\n' % _SEAM_FINTO),
+         True, "seam non dichiarato " + _SEAM_FINTO),
+    )
+    for etichetta, muta, deve_fallire, atteso in casi:
+        d = None
+        try:
+            d, t = _seam_copia(muta)
+            prova(etichetta, t, deve_fallire, atteso)
+        except Exception as e:                                            # noqa: BLE001
+            det.append(f"{etichetta}: {type(e).__name__}: {e}")
+        finally:
+            if d:
+                shutil.rmtree(d, ignore_errors=True)
+
+    segna("T-Y", "seam d'ambiente censiti, e ciascuno solo dove e' dichiarato",
+          not det, " | ".join(det))
+
+
 def main():
     for t in (t_a, t_b, t_c, t_d, t_e, t_f, t_g, t_h, t_j, t_k, t_l, t_o,
-              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w, t_x):
+              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w, t_x, t_y):
         try:
             t()
         except Exception as e:
