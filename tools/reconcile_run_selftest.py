@@ -1297,28 +1297,45 @@ SEAM_INVENTARIO = {
 
 
 def _seam_trovati(radice):
-    """Per ogni seam trovato, l'insieme dei file di `radice` che lo NOMINANO."""
-    fuori = {}
+    """Per ogni seam trovato, l'insieme dei file di `radice` che lo NOMINANO, e l'elenco
+    dei file che NON si sono potuti leggere.
+
+    UN FILE ILLEGGIBILE NON E' UN FILE SENZA SEAM. Saltarlo — com'e' stato fino al
+    commit precedente, con un `except SyntaxError: continue` — ne fa sparire i seam dal
+    censimento e lascia il criterio VERDE: un errore nella direzione insicura. Ora ogni
+    errore di lettura o di parsing e' un rosso che nomina il file e la causa.
+
+    Non e' pero' l'UNICO modo di far tacere questo controllo senza toccarlo, e dirlo
+    sarebbe sovradetto: un seam scritto in un file che non finisce in `.py`, o annidato
+    sotto tools/, o raggiunto da un symlink penzolante — `os.path.isfile` falso — viene
+    saltato altrettanto in silenzio. Sono i limiti gia' dichiarati al §9 del mandato 60,
+    e questa slice non li tocca.
+
+    Si cattura `Exception` e non il solo `SyntaxError`: un sorgente puo' essere
+    irraggiungibile anche per codifica invalida, byte nulli o profondita' di ricorsione, e
+    per il censimento sono tutti lo stesso fatto — di quel file non si sa nulla."""
+    fuori, illeggibili = {}, []
     for nome in sorted(os.listdir(radice)):
         p = os.path.join(radice, nome)
         if not nome.endswith(".py") or not os.path.isfile(p):
             continue
-        with open(p, encoding="utf-8") as g:
-            sorgente = g.read()
         try:
+            with open(p, encoding="utf-8") as g:
+                sorgente = g.read()
             albero = ast.parse(sorgente, p)
-        except SyntaxError:
+        except Exception as e:                                            # noqa: BLE001
+            illeggibili.append((nome, f"{type(e).__name__}: {e}"))
             continue
         for n in ast.walk(albero):
             if isinstance(n, ast.Constant) and isinstance(n.value, str):
                 for s in SEAM.findall(n.value):
                     fuori.setdefault(s, set()).add(nome)
-    return fuori
+    return fuori, illeggibili
 
 
 def _seam_problemi(radice, inventario):
-    trovati = _seam_trovati(radice)
-    det = []
+    trovati, illeggibili = _seam_trovati(radice)
+    det = [f"{nome}: non parsabile — {msg}" for nome, msg in illeggibili]
     for s in sorted(set(trovati) - set(inventario)):
         det.append(f"seam non dichiarato {s} in {sorted(trovati[s])}")
     for s in sorted(set(inventario) - set(trovati)):
@@ -1394,7 +1411,7 @@ def t_y():
     dichiara. Resta nel codice perche' su un albero che NON contiene questo file (mutazione
     9) e' l'unica cosa che parla. La sparizione dal proprietario la coglie la regola unica.
 
-    I sette casi sintetici girano su COPIE usa-e-getta di tools/. Il tools/ reale lo si
+    Gli otto casi sintetici girano su COPIE usa-e-getta di tools/. Il tools/ reale lo si
     LEGGE soltanto, nel caso `a`."""
     det = []
 
@@ -1427,6 +1444,11 @@ def t_y():
             t, "null_check.py",
             '\n\ndef _prosa():\n    """Una nota che cita %s dentro la prosa."""\n' % _SEAM_FINTO),
          True, "seam non dichiarato " + _SEAM_FINTO),
+        # Un `.py` che non si parsa non e' un file senza seam: e' un file di cui non si sa
+        # nulla. Saltarlo in silenzio farebbe sparire i suoi seam dal censimento e lascerebbe
+        # il criterio VERDE — un errore in direzione insicura.
+        ("i", lambda t: _seam_appendi(t, "zz_rotto.py", "def (\n"),
+         True, "zz_rotto.py: non parsabile"),
     )
     for etichetta, muta, deve_fallire, atteso in casi:
         d = None
