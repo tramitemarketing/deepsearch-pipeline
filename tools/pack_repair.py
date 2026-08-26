@@ -103,19 +103,20 @@ def foglie(v):
 def posizioni(v, nodo, percorso, padre=None, chiave=None):
     """Ogni posizione dell'istanza con il suo nodo di contratto, il padre e la chiave.
 
-    La convenzione dei percorsi e' quella di `null_check.cammina`, e deve restarlo: un elemento
-    d'array NON consuma un livello di contratto e aggiunge `[]` al percorso. Se le due
-    convenzioni divergessero, le autorizzazioni del validatore non troverebbero piu' la loro
-    posizione — ed e' esattamente il caso che `main` rifiuta invece di indovinare.
+    NON REIMPLEMENTA LA CAMMINATA: chiama `null_check.cammina_istanza`, che e' l'unico posto in
+    cui la convenzione dei percorsi e' decisa.
+
+    Il riparatore cerca le posizioni da riparare per la STRINGA DI PERCORSO che il validatore
+    ha prodotto: se le due convenzioni divergessero, le autorizzazioni non troverebbero piu' la
+    loro posizione. Finche' la camminata e' una sola, quella domanda non ha un plurale a cui
+    riferirsi — e non c'e' un commento da ricordarsi di rispettare. Prima ce n'era uno, e citava
+    un `null_check.cammina` che nel frattempo era stato soppresso.
+
+    `PR-1` del selftest verifica per AST che questa funzione deleghi e non cammini per conto
+    proprio; `main` conserva comunque il presidio a runtime, che rifiuta con exit 2 se
+    un'autorizzazione non trova la sua posizione.
     """
-    yield percorso, padre, chiave, v, nodo
-    if isinstance(v, dict):
-        for k in list(v):
-            fig = nodo.figli.get(k) if nodo is not None else None
-            yield from posizioni(v[k], fig, f"{percorso}/{k}" if percorso else k, v, k)
-    elif isinstance(v, list):
-        for i in range(len(v)):
-            yield from posizioni(v[i], nodo, f"{percorso}[]", v, i)
+    return null_check.cammina_istanza(v, nodo, percorso, padre, chiave)
 
 
 def e_envelope(x):

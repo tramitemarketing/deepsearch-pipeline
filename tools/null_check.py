@@ -146,22 +146,35 @@ def leggi_contratto(testo):
     return radice
 
 
-def controlla(valore, radice):
-    """(esito, elenco). L'elenco e' in ordine di documento e riporta OGNI null illecito.
+def cammina_istanza(valore, radice, percorso="", padre=None, chiave=None):
+    """LA CAMMINATA SULL'ISTANZA. Una sola, e questa.
 
-    Fermarsi al primo obbligherebbe a un secondo giro per vedere il secondo, e un pack ne porta
-    piu' d'uno per volta: il replay 20260823-1647 ne aveva due, su due canali diversi.
+    Emette ogni posizione in PRE-ORDINE e ordine di documento, come
+    `(percorso, padre, chiave, valore, nodo di contratto)`. E' un sovrainsieme di cio' che
+    serve a `controlla`, che ignora padre e chiave: emettere meno costringerebbe
+    `pack_repair.posizioni` a una seconda camminata per recuperarli, cioe' al difetto che
+    questa primitiva esiste per chiudere.
 
-    ITERATIVA, e non e' una preferenza di stile.
+    PERCHE' E' PUBBLICA E CONDIVISA. `pack_repair` cerca le posizioni da riparare per la
+    STRINGA DI PERCORSO che questo modulo produce. Finche' le camminate erano due, che le due
+    convenzioni coincidessero era affidato a un commento — e il commento e' anche diventato
+    falso, citando un `cammina` che una slice precedente aveva soppresso. Con una camminata
+    sola la domanda «coincidono?» non ha piu' un plurale a cui riferirsi. `PR-1` del selftest
+    di `pack_repair` verifica per AST che quel modulo non ne reintroduca una propria.
 
-    La versione ricorsiva cedeva con `RecursionError` a profondita' 996, mentre `json.loads`
-    accetta fino a 2998: c'era una fascia di circa duemila livelli in cui il pack si parsava e
-    la camminata cadeva, uscendo `1` — che in questa catena significa «null illeciti trovati»,
-    cioe' una MISURA — senza aver controllato nulla. Il guasto si travestiva da misura.
+    LE REGOLE, che non cambiano: il dizionario consuma un livello di contratto, la lista NO —
+    `a<o>` fonde array ed elemento; il percorso e' `p/k` per le chiavi, senza `/` iniziale
+    alla radice, e `p[]` per gli elementi, SENZA indice; perduto il nodo resta perduto e la
+    camminata prosegue, perche' «posizione non nel contratto» e' un rilievo da riportare.
+
+    ITERATIVA, e non e' una preferenza di stile. La versione ricorsiva cedeva con
+    `RecursionError` a profondita' 996, mentre `json.loads` accetta fino a 2998: c'era una
+    fascia di circa duemila livelli in cui il pack si parsava e la camminata cadeva, uscendo
+    `1` — che in questa catena significa «null illeciti trovati», cioe' una MISURA — senza
+    aver controllato nulla. Il guasto si travestiva da misura.
 
     NESSUNA SOGLIA DI PROFONDITA', e nessuna fonte potrebbe darne una: il contratto non limita
-    l'istanza, perche' «posizione non nel contratto» e' un rilievo da riportare e non un motivo
-    per fermarsi; `evidence-pack.schema.json` non porta alcuna occorrenza di
+    l'istanza; `evidence-pack.schema.json` non porta alcuna occorrenza di
     `additionalProperties`, quindi il default permissivo lascia passare sottoalberi liberi; e
     questo controllo gira PRIMA della validazione di schema, quindi il suo ingresso non e'
     nemmeno garantito conforme. Un tetto esiste gia' a monte e non e' nostro: `json.loads`
@@ -170,14 +183,32 @@ def controlla(valore, radice):
     Il precedente e' in casa: `ds_validate._cammina_schemi` e' gia' una DFS iterativa, nata
     dallo stesso difetto.
     """
-    fuori = []
-
-    # In profondita', pre-ordine: i figli si impilano IN ORDINE INVERSO perche' la pila li
-    # restituisca in ordine di documento. L'ordine di `fuori` dipende solo dall'ordine di
-    # visita, quindi cosi' e' esattamente quello di prima.
-    pila = [(valore, radice, "")]
+    # I figli si impilano IN ORDINE INVERSO perche' la pila li restituisca in ordine di
+    # documento. L'indice si ottiene da `enumerate` e non da un intervallo costruito a mano:
+    # `range(len(v)-1, -1, -1)` introdurrebbe costanti numeriche, che `I-h` vieta.
+    pila = [(valore, radice, percorso, padre, chiave)]
     while pila:
-        v, nodo, percorso = pila.pop()
+        v, nodo, perc, pad, chi = pila.pop()
+        yield perc, pad, chi, v, nodo
+        if isinstance(v, dict):
+            for k in reversed(list(v)):
+                p = f"{perc}/{k}" if perc else k
+                pila.append((v[k], nodo.figli.get(k) if nodo else None, p, v, k))
+        elif isinstance(v, list):
+            for i, sub in reversed(list(enumerate(v))):
+                pila.append((sub, nodo, f"{perc}[]", v, i))
+
+
+def controlla(valore, radice):
+    """(esito, elenco). L'elenco e' in ordine di documento e riporta OGNI null illecito.
+
+    Fermarsi al primo obbligherebbe a un secondo giro per vedere il secondo, e un pack ne porta
+    piu' d'uno per volta: il replay 20260823-1647 ne aveva due, su due canali diversi.
+
+    Non cammina: CONSUMA `cammina_istanza`, e filtra le posizioni il cui valore e' `None`.
+    """
+    fuori = []
+    for percorso, _padre, _chiave, v, nodo in cammina_istanza(valore, radice):
         if v is None:
             dove = percorso or "(radice)"
             if nodo is None:
@@ -187,16 +218,6 @@ def controlla(valore, radice):
                 fuori.append({"percorso": dove,
                               "motivo": "il contratto non dichiara `~` ne' `z`",
                               "tipo_dichiarato": nodo.tipo})
-            continue
-        if isinstance(v, dict):
-            for k in reversed(list(v)):
-                p = f"{percorso}/{k}" if percorso else k
-                pila.append((v[k], nodo.figli.get(k) if nodo else None, p))
-        elif isinstance(v, list):
-            # L'elemento NON consuma un livello di contratto: `a<o>` fonde array ed elemento.
-            for sub in reversed(v):
-                pila.append((sub, nodo, f"{percorso}[]"))
-
     return (not fuori), fuori
 
 

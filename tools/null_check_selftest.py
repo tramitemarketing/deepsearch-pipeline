@@ -486,6 +486,30 @@ def i_h():
                     and not isinstance(v.value, bool):
                 modulo.append(ast.unparse(n))
     assert modulo == [], f"costanti numeriche di modulo, nuove rispetto alla linea di base: {modulo}"
+    # LA PRIMITIVA e' dove la camminata vive ora. Senza queste due clausole `I-h` guarderebbe
+    # un `controlla` che non cammina piu' e passerebbe senza esaminare nulla — il caso si
+    # svuoterebbe SENZA DIRLO, che e' esattamente cio' che il mandato 63 §6.2 aveva previsto.
+    prim = [n for n in albero.body
+            if isinstance(n, ast.FunctionDef) and n.name == "cammina_istanza"]
+    assert prim, "la primitiva non esiste piu': `I-h` guarderebbe il vuoto"
+    num = [x.value for x in ast.walk(prim[0])
+           if isinstance(x, ast.Constant)
+           and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)]
+    assert num == [], f"costanti numeriche dentro la primitiva: {num}"
+    # UNA SOLA CAMMINATA in questo file: nessuna funzione si richiama per nome. La clausola
+    # vale qui e non su `pack_repair.py`, dove `giu` continua legittimamente a farlo.
+    #
+    # `ast.walk` E NON `albero.body`: la redazione 1 guardava il solo livello di modulo, e una
+    # chiusura ricorsiva ANNIDATA dentro `cammina_istanza` le passava sotto. Non e' un caso di
+    # scuola: e' esattamente la forma del difetto che il commit `993c771` ha sciolto, cioe' la
+    # `cammina` interna. A coglierla restavano `I-c` e `PR-2`, comportamentali, che dicono che
+    # qualcosa e' rotto ma non PERCHE'. La clausola strutturale esiste per dire il perche', e
+    # deve percorrere l'albero intero.
+    for n in ast.walk(albero):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            auto = [c for c in ast.walk(n) if isinstance(c, ast.Call)
+                    and isinstance(c.func, ast.Name) and c.func.id == n.name]
+            assert not auto, f"{n.name}() si richiama per nome: e' tornata una camminata ricorsiva"
 
 
 def main():
