@@ -17,7 +17,7 @@ prove cambiano con lui o diventano rosse — che e' il comportamento voluto.
   uso:  python tools/null_check_selftest.py
         exit 0 = tutte verdi
 """
-import json, os, re, subprocess, sys, tempfile
+import ast, json, os, re, shutil, subprocess, sys, tempfile
 import sys as _sys
 for _f in (_sys.stdout, _sys.stderr):
     try: _f.reconfigure(encoding="utf-8", errors="replace", newline="\n")
@@ -293,6 +293,200 @@ def n14():
 
 
 # ------------------------------------------------------------------ esecuzione
+
+
+# ================================================================== la camminata iterativa
+#
+# Mandato `63-MANDATO-CAMMINATA-ITERATIVA.md`, redazione 3, sha256
+# `9983ec67c3a9c5c9c7ce9941a1285693fb4a3c08237022fbd820786130ed3313`.
+#
+# IL DIFETTO. `cammina` era una chiusura RICORSIVA sull'istanza, e cedeva a profondita' 996
+# mentre `json.loads` accetta fino a 2998: una fascia di circa duemila livelli in cui il pack
+# si parsa e la camminata cade. L'esito era exit 1 con un traceback e stdout vuoto — e `1`, in
+# questa catena, significa «null illeciti trovati», cioe' una MISURA. Il guasto si travestiva
+# da misura, e non era stato controllato nulla.
+#
+# NESSUN LIMITE INVENTATO, e non e' una rinuncia: nessuna fonte potrebbe darne uno. Il
+# contratto non limita la profondita' dell'istanza — «posizione non nel contratto» e' un
+# rilievo da riportare, non un motivo per fermarsi; `evidence-pack.schema.json` non porta
+# alcuna occorrenza di `additionalProperties`, quindi il default permissivo lascia passare
+# sottoalberi liberi; e questo controllo gira PRIMA della validazione di schema, quindi il suo
+# ingresso non e' nemmeno garantito conforme. Un tetto esiste gia' a monte e non e' nostro:
+# `json.loads` rifiuta oltre 2998.
+#
+# IL PRECEDENTE E' IN CASA: `ds_validate._cammina_schemi` e' gia' una DFS iterativa, e il suo
+# docstring dice perche' — «la versione ricorsiva cedeva con `RecursionError` non catturata».
+# Delle venti camminate ricorsive su JSON di `tools/`, sedici in produzione, questa e' la
+# seconda a essere curata.
+
+# Gli SCHELETRI dei tre pack reali: la struttura con ogni scalare non-`null` sostituito da `0`.
+# E' esatto per questa proprieta', e la ragione e' verificabile: l'unico test scalare della
+# camminata e' `v is None`. I tre sono scelti per NULL ILLECITI — non per nodi, non per null
+# totali: sono esattamente i tre che ne portano piu' d'uno, e ne portano tre ciascuno. Un pack
+# con zero illeciti renderebbe l'asserzione del caso `a` un `[] == []`, vacuo.
+SCHELETRI = {
+    # 20260823-0211/P-003-trend_adozione.json
+    '20260823-0211/P-003-trend_adozione.json':
+    '{"agent":0,"run_id":0,"status":0,"budget_used":{"searches":0,"searches_limit":0,"fetches":0,"fetches_limit":0},"stop_reason":0,"payload":{"pain_id":0,"channel":0,"claims":[{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"value_min":0,"value_max":0,"unit":0,"currency":0,"year":0,"geo":0,"state":0,"source_ids":[0],"formula":null,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[0,0],"formula":null,"input_source_ids":[0,0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null},{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[0],"formula":null,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":0,"input_source_ids":[0,0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null},{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":0,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":null,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0}],"q4_answer":{"question_id":0,"answer":0,"grounded":0,"source_ids":[0,0,0],"answered_by":0},"coverage":{"angles_covered":[0,0,0,0],"gaps":[0,0,0]},"spend_evidence":[],"language_of_the_problem":[],"contradictory_evidence":[{"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":0,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":null,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0},{"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"value_min":0,"value_max":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":0,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":null,"estimation_formula":null,"stale_warning":0,"contradicted_by":[],"evidence":[{"source_id":0,"snippet":0,"snippet_source":0,"verbatim_quote":null}],"evidence_kind":0}]},"new_sources":[{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0,"snippet_lang":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":null,"language":0,"data_year":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":0,"language":0,"data_year":0,"evidence_kind":0,"snippet_is_translation":0}],"queries_run":[{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0}],"unreachable_sources":[{"what":0,"why":0,"impact":0,"url_or_target":0,"source_id":0},{"what":0,"why":0,"impact":0,"url_or_target":0,"source_id":0}],"self_check":{"invarianti_violati":[],"note":0}}',
+    # 20260822-2331/P-003-statistica_ufficiale.json
+    '20260822-2331/P-003-statistica_ufficiale.json':
+    '{"agent":0,"run_id":0,"status":0,"budget_used":{"searches":0,"searches_limit":0,"fetches":0,"fetches_limit":0},"stop_reason":0,"payload":{"pain_id":0,"channel":0,"claims":[{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"stale_warning":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[0,0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"stale_warning":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0},{"source_id":0,"snippet":0,"snippet_source":0}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":0,"year":0,"geo":0,"state":0,"source_ids":[0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"stale_warning":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":0,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[0,0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"stale_warning":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0},{"source_id":0,"snippet":0,"snippet_source":0}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"unit":0,"currency":0,"year":0,"geo":0,"state":0,"source_ids":[0,0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"stale_warning":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0},{"source_id":0,"snippet":0,"snippet_source":0}],"evidence_kind":0},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":null,"geo":0},"state":0,"source_ids":[],"promotion_rule_met":null,"evidence":[]},{"promoted_by":0,"id":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"unit":0,"currency":null,"year":0,"geo":0,"state":0,"source_ids":[],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0},"period":null,"geo":0},"state":0,"source_ids":[],"promotion_rule_met":null,"evidence":[]}],"q4_answer":{"question_id":0,"answer":0,"grounded":0,"source_ids":[0,0,0,0]},"coverage":{"angles_covered":[0],"gaps":[0,0]},"spend_evidence":[{"claim_id":0,"spend_form":0,"amount":{"label":0,"value":0,"unit":0,"state":0,"currency":0,"year":0,"geo":0,"source_ids":[0],"formula":null,"input_source_ids":[],"is_assumption":0,"display_string":0}}],"language_of_the_problem":[],"contradictory_evidence":[{"id":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":null,"geo":0},"state":0,"source_ids":[],"promotion_rule_met":null,"evidence":[],"evidence_kind":0}]},"new_sources":[{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"months_old":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0}],"queries_run":[{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[],"yield":0}],"unreachable_sources":[],"self_check":{"invarianti_violati":[],"note":0}}',
+    # 20260822-2331/P-003-pricing_mercato.json
+    '20260822-2331/P-003-pricing_mercato.json':
+    '{"agent":0,"run_id":0,"status":0,"budget_used":{"searches":0,"searches_limit":0,"fetches":0,"fetches_limit":0},"stop_reason":0,"payload":{"pain_id":0,"channel":0,"claims":[{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0,0],"promotion_rule_met":0,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0},{"source_id":0,"snippet":0,"snippet_source":0}]},{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]},{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]},{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":null,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]},{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]},{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":{"label":0,"value":null,"value_min":0,"value_max":0,"unit":0,"currency":0,"year":0,"geo":0,"state":0,"source_ids":[0],"formula":0,"input_source_ids":[0],"is_assumption":0,"display_string":0},"period":null,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":null,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]}],"q4_answer":{"question_id":0,"grounded":0,"answer":0,"source_ids":[0,0,0,0],"answered_by":0},"coverage":{"angles_covered":[0],"gaps":[0,0,0,0]},"spend_evidence":[{"claim_id":0,"spend_form":0,"amount":{"label":0,"value":null,"unit":0,"state":0,"currency":0,"year":0,"geo":0,"source_ids":[],"is_assumption":0,"display_string":0}},{"claim_id":0,"spend_form":0,"amount":{"label":0,"value":null,"unit":0,"state":0,"currency":0,"year":0,"geo":0,"source_ids":[],"is_assumption":0,"display_string":0}},{"claim_id":0,"spend_form":0,"amount":{"label":0,"value":null,"value_min":0,"value_max":0,"unit":0,"state":0,"currency":0,"year":0,"geo":0,"source_ids":[0],"formula":0,"input_source_ids":[0],"is_assumption":0,"display_string":0}}],"contradictory_evidence":[{"id":0,"promoted_by":0,"statement":{"subject":0,"observed":0,"quantity":null,"period":0,"geo":0},"state":0,"source_ids":[0],"promotion_rule_met":0,"evidence_kind":0,"evidence":[{"source_id":0,"snippet":0,"snippet_source":0}]}],"language_of_the_problem":[]},"new_sources":[{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0},{"id":0,"url":0,"publisher":0,"title":0,"published_date":0,"accessed_at":0,"tier":0,"access_status":0,"retrieved_by":0,"stale":0,"evidence_kind":0}],"queries_run":[{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0,0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0},{"raw_query":0,"normalized_query":0,"angle":0,"n_results":0,"source_ids":[0],"yield":0}],"unreachable_sources":[{"what":0,"why":0,"impact":0,"url_or_target":0,"source_id":null}],"self_check":{"invarianti_violati":[],"note":0}}',
+}
+
+
+def _riferimento(valore, radice):
+    """L'algoritmo RICORSIVO di prima, verbatim. E' il metro di paragone del caso `a`.
+
+    Vive qui e non in `null_check`: e' cio' contro cui la nuova camminata si misura, e
+    tenerlo nel banco di prova invece che nello strumento e' l'unico modo perche' resti un
+    metro e non diventi una seconda implementazione da mantenere."""
+    fuori = []
+
+    def cammina(v, nodo, percorso):
+        if v is None:
+            dove = percorso or "(radice)"
+            if nodo is None:
+                fuori.append({"percorso": dove, "motivo": "posizione non nel contratto",
+                              "tipo_dichiarato": None})
+            elif not nodo.nullable:
+                fuori.append({"percorso": dove,
+                              "motivo": "il contratto non dichiara `~` ne' `z`",
+                              "tipo_dichiarato": nodo.tipo})
+            return
+        if isinstance(v, dict):
+            for k, sub in v.items():
+                p = f"{percorso}/{k}" if percorso else k
+                cammina(sub, nodo.figli.get(k) if nodo else None, p)
+        elif isinstance(v, list):
+            for sub in v:
+                cammina(sub, nodo, f"{percorso}[]")
+
+    cammina(valore, radice, "")
+    return (not fuori), fuori
+
+
+def _percorsi(elenco):
+    return [e["percorso"] for e in elenco]
+
+
+def _profondo(n):
+    """Un JSON di profondita' `n` con un `null` in fondo, fuori contratto."""
+    return '{"a":' * n + "null" + "}" * n
+
+
+def _da_riga(testo_pack, testo_contratto):
+    """(exit, stdout, stderr) di null_check.py dalla riga di comando."""
+    d = tempfile.mkdtemp(prefix="nc-")
+    try:
+        c = os.path.join(d, "delivery.txt")
+        p = os.path.join(d, "pack.json")
+        with open(c, "w", encoding="utf-8", newline="\n") as g:
+            g.write(testo_contratto)
+        with open(p, "w", encoding="utf-8", newline="\n") as g:
+            g.write(testo_pack)
+        r = subprocess.run([sys.executable, os.path.join(QUI, "null_check.py"),
+                            "--contratto", c, "--pack", p],
+                           capture_output=True, timeout=180)
+        return (r.returncode, r.stdout.decode("utf-8", "replace"),
+                r.stderr.decode("utf-8", "replace"))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("I-a", "equivalenza elemento per elemento sui tre scheletri reali")
+def i_a():
+    albero = nc.leggi_contratto(contratto())
+    for nome, testo in SCHELETRI.items():
+        pack = json.loads(testo)
+        _, atteso = _riferimento(pack, albero)
+        _, ottenuto = nc.controlla(pack, albero)
+        assert ottenuto == atteso, (
+            f"{nome}: la camminata diverge dal riferimento\n"
+            f"  riferimento: {_percorsi(atteso)}\n"
+            f"  ottenuto   : {_percorsi(ottenuto)}")
+        assert len(atteso) == 3, f"{nome}: {len(atteso)} illeciti, attesi 3 — scheletro sbagliato"
+
+
+@prova("I-b", "il difetto reale resta ripreso, con lo stesso percorso")
+def i_b():
+    pack = base()
+    pack["payload"]["spend_evidence"] = [{"actor": "x", "amount": None}]
+    ok, el = esamina(pack)
+    assert not ok, "il difetto reale non e' piu' ripreso"
+    assert "payload/spend_evidence[]/amount" in _percorsi(el), _percorsi(el)
+
+
+@prova("I-c", "profondita' 1500, dentro la fascia: un VERDETTO, non un'eccezione")
+def i_c():
+    codice, uscita, err = _da_riga(_profondo(1500), contratto())
+    assert "RecursionError" not in err, "la camminata cede ancora:\n" + err[-400:]
+    assert codice == 1, f"uscita {codice}, atteso 1 (un null illecito trovato)\n{err[-300:]}"
+    assert "null illeciti: 1" in uscita, uscita[:200]
+    assert uscita.count("/a") >= 1400, "il percorso completo non e' riportato"
+
+
+@prova("I-d", "profondita' 3500, oltre il parser: GUASTO nominato, exit 2, nessun traceback")
+def i_d():
+    codice, uscita, err = _da_riga(_profondo(3500), contratto())
+    assert codice == 2, f"uscita {codice}, atteso 2: non aver potuto leggere e' un guasto"
+    assert "Traceback" not in err, "il guasto e' uscito come traceback:\n" + err[-400:]
+    assert "profondita" in err.lower(), f"la diagnostica non nomina la causa: {err!r}"
+
+
+@prova("I-e", "ordine DFS su una fixture ANNIDATA con fratelli a profondita' diverse")
+def i_e():
+    pack = {"a": {"b": None}, "c": [None], "d": [[None]], "payload": {"ignoto": None}}
+    _, el = esamina(pack)
+    assert _percorsi(el) == ["a/b", "c[]", "d[][]", "payload/ignoto"], _percorsi(el)
+
+
+@prova("I-f", "convenzione dei percorsi, con un DIZIONARIO NON VUOTO fuori contratto")
+def i_f():
+    # Il dizionario deve PORTARE un `null`: senza, si esercita la discesa fuori contratto ma
+    # non si produce il rilievo che questo caso pretende.
+    pack = {"a": {"b": None}, "c": [None], "d": [[None]],
+            "payload": {"fuori_contratto": {"z": None}}}
+    _, el = esamina(pack)
+    assert _percorsi(el) == ["a/b", "c[]", "d[][]", "payload/fuori_contratto/z"], _percorsi(el)
+    fuori = [e for e in el if e["motivo"] == "posizione non nel contratto"]
+    assert len(fuori) == 4, f"attesi 4 rilievi fuori contratto, {len(fuori)}"
+
+
+@prova("I-g", "contenitori vuoti e `null` alla radice")
+def i_g():
+    for vuoto in ({}, []):
+        ok, el = esamina(vuoto)
+        assert ok and el == [], f"{vuoto!r} produce rilievi: {_percorsi(el)}"
+    ok, el = esamina(None)
+    assert not ok and _percorsi(el) == ["(radice)"], _percorsi(el)
+
+
+@prova("I-h", "nessuna soglia arbitraria: ne' nella funzione, ne' come costante di modulo")
+def i_h():
+    sorgente = open(os.path.join(QUI, "null_check.py"), encoding="utf-8").read()
+    albero = ast.parse(sorgente)
+    assert "setrecursionlimit" not in sorgente, "una soglia e' stata imposta all'interprete"
+    for n in albero.body:
+        if isinstance(n, ast.FunctionDef) and n.name == "controlla":
+            num = [x.value for x in ast.walk(n)
+                   if isinstance(x, ast.Constant)
+                   and isinstance(x.value, (int, float)) and not isinstance(x.value, bool)]
+            assert num == [], f"costanti numeriche dentro controlla(): {num}"
+    # E una soglia non si scrive come numero dentro la funzione: si scrive come COSTANTE DI
+    # MODULO con un nome — `contract_compile.LIMITE_PROFONDITA = 20` lo fa gia'. Dentro
+    # `controlla` resterebbe un `Name`, invisibile al controllo qui sopra.
+    modulo = []
+    for n in albero.body:
+        if isinstance(n, (ast.Assign, ast.AnnAssign)):
+            v = n.value
+            if isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) \
+                    and not isinstance(v.value, bool):
+                modulo.append(ast.unparse(n))
+    assert modulo == [], f"costanti numeriche di modulo, nuove rispetto alla linea di base: {modulo}"
+
 
 def main():
     print(f"null_check_selftest — {len(ESITI)} prove\n")

@@ -151,10 +151,33 @@ def controlla(valore, radice):
 
     Fermarsi al primo obbligherebbe a un secondo giro per vedere il secondo, e un pack ne porta
     piu' d'uno per volta: il replay 20260823-1647 ne aveva due, su due canali diversi.
+
+    ITERATIVA, e non e' una preferenza di stile.
+
+    La versione ricorsiva cedeva con `RecursionError` a profondita' 996, mentre `json.loads`
+    accetta fino a 2998: c'era una fascia di circa duemila livelli in cui il pack si parsava e
+    la camminata cadeva, uscendo `1` — che in questa catena significa «null illeciti trovati»,
+    cioe' una MISURA — senza aver controllato nulla. Il guasto si travestiva da misura.
+
+    NESSUNA SOGLIA DI PROFONDITA', e nessuna fonte potrebbe darne una: il contratto non limita
+    l'istanza, perche' «posizione non nel contratto» e' un rilievo da riportare e non un motivo
+    per fermarsi; `evidence-pack.schema.json` non porta alcuna occorrenza di
+    `additionalProperties`, quindi il default permissivo lascia passare sottoalberi liberi; e
+    questo controllo gira PRIMA della validazione di schema, quindi il suo ingresso non e'
+    nemmeno garantito conforme. Un tetto esiste gia' a monte e non e' nostro: `json.loads`
+    rifiuta oltre 2998, e di li' non si passa.
+
+    Il precedente e' in casa: `ds_validate._cammina_schemi` e' gia' una DFS iterativa, nata
+    dallo stesso difetto.
     """
     fuori = []
 
-    def cammina(v, nodo, percorso):
+    # In profondita', pre-ordine: i figli si impilano IN ORDINE INVERSO perche' la pila li
+    # restituisca in ordine di documento. L'ordine di `fuori` dipende solo dall'ordine di
+    # visita, quindi cosi' e' esattamente quello di prima.
+    pila = [(valore, radice, "")]
+    while pila:
+        v, nodo, percorso = pila.pop()
         if v is None:
             dove = percorso or "(radice)"
             if nodo is None:
@@ -164,17 +187,16 @@ def controlla(valore, radice):
                 fuori.append({"percorso": dove,
                               "motivo": "il contratto non dichiara `~` ne' `z`",
                               "tipo_dichiarato": nodo.tipo})
-            return
+            continue
         if isinstance(v, dict):
-            for k, sub in v.items():
+            for k in reversed(list(v)):
                 p = f"{percorso}/{k}" if percorso else k
-                cammina(sub, nodo.figli.get(k) if nodo else None, p)
+                pila.append((v[k], nodo.figli.get(k) if nodo else None, p))
         elif isinstance(v, list):
             # L'elemento NON consuma un livello di contratto: `a<o>` fonde array ed elemento.
-            for sub in v:
-                cammina(sub, nodo, f"{percorso}[]")
+            for sub in reversed(v):
+                pila.append((sub, nodo, f"{percorso}[]"))
 
-    cammina(valore, radice, "")
     return (not fuori), fuori
 
 
@@ -203,6 +225,16 @@ def main(argv=None):
             with open(a.pack, "rb") as f:
                 grezzo = f.read().decode("utf-8")
         pack = json.loads(grezzo)
+    except RecursionError:
+        # CIRCOSCRITTA AL PARSING, e deliberatamente non piu' larga. Oltre 2998 livelli
+        # `json.loads` rinuncia, e non aver potuto LEGGERE il pack e' un guasto — vale `2`,
+        # non `1`, che qui significherebbe «null illeciti trovati» su un pack mai controllato.
+        # Non si avvolge `controlla`: da li' un `RecursionError` non nasce piu', e catturarlo
+        # anche li' maschererebbe un difetto invece di riportarlo.
+        print("pack non leggibile: profondita' oltre il limite del parser JSON — "
+              "l'annidamento supera cio' che l'interprete accetta di deserializzare",
+              file=sys.stderr)
+        return 2
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
         print(f"pack non leggibile: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
