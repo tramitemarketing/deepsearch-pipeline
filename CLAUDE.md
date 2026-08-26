@@ -308,3 +308,70 @@ elenca cosa e' stato esaminato, perche' e' caduto, e quali verifiche mancanti (s
 verranno riprese il run successivo.
 
 Questo e' esplicitamente **il comportamento desiderato**, non un errore da correggere.
+
+---
+
+## 11. Strumenti: regole operative, invarianti sorvegliati, limiti noti
+
+Tre elenchi distinti, e tenerli distinti fa parte della regola. Una **regola operativa** governa il
+lavoro e non e' dimostrata da nulla: vale perche' e' prescritta. Un **invariante sorvegliato** ha una
+prova che cade quando la proprieta' viene meno: una proprieta' vera che nessuna prova difende non e'
+un invariante, e sta fra i limiti. Un **limite noto** e' aperto, e va dichiarato prima di essere
+invocato: un limite dichiarato non e' un difetto, ma soltanto dopo la dichiarazione.
+
+**Regole operative.**
+
+- **Ogni numero e' una misura di questo turno.** Hash, conteggi, byte, righe, esiti, stato Git:
+  devono venire da un comando eseguito **dopo l'ultima modifica pertinente**. Altrimenti si scrivono
+  come `STIMA` o `DATO EREDITATO`, citandone la fonte.
+- **Le mutazioni si eseguono, non si deducono.** Ogni mutazione dichiarata va applicata al candidato
+  esatto, e osservatori ed esiti si riportano **dalla misura**. Una tabella di falsificazione
+  compilata a mente e' una previsione travestita da prova.
+- **Nessun commit senza `PASS` indipendente sull'hash esatto.** Su `AMEND` ci si ferma: nessun
+  commit, prove conservate.
+- **I selftest non devono dipendere da rete, orologio o `runtime/`**: usano fixture incorporate o
+  directory temporanee. E' una regola **normativa**, non una copertura automatica. Il censimento
+  dell'aggregatore verifica che una **ragione** ci sia accanto a ogni nome, non che sia **vera**;
+  alcuni selftest installano guardie proprie sulla rete, sostituendo le primitive di `socket`; ma
+  non esiste un controllo unico che imponga insieme le tre condizioni.
+
+**Invarianti sorvegliati.** Qui entra solo cio' per cui esiste una prova **discriminante**: una
+prova che cade quando quella proprieta' viene meno, e che e' stata falsificata per accertarlo.
+
+- **`pack_repair.posizioni` delega a `null_check.cammina_istanza`** e non cammina per conto proprio.
+  E' controllato per **AST** nel selftest di `pack_repair`.
+- **La struttura iterativa e le clausole formali dell'emettitore** sono controllate per **AST**:
+  nessuna funzione della camminata si richiama per nome, nessuna costante numerica nelle funzioni di
+  camminata, nessuna costante numerica di modulo, nessun `setrecursionlimit`. E' cosi' che
+  "nessuna soglia artificiale di profondita'" diventa verificabile invece che ricordata.
+- **Il pre-ordine e l'ordine di documento** sono controllati per **comportamento**, confrontando la
+  sequenza emessa con un metro indipendente. Non sono controllati per AST.
+- **Convenzione dei percorsi**, controllata per comportamento: `percorso/k` per le chiavi, senza `/`
+  iniziale alla radice; `percorso[]` per gli elementi di lista, **senza indice**. Un elemento di
+  lista non consuma un livello di contratto. Perduto il nodo di contratto, resta perduto e la
+  camminata prosegue.
+- **Exit code, per i rami effettivamente coperti.** `null_check`: `0` nessun `null` illecito; `1`
+  illeciti, elencati per percorso d'istanza; `2` quando il contratto non e' leggibile e quando il
+  parser cede per profondita'. `pack_repair`: `2` per il guasto, `0` e `1` per l'esito della
+  validazione. La distinzione porta il peso: `1` e' una **misura** sull'artefatto, `2` e' un
+  **guasto** dell'invocazione, e si riparano in posti diversi.
+
+**Limiti noti.**
+
+- **`null_check.controlla` oggi consuma l'emettitore, ma nulla lo impone.** Nessuna prova
+  strutturale gli impedisce di essere sostituito da una reimplementazione iterativa equivalente: le
+  prove attuali ne sorvegliano il **comportamento**, non l'unicita' architetturale.
+- **Nessuna prova protegge oggi il `2` di `null_check`** per il pack illeggibile a livello di file,
+  per il JSON malformato e per l'uso errato della CLI. Lo strumento li produce; la copertura manca.
+- **`pack_repair.nodo_di()` non emette i percorsi `[]` della convenzione**: interpreta i JSON
+  Pointer prodotti dal validatore, indici numerici compresi. Conserva pero' separatamente la regola
+  per cui un indice non consuma un livello di contratto, e quella regola vive quindi in due posti.
+- **La CLI di `pack_repair` non e' profonda-safe da capo a fondo**, e l'emettitore condiviso non le
+  da' quella robustezza. Un ingresso profondo puo' fallire prima o altrove: in `copy.deepcopy`, in
+  `foglie()`, o in altri passaggi ricorsivi della catena. Non esiste un unico punto di cedimento, e
+  correggerne uno solo non chiude la lacuna.
+- **Quelle eccezioni oggi possono uscire con il codice predefinito `1`**, senza la classificazione
+  nominata che `null_check` produce. Un guasto si presenta cosi' come una misura. **Non e' il
+  contratto desiderato**, ed e' registrato qui come lacuna aperta, non come comportamento accettato.
+- **L'isolamento dei selftest da rete, orologio e `runtime/` e' coperto solo in parte**, e in modo
+  disomogeneo: dove una guardia esiste, e' locale al singolo selftest.
