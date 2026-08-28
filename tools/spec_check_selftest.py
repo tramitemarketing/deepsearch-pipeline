@@ -705,6 +705,132 @@ FALSIFICAZIONI_M03 = [
 ]
 
 
+# ---------------------------------------------------------------- la copia del repository
+#
+# UNA sola primitiva, e ogni copia passa di qui. Il banco copia il repository per OGNI mutazione:
+# settanta volte, piu' la linea di base. Con due chiamate identiche scritte in due punti, cambiare
+# che cosa si esclude voleva dire ricordarsi di cambiarlo due volte — e la baseline e le mutazioni
+# avrebbero potuto divergere in silenzio, cioe' misurare due corpora diversi credendoli uno.
+
+ESCLUSI_DALLA_COPIA = (".git", "runs", "*.zip", "__pycache__")
+
+
+def copia_repository(radice, dst):
+    """L'unica copia del repository di questo banco.
+
+    `shutil.ignore_patterns` confronta per `fnmatch` il NOME della voce, non il percorso: `.git`
+    esclude la directory e nient'altro. In particolare **non** tocca `.gitignore`, che deve
+    arrivare nella copia byte per byte perche' `spec_check` lo legge per SC-21.
+    """
+    shutil.copytree(radice, dst, ignore=shutil.ignore_patterns(*ESCLUSI_DALLA_COPIA))
+    return dst
+
+
+def _scrivi(percorso, dati):
+    os.makedirs(os.path.dirname(percorso), exist_ok=True)
+    with open(percorso, "wb") as f:
+        f.write(dati)
+
+
+def _prova_la_copia_esclude_git():
+    """Fixture minima, e la primitiva VERA: quella che copia il repository davvero.
+
+    Non un doppione scritto per l'occasione: se la prova girasse su una copia della copia,
+    proverebbe la copia della copia. Tre voci bastano a distinguere i tre esiti che contano —
+    la storia di git che non deve arrivare, il `.gitignore` che deve arrivare intatto, e un file
+    qualunque che deve arrivare intatto.
+    """
+    guasti = []
+    sorgente = tempfile.mkdtemp(prefix="fixture-copia-src-")
+    destinazione = tempfile.mkdtemp(prefix="fixture-copia-dst-")
+    try:
+        sentinel = b"questa e' la storia di git e non deve entrare nel corpus\n"
+        gitignore = b"runtime/\n*.zip\n__pycache__/\n"
+        ordinario = b"contenuto ordinario, byte per byte\n"
+        _scrivi(os.path.join(sorgente, ".git", "objects", "sentinel"), sentinel)
+        _scrivi(os.path.join(sorgente, ".gitignore"), gitignore)
+        _scrivi(os.path.join(sorgente, "ordinario.txt"), ordinario)
+
+        dst = os.path.join(destinazione, "repo")
+        copia_repository(sorgente, dst)
+
+        marca = os.path.join(dst, ".git", "objects", "sentinel")
+        if os.path.exists(marca):
+            guasti.append("il sentinel di `.git/objects` e' stato copiato: la storia di git "
+                          "entra nel corpus temporaneo")
+        if os.path.isdir(os.path.join(dst, ".git")):
+            guasti.append("`.git` e' presente nella copia")
+
+        atteso = os.path.join(dst, ".gitignore")
+        if not os.path.isfile(atteso):
+            guasti.append("`.gitignore` NON e' stato copiato: SC-21 lo legge, e senza di esso "
+                          "il corpus non e' il repository")
+        elif open(atteso, "rb").read() != gitignore:
+            guasti.append("`.gitignore` e' stato copiato ma non e' byte-identico")
+
+        atteso = os.path.join(dst, "ordinario.txt")
+        if not os.path.isfile(atteso):
+            guasti.append("un file ordinario non e' stato copiato")
+        elif open(atteso, "rb").read() != ordinario:
+            guasti.append("un file ordinario non e' byte-identico")
+    finally:
+        shutil.rmtree(sorgente, ignore_errors=True)
+        shutil.rmtree(destinazione, ignore_errors=True)
+    return guasti
+
+
+def _prova_la_primitiva_e_unica():
+    """Controllo strutturale: un solo `shutil.copytree`, e tutti passano dalla primitiva.
+
+    Senza di esso il rimedio regge finche' nessuno riscrive una copia a mano — cioe' finche'
+    qualcuno non ha fretta. La prova sopra misura il COMPORTAMENTO di una chiamata; questa misura
+    che non ce ne siano altre.
+    """
+    import ast
+    guasti = []
+    with open(os.path.abspath(__file__), "rb") as f:
+        albero = ast.parse(f.read().decode("utf-8"))
+
+    copytree = [n for n in ast.walk(albero)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "copytree"
+                and isinstance(n.func.value, ast.Name) and n.func.value.id == "shutil"]
+    if len(copytree) != 1:
+        guasti.append(f"`shutil.copytree` compare {len(copytree)} volte, attesa 1: "
+                      f"righe {[n.lineno for n in copytree]}")
+    else:
+        dentro = [f.name for f in ast.walk(albero) if isinstance(f, ast.FunctionDef)
+                  and any(n is copytree[0] for n in ast.walk(f))]
+        if "copia_repository" not in dentro:
+            guasti.append(f"l'unica `shutil.copytree` non sta in `copia_repository`: {dentro}")
+
+    for nome in ("linea_di_base", "main"):
+        f = [x for x in ast.walk(albero) if isinstance(x, ast.FunctionDef) and x.name == nome]
+        if not f:
+            guasti.append(f"funzione assente: {nome}")
+            continue
+        chiama = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                     and n.func.id == "copia_repository" for n in ast.walk(f[0]))
+        if not chiama:
+            guasti.append(f"`{nome}` non chiama la primitiva `copia_repository`")
+    return guasti
+
+
+def prove_della_primitiva():
+    """Le due prove della copia, eseguite PRIMA delle mutazioni e stampate a parte."""
+    righe, guasti = [], []
+    for nome, prova in (("la copia esclude `.git` e conserva `.gitignore`",
+                         _prova_la_copia_esclude_git),
+                        ("la primitiva di copia e' unica e usata da tutti",
+                         _prova_la_primitiva_e_unica)):
+        g = prova()
+        guasti += g
+        righe.append(f"    {'ok   ' if not g else 'ROSSO'}  {nome}")
+        for x in g:
+            righe.append(f"           {x}")
+    return righe, guasti
+
+
 def linea_di_base():
     """
     Quali controlli falliscono GIA' sul repo intatto.
@@ -717,7 +843,7 @@ def linea_di_base():
     """
     base = tempfile.mkdtemp(prefix="baseline-")
     dst = os.path.join(base, "repo")
-    shutil.copytree(ROOT, dst, ignore=shutil.ignore_patterns("runs", "*.zip", "__pycache__"))
+    copia_repository(ROOT, dst)
     try:
         r = subprocess.run([sys.executable, os.path.join(dst, "tools", "spec_check.py")],
                            capture_output=True, text=True, cwd=dst)
@@ -727,6 +853,7 @@ def linea_di_base():
 
 
 def main():
+    righe_copia, guasti_copia = prove_della_primitiva()
     gia_rossi, out_base = linea_di_base()
     if gia_rossi:
         print(f"\n  LINEA DI BASE SPORCA: {', '.join(sorted(gia_rossi))} falliscono gia' sul repo")
@@ -751,7 +878,7 @@ def main():
     for atteso, storia, muta in [m for _, _, c in CORPORA for m in c]:
         base = tempfile.mkdtemp(prefix="specselftest-")
         dst = os.path.join(base, "repo")
-        shutil.copytree(ROOT, dst, ignore=shutil.ignore_patterns("runs", "*.zip", "__pycache__"))
+        copia_repository(ROOT, dst)
         try:
             muta(dst)
             r = subprocess.run([sys.executable, os.path.join(dst, "tools", "spec_check.py")],
@@ -766,6 +893,9 @@ def main():
 
     print(f"\n  spec_check — autotest")
     print(f"  {'-'*78}")
+    print("\n  0. LA PRIMITIVA DI COPIA")
+    for r in righe_copia:
+        print(r)
     i, riassunto = 0, []
     for lettera, titolo, corpus in CORPORA:
         fetta = esiti[i:i + len(corpus)]
@@ -791,7 +921,9 @@ def main():
     # togliere la mutazione invece di chiudere il buco.
     for atteso, storia, _, _ in indeterminati:
         print(f"  >> {atteso} INDETERMINATO: il controllo falliva gia' senza mutazione.")
-    return 1 if (falliti or indeterminati) else 0
+    for x in guasti_copia:
+        print(f"  >> primitiva di copia: {x}")
+    return 1 if (falliti or indeterminati or guasti_copia) else 0
 
 
 if __name__ == "__main__":
