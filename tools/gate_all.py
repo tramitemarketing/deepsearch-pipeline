@@ -97,6 +97,12 @@ PROVE = {
     "provenance_check_selftest.py":  "selftest del controllo di provenienza",
     "reconcile_run_selftest.py":     "selftest della riconciliazione",
     "replay_guard_selftest.py":      "selftest della guardia di perimetro",
+    "replay_offline_selftest.py":    "selftest del driver offline della meta' B; nessun "
+                                     "argomento, exit 0/1, e DICHIARA il proprio contratto di "
+                                     "provisioning invece di subirlo: dove la validazione di "
+                                     "schema e' disponibile esegue 27 prove, dove manca ne "
+                                     "esegue 21 e ne dichiara 6 NON APPLICABILI, uscendo 0 in "
+                                     "entrambi i mondi",
     "replay_report_selftest.py":     "selftest del driver di replay",
     "replay_runner_selftest.py":     "selftest del runner",
     "replay_validate_selftest.py":   "selftest del validatore di replay",
@@ -121,6 +127,8 @@ STRUMENTI = {
     "provenance_check.py":      "pretende argomenti obbligatori (--radice-da, --commit): "
                                 "fallisce (a)",
     "replay_guard.py":          "pretende argomenti obbligatori (--perimetro e un comando): "
+                                "fallisce (a)",
+    "replay_offline.py":        "pretende argomenti obbligatori (--run, --contratto): "
                                 "fallisce (a)",
     "replay_report.py":         "pretende un argomento obbligatorio (--run): fallisce (a)",
     "replay_runner.py":         "pretende argomenti obbligatori (--stdin, --raw e un comando): "

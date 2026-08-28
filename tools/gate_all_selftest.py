@@ -488,16 +488,16 @@ def caso_k():
         shutil.rmtree(altra, ignore_errors=True)
 
 
-@prova("L", "censimento() sul tools/ reale: coerente, 15/18/0, senza eseguire nulla")
+@prova("L", "censimento() sul tools/ reale: coerente, 16/19/0, senza eseguire nulla")
 def caso_l():
     with stub_di_lancio():
         c = ga.censimento(QUI)
     assert not c["problemi"], "censimento incoerente sul tools/ reale: " + "; ".join(c["problemi"])
     i = c["insiemi"]
-    assert len(i["PROVE"]) == 15, f"PROVE {len(i['PROVE'])}, atteso 15: {sorted(i['PROVE'])}"
-    assert len(i["STRUMENTI"]) == 18, f"STRUMENTI {len(i['STRUMENTI'])}, atteso 18"
+    assert len(i["PROVE"]) == 16, f"PROVE {len(i['PROVE'])}, atteso 16: {sorted(i['PROVE'])}"
+    assert len(i["STRUMENTI"]) == 19, f"STRUMENTI {len(i['STRUMENTI'])}, atteso 19"
     assert i["ESCLUSE"] == {}, i["ESCLUSE"]
-    assert len(i["PROVE"]) + len(i["STRUMENTI"]) + len(i["ESCLUSE"]) == 33
+    assert len(i["PROVE"]) + len(i["STRUMENTI"]) + len(i["ESCLUSE"]) == 35
 
 
 @prova("M", "gate_all_selftest.py e spec_check.py sono fra le PROVE")
@@ -715,6 +715,32 @@ def caso_v():
     finally:
         ga.subprocess.Popen = vero
         shutil.rmtree(d, ignore_errors=True)
+
+
+@prova("W", "i due nomi del replay offline sono classificati, e toglierne uno rende "
+            "INCOERENTE il censimento")
+def caso_w():
+    """La registrazione dev'essere SORVEGLIATA, non solo scritta.
+
+    Il caso `L` conta e verifica la coerenza, ma un conteggio giusto non dice QUALI nomi ci sono:
+    due aggiunte sbagliate che si compensano lo lascerebbero verde. Qui si toglie un nome per
+    volta e si pretende che il censimento se ne accorga, nominandolo.
+    """
+    with stub_di_lancio():
+        base = ga.censimento(QUI)
+    assert not base["problemi"], "; ".join(base["problemi"])
+    for nome, gruppo in (("replay_offline.py", "STRUMENTI"),
+                         ("replay_offline_selftest.py", "PROVE")):
+        assert nome in base["insiemi"][gruppo], f"{nome} non e' fra le {gruppo}"
+        assert base["insiemi"][gruppo][nome].strip(), f"{nome} e' fra le {gruppo} senza ragione"
+        elenco = {g: dict(getattr(ga, g)) for g in ("PROVE", "STRUMENTI", "ESCLUSE")}
+        del elenco[gruppo][nome]
+        with stub_di_lancio():
+            c = ga.censimento(QUI, elenco)
+        assert c["problemi"], f"tolto {nome} da {gruppo}, il censimento resta coerente"
+        assert len(c["problemi"]) == 1, f"attesa una sola incoerenza: {c['problemi']}"
+        assert nome in c["problemi"][0], \
+            f"l'incoerenza non nomina {nome}: {c['problemi'][0]}"
 
 
 # ================================================================== esecuzione
