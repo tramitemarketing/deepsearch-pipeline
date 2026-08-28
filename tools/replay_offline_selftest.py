@@ -1134,6 +1134,21 @@ def p17():
     # e le tre forme sono davvero diverse fra loro
     assert len({conforme, da_modulo, binding}) == 3
 
+    # ---- le NOVE sotto-asserzioni del §4.7, sul sorgente di QUESTO file.
+    #
+    # Le asserzioni ereditate restano sopra, prime, e nessuna delle nove le precede o le assorbe:
+    # `P17` deve poter cadere per la forma di chiamata del driver E per la forma del sorgente del
+    # selftest, e dire quale delle due. Ogni sotto-asserzione porta la propria diagnostica.
+    mio = leggi_byte(os.path.join(QUI, "replay_offline_selftest.py")).decode("utf-8")
+    esiti = controllo_strutturale(mio)
+    # Si ACCUMULA e si solleva una volta sola, con l'insieme COMPLETO e ordinato: fermarsi alla
+    # prima in ordine alfabetico nasconderebbe le altre, e la tabella delle mutazioni pretende di
+    # sapere QUALI sotto-asserzioni cadono — `find_spec`, per dirne una, ne fa cadere due.
+    cadute = [n for n in sorted(esiti) if esiti[n]]
+    assert not cadute, (
+        f"sotto-asserzioni cadute {cadute}: "
+        + " | ".join(f"{n} → " + " ; ".join(esiti[n][:3]) for n in cadute))
+
 
 @prova("P18", "l'identita' comprende il manifesto padre: un canale in meno ferma tutto")
 def p18():
@@ -1347,25 +1362,419 @@ def c2():
         shutil.rmtree(d, ignore_errors=True)
 
 
+# ------------------------------------------------------------------ i divieti strutturali
+#
+# La decisione di provisioning si RILEVA. Perche' resti tale servono nove divieti, e servono
+# verificabili: una prosa che dice «non guardare `os.name`» e' una raccomandazione, un `ast` che
+# la rifiuta e' un invariante. Le nove sotto-asserzioni sono NOMINATE e portano ciascuna la
+# propria diagnostica, perche' `P17` cade ormai per cause eterogenee — la forma di chiamata del
+# driver e la forma del sorgente di questo file — e un rosso che dicesse soltanto «P17» sarebbe
+# illeggibile.
+
+SYS_AMMESSI = ("executable", "exit", "path", "stdout", "stderr")
+OS_AMMESSI = ("makedirs", "path", "sep", "walk")
+
+
+def alias_di_modulo(albero, modulo):
+    """Ogni nome legato a `modulo`, alias risolti.
+
+    Non e' facoltativo: questo file lega `sys` a DUE nomi — `sys` e `_sys` — e un controllo che
+    guardasse il solo nome letterale lascerebbe aperta la porta che deve chiudere.
+    """
+    nomi = set()
+    for n in ast.walk(albero):
+        if isinstance(n, ast.Import):
+            for al in n.names:
+                if al.name == modulo:
+                    nomi.add(al.asname or al.name)
+    return nomi
+
+
+def controllo_strutturale(sorgente):
+    """Le NOVE sotto-asserzioni del §4.7. Restituisce {nome: [diagnostiche]}; lista vuota = verde."""
+    albero = ast.parse(sorgente)
+    g = {f"S{i}": [] for i in range(1, 10)}
+    a_sys, a_os = alias_di_modulo(albero, "sys"), alias_di_modulo(albero, "os")
+    moduli = a_sys | a_os
+    segnalati = []                      # (riga, base) di cio' che S1 rifiuta: e' l'oggetto di S2
+
+    for n in ast.walk(albero):
+        if isinstance(n, ast.Attribute):
+            base = n.value.id if isinstance(n.value, ast.Name) else None
+            if base in a_sys and n.attr not in SYS_AMMESSI:
+                g["S1"].append(f"riga {n.lineno}: `{base}.{n.attr}` fuori dall'insieme di `sys`")
+                segnalati.append((n.lineno, base))
+            if base in a_os and n.attr not in OS_AMMESSI:
+                g["S1"].append(f"riga {n.lineno}: `{base}.{n.attr}` fuori dall'insieme di `os`")
+                segnalati.append((n.lineno, base))
+            if n.attr == "find_spec":
+                g["S8"].append(f"riga {n.lineno}: riferimento a `find_spec`")
+        if isinstance(n, ast.Name) and n.id == "find_spec":
+            g["S8"].append(f"riga {n.lineno}: riferimento a `find_spec`")
+        if isinstance(n, ast.Import):
+            for al in n.names:
+                if al.name.split(".")[0] in ("platform", "importlib"):
+                    g["S7"].append(f"riga {n.lineno}: `import {al.name}`")
+        if isinstance(n, ast.ImportFrom):
+            if (n.module or "").split(".")[0] in ("platform", "importlib"):
+                g["S7"].append(f"riga {n.lineno}: `from {n.module} import …`")
+            for al in n.names:
+                if al.name == "*" and n.module in ("sys", "os"):
+                    g["S4"].append(f"riga {n.lineno}: `from {n.module} import *`")
+                elif n.module == "sys" and al.name not in SYS_AMMESSI:
+                    g["S3"].append(f"riga {n.lineno}: `from sys import {al.name}`")
+                elif n.module == "os" and al.name not in OS_AMMESSI:
+                    g["S3"].append(f"riga {n.lineno}: `from os import {al.name}`")
+        if (isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "getattr"
+                and n.args and isinstance(n.args[0], ast.Name) and n.args[0].id in moduli):
+            g["S5"].append(f"riga {n.lineno}: `getattr({n.args[0].id}, …)`")
+        if isinstance(n, ast.Try):
+            for m in ast.walk(n):
+                if isinstance(m, ast.Import) and any(
+                        al.name.split(".")[0] == "referencing" for al in m.names):
+                    g["S6"].append(f"riga {m.lineno}: `import referencing` dentro un `try`")
+                if isinstance(m, ast.ImportFrom) and \
+                        (m.module or "").split(".")[0] == "referencing":
+                    g["S6"].append(f"riga {m.lineno}: `from referencing import …` in un `try`")
+
+    # S2 — il confronto e' qualificato SULLA BASE, non sul nome dell'attributo. Sette sedi di
+    # questo file portano un attributo omonimo a uno di `os`/`sys` con base ESTRANEA — `f.write`,
+    # `f.read`, `alias.name`, quattro `.replace` — e devono restare AMMESSE. Un controllo scritto
+    # sul solo nome le rifiuterebbe tutte e sette, cioe' sarebbe rosso sul candidato conforme.
+    for riga, base in segnalati:
+        if base not in moduli:
+            g["S2"].append(f"riga {riga}: rifiutato un attributo con base estranea `{base}`")
+
+    # S9 — le sei dipendenti dalla capacita' non la consultano: o si eseguono intere, o non si
+    # eseguono affatto. Una prova che si adatta misura due cose diverse a seconda di dove gira.
+    for n in ast.walk(albero):
+        if not isinstance(n, ast.FunctionDef):
+            continue
+        etichetta = None
+        for d in n.decorator_list:
+            if isinstance(d, ast.Call) and d.args and isinstance(d.args[0], ast.Constant):
+                etichetta = d.args[0].value
+        if etichetta not in SEI_DIPENDENTI:
+            continue
+        for m in ast.walk(n):
+            if isinstance(m, ast.Name) and m.id in ("_CTX", "sonda_capability",
+                                                    "classifica_sonda", "SEI_DIPENDENTI"):
+                g["S9"].append(f"riga {m.lineno}: `{etichetta}` consulta `{m.id}`")
+    return g
+
+
+def sotto_asserzioni_cadute(sorgente):
+    return sorted(k for k, v in controllo_strutturale(sorgente).items() if v)
+
+
+# ------------------------------------------------------------------ il provisioning
+#
+# Il selftest gira in due mondi, e finge di girarne uno solo. `replay_validate` dichiara
+# (`replay_validate.py:115` e `:177`) che senza `referencing` la validazione di schema non e'
+# disponibile, e in quel caso rifiuta di dire `VALIDO`: ogni pack altrimenti valido diventa
+# conservativamente `NON VALIDO`. Sei prove di questa suite asseriscono un verdetto positivo, o un
+# `exit 0` che ne dipende, e su una radice priva di `referencing` diventano rosse senza che nulla
+# dica che l'ambiente e' incompleto invece che l'artefatto sbagliato.
+#
+# LA CAPABILITY SI RILEVA, NON SI INDOVINA. Non da `os.name`, non dalla distribuzione, non dalla
+# versione di Python, non dalla presenza dei moduli: si misura interrogando il VERO confine di
+# `replay_validate` con un pack VALIDO. Un ambiente che ha `referencing` importabile ma un
+# validatore che non gira e' indistinguibile dal primo per chiunque guardi gli import, e
+# perfettamente distinguibile per chi guarda il confine.
+
+SEI_DIPENDENTI = ("P02", "P04", "P08", "P10", "P11", "P12")
+MOTIVO_NA = "provisioning schema indisponibile"
+ETICHETTA_NA = "[n/a]"
+ETICHETTA_VERDE = "[verde]"
+ETICHETTA_ROSSA = "[ROSSO]"
+
+# Il contesto dell'invocazione corrente. UNA valutazione decisionale per invocazione; le prove la
+# riusano e non risondano; una chiamata annidata a `main()` e' una nuova invocazione e rivaluta.
+# Nessuna cache globale o persistente fra invocazioni dello stesso processo.
+_CTX = {"stato": None, "annidato": False}
+
+
+def classifica_sonda(codice, rapporto):
+    """I DUE stati ammessi, per intero. Ogni altra combinazione e' `TERZO_STATO`.
+
+    Non basta guardare il verdetto: uno stato ammesso e' una CONGIUNZIONE. Un `NON VALIDO` con
+    errori di schema diversi da zero non e' provisioning assente, e' un pack sbagliato; un
+    null-check `RIFIUTATO` non e' ne' l'uno ne' l'altro. Accettare la congiunzione parziale
+    significherebbe dichiarare indisponibile una capability che invece funziona.
+    """
+    if not isinstance(rapporto, dict):
+        return "TERZO_STATO"
+    nc = rapporto.get("null_check") or {}
+    sc = rapporto.get("schema") or {}
+    if (codice == 0 and rapporto.get("verdetto") == "VALIDO"
+            and nc.get("esito") == "AMMESSO" and sc.get("disponibile") is True
+            and sc.get("n_errori") == 0):
+        return "SCHEMA_DISPONIBILE"
+    if (codice == 1 and rapporto.get("verdetto") == "NON VALIDO"
+            and nc.get("esito") == "AMMESSO" and sc.get("disponibile") is False
+            and sc.get("n_errori") == 0
+            and (sc.get("motivo_indisponibilita") or "").strip()):
+        return "SCHEMA_INDISPONIBILE"
+    return "TERZO_STATO"
+
+
+def sonda_capability():
+    """Il confine vero di `replay_validate`, su un pack VALIDO. NON cattura: puo' sollevare.
+
+    Chi cattura e' il gate, e in nessun altro posto (§4.4 punto 1). La ragione e' misurata:
+    `replay_validate.main` propaga al chiamante un'eccezione non-`Guasto` che venga da
+    `valida_schema`, e quell'eccezione non e' un ambiente incompleto — e' un guasto. Convertirla in
+    «schema indisponibile» sarebbe fabbricare provisioning assente.
+
+    Nessuna fixture nuova: il contratto e il pack valido sono quelli che la suite gia' porta.
+    """
+    d = tempfile.mkdtemp(prefix="sonda-capability-")
+    try:
+        con = os.path.join(d, "contratto.txt")
+        scrivi_byte(con, contratto().encode("utf-8"))
+        raw = os.path.join(d, "sonda.raw.txt")
+        scrivi_byte(raw, raw_valido().encode("utf-8"))
+        uscita = io.StringIO()
+        with contextlib.redirect_stdout(uscita), contextlib.redirect_stderr(io.StringIO()):
+            codice = replay_validate.main(["--raw", raw, "--contratto", con, "--schemi", SCHEMI])
+        testo = uscita.getvalue().strip()
+        return classifica_sonda(codice, json.loads(testo) if testo else None)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def oracle_ripristino():
+    """L'ORACLE del ripristino: identita' degli attributi che l'armatura puo' sostituire.
+
+    Non chiama la sonda e non la influenza: legge soltanto un'identita' di attributo, sul
+    riferimento al modulo GIA' IMPORTATO — mai attraverso `sys.modules`, che sta fuori
+    dall'insieme chiuso di `sys`. Un controllo che risondasse sarebbe una seconda valutazione per
+    invocazione; uno che leggesse lo stato gia' deciso confronterebbe un dato con se' stesso.
+    """
+    return {"replay_validate.valida_schema": replay_validate.valida_schema}
+
+
+def etichette_di(testo):
+    """(nome, etichetta) per ogni riga di prova dell'uscita catturata.
+
+    Si leggono le ETICHETTE PER PROVA, non il riepilogo: misurato che una corsa in cui i non
+    applicabili sono stampati `[verde]` ha riepilogo ed exit IDENTICI a una corsa corretta, e
+    differisce nelle sole etichette. Un osservatore sul riepilogo sarebbe muto.
+    """
+    acc = []
+    for riga in testo.split("\n"):
+        s = riga.strip()
+        for e in (ETICHETTA_NA, ETICHETTA_VERDE, ETICHETTA_ROSSA):
+            if s.startswith(e):
+                resto = s[len(e):].split()
+                if resto:
+                    acc.append((resto[0], e))
+                break
+    return acc
+
+
+# I sei nomi attesi e il numero delle applicabili sono LETTERALI, scritti qui, e INDIPENDENTI da
+# `SEI_DIPENDENTI`: ricavarli dalla costante che devono sorvegliare significherebbe confrontare
+# una cosa con se' stessa, e le falsificazioni sull'insieme chiuso diventerebbero mute.
+SEI_ATTESI = ("P02", "P04", "P08", "P10", "P11", "P12")
+# Il TERZO letterale: i venti nomi delle originarie che NON dipendono dalla capacita', scritti
+# per esteso, uno per uno. NON ricavati dal registro delle prove, non da `SEI_ATTESI`, non da un
+# conteggio, non dalle etichette osservate. Senza di esso l'osservazione e' per CARDINALITA', e
+# un nome sconosciuto passa indisturbato: misurato che rinominando una prova indipendente la
+# suite resta verde su entrambe le piattaforme.
+VENTI_ATTESE = ("P01", "P03", "P05", "P06", "P07", "P09", "P13", "P14", "P15", "P16",
+                "P17", "P18", "P19", "P20", "P21", "P22", "P23", "P24", "C1", "C2")
+APPLICABILI_ATTESE = 21
+
+
+@prova("P27", "il contratto degradato: le sei etichettate, le altre ventuno verdi, exit 0")
+def p27():
+    """LA SEDE PERMANENTE DEL ROSSO, e l'equivalente di `R29` per la meta' B.
+
+    Due parti sotto un'unica finestra di degrado. La A misura il driver: sotto degrado il canale
+    resta registrato, non diventa falsamente `VALIDO`, conserva il raw byte per byte, dichiara
+    l'indisponibilita' ed esce `1`. La B misura il CONTRATTO: guida una corsa annidata e ne legge
+    le etichette.
+
+    La A non e' ridondante con la B: sotto degrado le sei prove che asserirebbero «`c_valido` non
+    e' falsamente VALIDO» sono proprio quelle non applicabili. Senza la parte A nessuna riga della
+    suite sorveglierebbe piu' il driver sotto degrado.
+    """
+    if _CTX["annidato"]:
+        return                       # guardia di rientranza: la corsa annidata non si ripete
+    vero = replay_validate.valida_schema
+    # RIUSA il contesto dell'invocazione: non risonda. Se la capability manca, la finestra di
+    # degrado e' la realta' e non si forza nulla; se c'e', la si forza — e il §2.7 misura che i
+    # due percorsi danno gli stessi valori.
+    forzare = _CTX["stato"] == "SCHEMA_DISPONIBILE"
+    try:
+        if forzare:
+            def indisponibile(*_a, **_k):
+                raise replay_validate.Guasto(
+                    "validazione di schema non disponibile su questa piattaforma: "
+                    "No module named 'referencing'")
+            replay_validate.valida_schema = indisponibile
+
+        # ---- parte A: il driver sotto degrado
+        d = replay_sintetico()
+        try:
+            codice, _, _ = esegui(d)
+            rapporto = derivato_rapporto(d)
+            riga = canale(rapporto, "c_valido")
+            originale = leggi_byte(os.path.join(d, "02-output", "c_rip_null.raw.txt"))
+            derivato = leggi_byte(os.path.join(derivato_di(d), "02-output",
+                                               "c_rip_null.raw.txt"))
+            assert rapporto["canali_dichiarati"] == 5, "un canale e' sparito dal derivato"
+            assert riga["esito"] == "NON VALIDO", f"falso VALIDO: {riga['esito']}"
+            assert riga["schema"]["disponibile"] is False, riga["schema"]
+            assert riga["null_check"]["esito"] == "AMMESSO", riga["null_check"]
+            assert derivato == originale, "il raw originale non e' stato conservato"
+            assert codice == 1, f"exit del driver {codice}, atteso 1"
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+        # ---- parte B: il contratto degradato, letto dalle ETICHETTE
+        import replay_offline_selftest as modulo
+        modulo._CTX["annidato"] = True
+        try:
+            uscita = io.StringIO()
+            with contextlib.redirect_stdout(uscita):
+                codice_annidato = modulo.main()
+            testo = uscita.getvalue()
+        finally:
+            modulo._CTX["annidato"] = False
+
+        et = etichette_di(testo)
+        nomi = [n for n, _e in et]
+        assert len(nomi) == len(set(nomi)), f"nomi duplicati fra le etichette: {nomi}"
+        na = [n for n, e in et if e == ETICHETTA_NA]
+        verdi = [n for n, e in et if e == ETICHETTA_VERDE]
+        rosse = [n for n, e in et if e == ETICHETTA_ROSSA]
+        # (1) i NON APPLICABILI sono esattamente i sei letterali, una volta ciascuno
+        for nome in SEI_ATTESI:
+            assert na.count(nome) == 1, \
+                f"{nome}: {na.count(nome)} righe {ETICHETTA_NA}, attesa 1"
+        assert set(na) == set(SEI_ATTESI), \
+            f"non applicabili {sorted(na)}, attesi {sorted(SEI_ATTESI)}"
+
+        # (2) i VERDI sono esattamente i venti letterali piu' `P27`, una volta ciascuno. E'
+        #     un'identita' d'insieme, non una cardinalita': un nome sconosciuto al posto di uno
+        #     atteso lascia il conteggio intatto e cambia l'insieme.
+        verdi_attesi = set(VENTI_ATTESE) | {"P27"}
+        for nome in sorted(verdi_attesi):
+            assert verdi.count(nome) == 1, \
+                f"{nome}: {verdi.count(nome)} righe {ETICHETTA_VERDE}, attesa 1"
+        assert set(verdi) == verdi_attesi, \
+            f"verdi inattesi {sorted(set(verdi) - verdi_attesi)}, " \
+            f"attesi e assenti {sorted(verdi_attesi - set(verdi))}"
+
+        # (3) nessun nome compare in piu' di una classe
+        for a, b, ea, eb in ((na, verdi, "non applicabile", "verde"),
+                             (na, rosse, "non applicabile", "rossa"),
+                             (verdi, rosse, "verde", "rossa")):
+            comuni = set(a) & set(b)
+            assert not comuni, f"{sorted(comuni)} compare come {ea} e come {eb}"
+
+        # (4) nessun nome SCONOSCIUTO fra tutte le etichette
+        noti = set(SEI_ATTESI) | verdi_attesi
+        sconosciuti = set(nomi) - noti
+        assert not sconosciuti, f"nomi sconosciuti fra le etichette: {sorted(sconosciuti)}"
+
+        # (5) nessuna prova rossa
+        assert not rosse, f"rosse nella corsa annidata: {rosse}"
+
+        # (6) e il conteggio indipendente degli applicabili, accanto all'identita'
+        assert len(verdi) == APPLICABILI_ATTESE, \
+            f"verdi {len(verdi)}, attesi {APPLICABILI_ATTESE}"
+        assert f"{APPLICABILI_ATTESE}/{APPLICABILI_ATTESE} applicabili verdi" in testo, \
+            "il riepilogo non concorda con le etichette"
+        assert "gate di provisioning: verde" in testo, "gate non verde nella corsa annidata"
+        assert codice_annidato == 0, f"exit della corsa annidata {codice_annidato}, atteso 0"
+    finally:
+        replay_validate.valida_schema = vero
+
+
 # ------------------------------------------------------------------ esecuzione
 
 def main():
-    print(f"replay_offline_selftest — {len(ESITI)} prove\n")
-    falliti = []
+    """UNA invocazione, UN contesto di provisioning, UNA valutazione decisionale.
+
+    Il contesto e' dell'invocazione, non del processo: una chiamata annidata a `main()` e' una
+    nuova invocazione e rivaluta la sonda. Una cache globale renderebbe la corsa annidata cieca —
+    leggerebbe lo stato dell'invocazione esterna e classificherebbe zero non applicabili dove ce
+    ne sono sei.
+
+    QUI, E SOLTANTO QUI, si cattura l'eccezione che la sonda ha lasciato salire. Non esiste un
+    `try` attorno a `main()`: una rete esterna farebbe morire il processo senza riepilogo, e
+    l'osservatore del terzo stato — che pretende una riga rossa NOMINATA — diventerebbe invisibile.
+    """
+    try:
+        stato = sonda_capability()
+    except BaseException as e:                                            # noqa: BLE001
+        stato, diagnostica = "TERZO_STATO", f"{type(e).__name__}: {e}"
+    else:
+        diagnostica = None
+
+    precedente = _CTX["stato"]
+    _CTX["stato"] = stato
+    istantanea = oracle_ripristino()
+    try:
+        return _corpo(stato, diagnostica, istantanea)
+    finally:
+        _CTX["stato"] = precedente
+
+
+def _corpo(stato, diagnostica, istantanea):
+    print(f"replay_offline_selftest — {len(ESITI)} prove — provisioning: {stato}\n")
+
+    if stato == "TERZO_STATO":
+        # Il gate si arresta PRIMA delle prove: nessuna viene avviata, e non si dichiara non
+        # applicabile nulla, perche' non si e' accertato nulla. Un terzo stato non e' un ambiente
+        # incompleto: e' un guasto, e si presenta nominato invece che come traceback.
+        print(f"  {ETICHETTA_ROSSA} provisioning  TERZO_STATO — "
+              f"{diagnostica or 'la sonda non ha prodotto uno stato ammesso'}")
+        print("\n  gate di provisioning: ROSSO")
+        print("  nessuna prova avviata")
+        return 1
+
+    non_applicabili = set(SEI_DIPENDENTI) if stato == "SCHEMA_INDISPONIBILE" else set()
+    falliti, verdi, saltate = [], 0, []
     for nome, desc, f in ESITI:
+        if nome in non_applicabili:
+            # non si esegue fingendo aspettative diverse: o intera, o per niente
+            saltate.append(nome)
+            print(f"  {ETICHETTA_NA} {nome:<4} {desc} — {MOTIVO_NA}")
+            continue
         try:
             f()
-            print(f"  [verde] {nome:<4} {desc}")
+            verdi += 1
+            print(f"  {ETICHETTA_VERDE} {nome:<4} {desc}")
         except Exception as e:                                            # noqa: BLE001
             falliti.append((nome, e))
-            print(f"  [ROSSO] {nome:<4} {desc}\n          {type(e).__name__}: {e}")
-    print()
-    if falliti:
-        print(f"  {len(ESITI) - len(falliti)}/{len(ESITI)} verdi — ROSSE: "
-              + ", ".join(n for n, _ in falliti))
-        return 1
-    print(f"  {len(ESITI)}/{len(ESITI)} verdi")
-    return 0
+            print(f"  {ETICHETTA_ROSSA} {nome:<4} {desc}\n          {type(e).__name__}: {e}")
+
+    # ---- il gate: tre controlli, e ognuno violato vale una riga rossa e `exit 1`
+    guasti = []
+    if stato == "SCHEMA_DISPONIBILE" and saltate:
+        guasti.append(f"non applicabili con capability presente: {sorted(saltate)}")
+    finale = oracle_ripristino()
+    for chiave, atteso in istantanea.items():
+        if finale.get(chiave) is not atteso:
+            guasti.append(f"ripristino: `{chiave}` non e' stato ripristinato")
+
+    print(f"\n  gate di provisioning: {'verde' if not guasti else 'ROSSO'}")
+    for g in guasti:
+        print(f"    · {g}")
+    if saltate:
+        # per NOME, non per conteggio: «sei non applicabili» e' la frase con cui si perde di
+        # vista quali sei
+        print(f"  NON APPLICABILI ({len(saltate)}): {', '.join(saltate)} — {MOTIVO_NA}")
+        print(f"  {verdi}/{verdi + len(falliti)} applicabili verdi"
+              + (f" — ROSSE: {', '.join(n for n, _e in falliti)}" if falliti else ""))
+    else:
+        print(f"  {verdi}/{verdi + len(falliti)} verdi"
+              + (f" — ROSSE: {', '.join(n for n, _e in falliti)}" if falliti else ""))
+    return 1 if (falliti or guasti) else 0
 
 
 if __name__ == "__main__":
