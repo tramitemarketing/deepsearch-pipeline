@@ -444,7 +444,13 @@ SU_FILE = {"write", "writelines", "truncate", "flush"}
 # esteso di proposito. Senza questo elenco, `Path(p).unlink()` sfuggirebbe a (A),
 # che risolve solo riceventi legati a un modulo, e a (B), che non lo contiene.
 IMPORT_AMMESSI = {"json", "os", "re", "sys", "glob", "unicodedata", "hashlib"}
-IMPORT_DA_AMMESSI = {("reconcile_run", "radice_stato")}
+#: Ampliato deliberatamente per `B-1`: `run_close` importa da `reconcile_run` anche la regola di
+#: che cosa sia un evidence-pack consumabile, invece di riscriverla. Sono tre nomi, non un modulo
+#: nuovo, e questo criterio e' l'unico posto dove quella decisione resta scritta.
+IMPORT_DA_AMMESSI = {("reconcile_run", "radice_stato"),
+                     ("reconcile_run", "CARTELLA_EVIDENZA"),
+                     ("reconcile_run", "pain_con_pack"),
+                     ("reconcile_run", "pains_dichiarati")}
 
 
 def _legami_moduli(albero):
@@ -1465,9 +1471,97 @@ def t_y():
           not det, " | ".join(det))
 
 
+# ---------------------------------------------------------------- T-Z, T-AA (B-1)
+#
+# IL PACK CONSUMABILE VIVE A UN LIVELLO: `02-evidence/P-<id>-<canale>.json`. Sotto la stessa
+# cartella stanno anche i MANDATI — `02-evidence/<pain>/mandato-<canale>.json`, scritti da
+# `contract_compile.py` — e la DIAGNOSTICA dei giri, `_giro*/`. Nessuno dei due e' evidenza
+# consumata da chi riconcilia, e il glob a un livello e' percio' la regola, non un difetto.
+#
+# Cio' che mancava e' il fail-closed: un run che DICHIARA evidenza e non ne ha sul disco veniva
+# riconciliato lo stesso, e la telemetria scriveva la sua riga. Qui `riconcilia` deve fermarsi
+# PRIMA — prima del consolidamento, prima del sidecar, prima del ledger `M0.2` — perche' una riga
+# di telemetria su un run senza evidenza e' un dato che sembra buono e non lo e'.
+
+def _fixture_b1(b, run_id, pains_to_evidence, pack=(), mandati=(), giri=()):
+    """Le tre forme di contenuto di `02-evidence/`, piu' `00-run-stats.json`."""
+    run_dir = os.path.join(b.dst, "runs", run_id)
+    ev = os.path.join(run_dir, "02-evidence")
+    os.makedirs(ev, exist_ok=True)
+    with open(os.path.join(run_dir, "00-run-stats.json"), "w", encoding="utf-8") as g:
+        json.dump({"pains_to_evidence": pains_to_evidence}, g, ensure_ascii=False)
+    for nome in pack:
+        with open(os.path.join(ev, nome), "w", encoding="utf-8") as g:
+            json.dump({"agent": "evidence-researcher", "run_id": run_id, "status": "OK",
+                       "payload": {"claims": []}}, g, ensure_ascii=False)
+    for pain, canale in mandati:
+        d = os.path.join(ev, pain)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"mandato-{canale}.json"), "w", encoding="utf-8") as g:
+            json.dump({"pain": {"id": pain}, "channel": canale}, g, ensure_ascii=False)
+    for giro, nome in giri:
+        d = os.path.join(ev, giro)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, nome), "w", encoding="utf-8") as g:
+            json.dump({"agent": "evidence-researcher", "run_id": run_id, "status": "OK",
+                       "payload": {"claims": []}}, g, ensure_ascii=False)
+
+
+def t_z():
+    """Statistiche positive senza pack consumabile: uscita 2, causa nominata, nulla scritto."""
+    det = []
+    with Banco() as b:
+        b.crea_run(RUN_A)
+        _fixture_b1(b, RUN_A, 1, mandati=[("P-003", "community")],
+                    giri=[("_giro1", "P-003-community.json")])
+        r = b.esegui(RUN_A, "--consolida", "--telemetry-m0.2")
+        testo = r.stdout + r.stderr
+        if r.returncode != 2:
+            det.append(f"uscita {r.returncode}, atteso 2")
+        if "evidence-pack consumabile" not in testo:
+            det.append("la causa non e' nominata nell'uscita")
+        if os.path.exists(b.ledger()):
+            det.append("il ledger M0.2 e' stato scritto nonostante l'arresto")
+        if os.path.exists(b.sidecar(RUN_A)):
+            det.append("il sidecar e' stato scritto nonostante l'arresto")
+        # e nemmeno il consolidamento: i ledger di stato non devono essere toccati
+        for f_ in ("source-ledger.jsonl", "query-ledger.jsonl"):
+            if os.path.exists(os.path.join(b.stato, f_)):
+                det.append(f"{f_} scritto: il consolidamento non si e' fermato prima")
+    segna("T-Z", "stats positive senza pack: exit 2 prima di tutto", not det, "; ".join(det))
+
+
+def t_aa():
+    """Le due controprove: il pack canonico passa, e le stats a zero senza pack pure.
+
+    Senza di esse la riparazione potrebbe fermare qualunque run, che e' il modo piu' facile di
+    rendere verde un fail-closed: basta chiuderlo su tutti.
+    """
+    det = []
+    with Banco() as b:
+        b.crea_run(RUN_A)
+        _fixture_b1(b, RUN_A, 1, pack=["P-003-community.json"],
+                    mandati=[("P-003", "community")],
+                    giri=[("_giro1", "P-003-community.json")])
+        r = b.esegui(RUN_A, "--telemetry-m0.2")
+        if r.returncode == 2:
+            det.append("il pack canonico a un livello non e' stato visto: uscita 2")
+        if not os.path.exists(b.ledger()):
+            det.append("col pack presente la telemetria non ha scritto")
+    with Banco() as b:
+        b.crea_run(RUN_B)
+        _fixture_b1(b, RUN_B, 0, mandati=[("P-003", "community")])
+        r = b.esegui(RUN_B, "--telemetry-m0.2")
+        if r.returncode == 2:
+            det.append("stats a zero senza pack: uscita 2, ma l'assenza e' corretta")
+        if not os.path.exists(b.ledger()):
+            det.append("con stats a zero la telemetria non ha scritto")
+    segna("T-AA", "pack canonico e stats a zero: nessun arresto", not det, "; ".join(det))
+
+
 def main():
     for t in (t_a, t_b, t_c, t_d, t_e, t_f, t_g, t_h, t_j, t_k, t_l, t_o,
-              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w, t_x, t_y):
+              t_p, t_q, t_r, t_s, t_t, t_u, t_v, t_w, t_x, t_y, t_z, t_aa):
         try:
             t()
         except Exception as e:

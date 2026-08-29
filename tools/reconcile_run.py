@@ -323,8 +323,80 @@ def scrivi_sidecar_m0_2(run_dir, dati):
         g.write("\n")
 
 
+#: La cartella dei pack, e il modo di riconoscerne uno. Un pack consumabile porta il pain nel
+#: NOME e sta a UN livello: `02-evidence/P-<id>-<canale>.json`.
+CARTELLA_EVIDENZA = "02-evidence"
+RX_PAIN = re.compile(r"P-[0-9]{3}")
+
+
+def pain_con_pack(run_dir):
+    """I pain che hanno almeno un evidence-pack CONSUMABILE sul disco.
+
+    LA REGOLA STA QUI E IN NESSUN ALTRO POSTO, e `run_close.py` la importa invece di
+    riscriverla. Due join letterali che rispondano ognuno per conto proprio alla domanda «che
+    cos'e' un pack» sono due occasioni di divergere, ed e' esattamente la classe di difetto che
+    questo repository insegue: una regola scritta in due posti che si separano in silenzio.
+
+    Sotto `02-evidence/` convivono tre forme, e solo la prima e' consumata:
+
+      · `02-evidence/P-<id>-<canale>.json`         il PACK. Un livello, il pain nel nome.
+      · `02-evidence/<pain>/mandato-<canale>.json` il MANDATO, scritto da `contract_compile`.
+      · `02-evidence/_giro*/…`                     DIAGNOSTICA di un giro, non consumata.
+
+    Il glob resta deliberatamente a UN livello, e non e' una svista da correggere con `**`: e' la
+    regola. Un glob ricorsivo raccoglierebbe i mandati e la diagnostica, cioe' dichiarerebbe
+    evidenza dove c'e' soltanto l'istruzione di andarla a cercare — e un run che non ha raccolto
+    niente sembrerebbe averlo fatto.
+    """
+    fuori = set()
+    for p in glob.glob(os.path.join(run_dir, CARTELLA_EVIDENZA, "*.json")):
+        m = RX_PAIN.search(os.path.basename(p))
+        if m:
+            fuori.add(m.group(0))
+    return fuori
+
+
+def pains_dichiarati(run_dir):
+    """`00-run-stats.json → pains_to_evidence`, o `None` se non c'e' o non si legge.
+
+    `None` non e' zero: «il run non lo dichiara» e «il run dichiara zero» sono due fatti diversi,
+    e solo il secondo autorizza a concludere che l'assenza di pack e' corretta.
+    """
+    try:
+        with open(os.path.join(run_dir, "00-run-stats.json"), encoding="utf-8") as f:
+            v = json.load(f).get("pains_to_evidence")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
 def riconcilia(run_dir, consolida=False, telemetria=False):
     run_id = os.path.basename(os.path.normpath(run_dir))
+
+    # CANCELLO DI EVIDENZA — prima di ogni altra cosa, e non e' una scelta di stile.
+    #
+    # Piu' in basso questa funzione appende ai ledger di stato, scrive il sidecar e scrive la
+    # riga di telemetria M0.2. Un run che DICHIARA di aver raccolto evidenza e non ne ha sul
+    # disco non e' un run degradato: e' un run di cui non si sa nulla, e riconciliarlo
+    # significherebbe consolidare fonti che nessun artefatto sostiene e scrivere una riga di
+    # telemetria che ha la forma di un dato buono. Il ledger M0.2 e' irreversibile per atto: una
+    # riga sbagliata non si cancella.
+    #
+    # Fail-CLOSED, quindi, e distinto dal fail-OPEN della telemetria piu' sotto: li' un guasto
+    # dello STRUMENTO non deve declassare un run buono; qui e' l'ARTEFATTO a mancare, e non c'e'
+    # niente da salvare proseguendo. Uscita `2`, che in questo strumento e in `run_close` e' gia'
+    # il codice del guasto d'invocazione, non della misura.
+    dichiarati = pains_dichiarati(run_dir)
+    if dichiarati is not None and dichiarati > 0 and not pain_con_pack(run_dir):
+        print(f"  ARRESTO: 00-run-stats.json dichiara pains_to_evidence={dichiarati}, e sotto "
+              f"{CARTELLA_EVIDENZA}/ non esiste alcun evidence-pack consumabile", file=sys.stderr)
+        print("  Un pack consumabile sta a un livello e porta il pain nel nome: "
+              f"{CARTELLA_EVIDENZA}/P-<id>-<canale>.json.", file=sys.stderr)
+        print("  I mandati annidati e le cartelle `_giro*` non sono evidenza consumata.",
+              file=sys.stderr)
+        print("  Nessun consolidamento, nessun sidecar, nessuna telemetria.", file=sys.stderr)
+        return 2
+
     _stato = radice_stato()
     sl = os.path.join(_stato, "source-ledger.jsonl")
     ql = os.path.join(_stato, "query-ledger.jsonl")

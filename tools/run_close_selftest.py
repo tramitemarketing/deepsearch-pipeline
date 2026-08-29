@@ -982,6 +982,301 @@ def caso_z():
         shutil.rmtree(base, ignore_errors=True)
 
 
+# ------------------------------------------------------------------ B-1
+#
+# IL PACK CONSUMABILE VIVE A UN LIVELLO, e sotto `02-evidence/` non tutto e' un pack.
+# Tre forme convivono in quella cartella e solo la prima e' evidenza consumabile:
+#
+#   02-evidence/P-<id>-<canale>.json        <- IL PACK. Un livello. Lo scrive `ds_call.py`.
+#   02-evidence/<pain>/mandato-<canale>.json <- il MANDATO, scritto da `contract_compile.py`.
+#   02-evidence/_giro*/…                     <- DIAGNOSTICA di un giro, non consumata da nessuno.
+#
+# Il difetto che questi casi chiudono non era il glob — il glob a un livello e' GIUSTO, ed e' la
+# regola. Era che, non trovando alcun pack, il confronto col funnel faceva `continue`: un run che
+# dichiarava evidenza e non ne aveva sul disco passava il controllo SALTANDOLO. Il conteggio
+# tornava perche' nessuno lo faceva, ed e' la forma piu' silenziosa di verde.
+
+def albero_b1(base, stats, pack=(), mandati=(), giri=()):
+    """Un run con `00-run-stats.json` e le tre forme di contenuto di `02-evidence/`.
+
+    Gli altri artefatti obbligatori mancano di proposito: una fixture minimale non puo' essere
+    VALIDA, e questi casi non lo pretendono. Confrontano DUE run identici in tutto tranne la
+    presenza del pack — l'idioma del caso `N` — cosi' che la differenza misurata sia attribuibile
+    a questa post-condizione e a nessun'altra.
+    """
+    os.makedirs(os.path.join(base, "tools"), exist_ok=True)
+    for f in ("run_close.py", "reconcile_run.py"):
+        shutil.copy(os.path.join(ROOT, "tools", f), os.path.join(base, "tools", f))
+    run_dir = os.path.join(base, "runs", RUN_ID)
+    ev = os.path.join(run_dir, "02-evidence")
+    os.makedirs(ev, exist_ok=True)
+    with open(os.path.join(run_dir, "00-run-stats.json"), "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False)
+    for nome in pack:                                   # un livello: il pack consumabile
+        with open(os.path.join(ev, nome), "w", encoding="utf-8") as f:
+            json.dump(envelope({"claims": []}), f, ensure_ascii=False)
+    for pain, canale in mandati:                        # due livelli: il mandato
+        d = os.path.join(ev, pain)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, f"mandato-{canale}.json"), "w", encoding="utf-8") as f:
+            json.dump({"pain": {"id": pain}, "channel": canale}, f, ensure_ascii=False)
+    for giro, nome in giri:                             # due livelli: la diagnostica
+        d = os.path.join(ev, giro)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, nome), "w", encoding="utf-8") as f:
+            json.dump(envelope({"claims": []}), f, ensure_ascii=False)
+    return run_dir
+
+
+_B1_NOME = "evidence-pack consumabile per ogni pain dichiarato"
+
+
+def _b1_riga(uscita):
+    return riga(uscita, "evidence-pack consumabile")
+
+
+def _b1_dett(uscita):
+    """Il `dett` della riga, separato dal nome del check.
+
+    Si guarda la FRASE INTERA e non il solo `ok`: il `dett` viene stampato anche quando il check
+    passa, e una riga `ok` seguita da «ma nessun pack» sarebbe falsa nel report di chiusura di
+    ogni run buono. Un caso che si ferma a `startswith("ok")` non se ne accorge — misurato.
+    """
+    l = _b1_riga(uscita)
+    return l.split(_B1_NOME, 1)[1].strip() if _B1_NOME in l else ""
+
+
+def _b1_gravi(uscita):
+    m = re.search(r"\((\d+) post-condizioni fallite, (\d+) avvisi\)", riga(uscita, "VERDETTO"))
+    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+
+
+def caso_aa():
+    """`pains_to_evidence=1` con soli mandati e diagnostica: post-condizione GRAVE.
+
+    E' il rosso di partenza di `B-1`. Sotto `02-evidence/` c'e' del contenuto — un mandato
+    annidato e un file di `_giro1` — ma nessun pack consumabile. Prima del rimedio il confronto
+    col funnel non falliva: usciva dal ciclo con `continue`.
+    """
+    base = tempfile.mkdtemp()
+    try:
+        run_dir = albero_b1(base, {"pains_to_evidence": 1},
+                            mandati=[("P-003", "community")],
+                            giri=[("_giro1", "P-003-community.json")])
+        u, c = esegui(base, run_dir, con_codice=True)
+        l = _b1_riga(u)
+        if not l:
+            return False, ("nessuna post-condizione nomina l'assenza di evidence-pack "
+                           "consumabili: il confronto col funnel e' stato SALTATO")
+        if l.strip().startswith("ok"):
+            return False, f"la post-condizione esiste ma passa: «{l.strip()}»"
+        if c == 0:
+            return False, f"uscita {c}: il run chiude validamente senza evidenza sul disco"
+        dett = _b1_dett(u)
+        for atteso in ("stats.pains_to_evidence=1", "ma nessun",
+                       "02-evidence/P-<id>-<canale>.json", "`_giro*`"):
+            if atteso not in dett:
+                return False, f"il dettaglio non dice «{atteso}»: «{dett}»"
+        if len(dett.splitlines()) != 1:
+            return False, "il dettaglio occupa piu' di una riga"
+        return True, f"post-condizione fallita, uscita {c}, dettaglio vero: «{dett}»"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_ab():
+    """Il pack canonico a UN livello e' visto, e la post-condizione passa."""
+    base = tempfile.mkdtemp()
+    try:
+        run_dir = albero_b1(base, {"pains_to_evidence": 1}, pack=["P-003-community.json"])
+        u = esegui(base, run_dir)
+        l = _b1_riga(u)
+        if not l:
+            return False, "la post-condizione non compare nemmeno col pack presente"
+        if not l.strip().startswith("ok"):
+            return False, f"il pack canonico non e' stato visto: «{l.strip()}»"
+        # LA FRASE INTERA, non il solo `ok`. Il dettaglio del ramo che passa deve descrivere il
+        # disco com'e': dire «ma nessun pack» accanto a un `ok` e' una frase falsa, e prima di
+        # questa clausola nessun caso la guardava.
+        dett = _b1_dett(u)
+        if "ma nessun" in dett or "non sono evidenza consumata" in dett:
+            return False, (f"il check passa ma il dettaglio nega il pack che c'e': «{dett}»")
+        if "P-003" not in dett:
+            return False, f"il dettaglio non nomina il pain con pack: «{dett}»"
+        if len(dett.splitlines()) != 1:
+            return False, "il dettaglio occupa piu' di una riga"
+        return True, f"il pack e' visto e il dettaglio lo dice: «{dett}»"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_ac():
+    """Mandati e `_giro*` NON contano: accanto a un pack, il conteggio resta uno.
+
+    Senza questa clausola la riparazione piu' comoda — guardare se `02-evidence/` e' vuota —
+    avrebbe dichiarato presente l'evidenza di un run che ha soltanto mandati.
+    """
+    base = tempfile.mkdtemp()
+    try:
+        run_dir = albero_b1(base, {"pains_to_evidence": 1}, pack=["P-003-community.json"],
+                            mandati=[("P-003", "community"), ("P-004", "normativa")],
+                            giri=[("_giro1", "P-003-community.json"),
+                                  ("_giro2", "P-004-normativa.json")])
+        u = esegui(base, run_dir)
+        l = _b1_riga(u)
+        if not l.strip().startswith("ok"):
+            return False, f"«{l.strip()}» — con un pack e stats=1 la post-condizione deve passare"
+        confronto = riga(u, "stats.pains_to_evidence")
+        if confronto and not confronto.strip().startswith("ok"):
+            return False, (f"«{confronto.strip()}» — mandati o `_giro*` sono entrati nel "
+                           "conteggio dei pain con evidenza")
+        # La frase deve nominare UN solo pain: se i mandati o i `_giro*` fossero contati,
+        # comparirebbe anche `P-004`, che ha soltanto un mandato.
+        dett = _b1_dett(u)
+        if "P-004" in dett:
+            return False, f"il dettaglio conta un pain che ha solo un mandato: «{dett}»"
+        if "P-003" not in dett or "ma nessun" in dett:
+            return False, f"il dettaglio non descrive il disco: «{dett}»"
+        return True, (f"quattro file annidati accanto a un pack: contano zero — «{dett}»")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_ad():
+    """`pains_to_evidence == 0` e nessun pack: l'assenza e' corretta, nessuna post-condizione."""
+    base = tempfile.mkdtemp()
+    try:
+        run_dir = albero_b1(base, {"pains_to_evidence": 0},
+                            mandati=[("P-003", "community")])
+        u = esegui(base, run_dir)
+        l = _b1_riga(u)
+        if l and not l.strip().startswith("ok"):
+            return False, f"«{l.strip()}» — con zero pain dichiarati l'assenza di pack e' corretta"
+        return True, "stats a zero e nessun pack: nessuna post-condizione fallisce per B-1"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_ae():
+    """La post-condizione e' GRAVE, e pesa esattamente uno.
+
+    I due run hanno lo STESSO disco — stessi mandati, stessa diagnostica, nessun pack — e
+    differiscono per la sola cifra dichiarata in `00-run-stats.json`: `1` contro `0`. Variare il
+    disco invece della dichiarazione confronterebbe due alberi diversi, e il delta misurato
+    porterebbe con se' gli effetti collaterali del file aggiunto: misurato `-1` invece di `+1`,
+    perche' il pack in piu' accende altre post-condizioni che non c'entrano con questa.
+
+    La differenza sui `gravi` dev'essere `1`: zero significherebbe un avviso che non ferma la
+    chiusura, piu' di uno un controllo non attribuibile.
+    """
+    base = tempfile.mkdtemp()
+    try:
+        uno = albero_b1(os.path.join(base, "u"), {"pains_to_evidence": 1},
+                        mandati=[("P-003", "community")],
+                        giri=[("_giro1", "P-003-community.json")])
+        zero = albero_b1(os.path.join(base, "z"), {"pains_to_evidence": 0},
+                         mandati=[("P-003", "community")],
+                         giri=[("_giro1", "P-003-community.json")])
+        u_1, c_1 = esegui(os.path.join(base, "u"), uno, con_codice=True)
+        u_0, c_0 = esegui(os.path.join(base, "z"), zero, con_codice=True)
+        g_1, a_1 = _b1_gravi(u_1)
+        g_0, a_0 = _b1_gravi(u_0)
+        if g_1 is None or g_0 is None:
+            return False, "la riga VERDETTO non e' leggibile in una delle due corse"
+        if g_1 - g_0 != 1:
+            return False, (f"gravi {g_1} con stats=1 contro {g_0} con stats=0: differenza "
+                           f"{g_1 - g_0}, attesa 1")
+        if a_1 != a_0:
+            return False, f"gli avvisi cambiano ({a_1} contro {a_0}): il controllo non e' grave"
+        if c_1 == 0:
+            return False, f"uscita {c_1} con stats=1 e nessun pack: il run chiuderebbe validamente"
+        return True, (f"stesso disco, sola cifra dichiarata: gravi {g_0} -> {g_1}, avvisi {a_0} "
+                      f"invariati, uscite {c_0} e {c_1}")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def caso_ag():
+    """`00-run-stats.json` valido come JSON ma NON dizionario: uscita 2 pulita, nessun traceback.
+
+    E' la regressione che la prima stesura del cancello aveva introdotto. Il predicato sulla
+    dichiarazione era ripetuto in linea — `d.get(...)` piu' due `isinstance` — e su una lista,
+    una stringa o un numero `d.get` solleva `AttributeError`: misurato il passaggio da `exit 2`
+    pulito a `exit 1` con traceback, cioe' un run con statistiche corrotte declassato da NON
+    VALIDO a DEGRADATO. Il rimedio e' una lettura sola, `pains_dichiarati`, che rende `None` su
+    qualunque forma non intera.
+    """
+    for etichetta, contenuto in (("lista", "[1, 2, 3]"), ("stringa", '"ciao"'),
+                                 ("numero", "7"), ("null", "null")):
+        base = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(base, "tools"), exist_ok=True)
+            for f in ("run_close.py", "reconcile_run.py"):
+                shutil.copy(os.path.join(ROOT, "tools", f), os.path.join(base, "tools", f))
+            run_dir = os.path.join(base, "runs", RUN_ID)
+            os.makedirs(os.path.join(run_dir, "02-evidence"), exist_ok=True)
+            with open(os.path.join(run_dir, "00-run-stats.json"), "w", encoding="utf-8") as g:
+                g.write(contenuto)
+            u, c = esegui(base, run_dir, con_codice=True)
+            if "Traceback" in u:
+                return False, (f"statistiche `{etichetta}`: traceback invece di un verdetto\n"
+                               + u[-200:].replace("\n", " "))
+            if c != 2:
+                return False, (f"statistiche `{etichetta}`: uscita {c}, atteso 2 — un run con "
+                               "statistiche corrotte non e' DEGRADATO, e' NON VALIDO")
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+    return True, "lista, stringa, numero e null: uscita 2 pulita, nessun traceback"
+
+
+def caso_af():
+    """Il prompt e i lettori dichiarano la STESSA regola.
+
+    Una regola scritta in prosa e implementata nel codice sono due copie destinate a separarsi:
+    e' la classe di difetto che questo repository insegue da dodici versioni, e qui i due lati
+    sono a due alberi di distanza — `.claude/commands/deepsearch.md` e `tools/`. Questo caso li
+    tiene legati per COSTANTE: non cerca frasi, cerca i simboli che i lettori usano davvero.
+
+    Se qualcuno spostasse la cartella dell'evidenza o allargasse il glob, la prosa resterebbe
+    vera in apparenza e falsa nei fatti; qui invece cade.
+    """
+    prompt = os.path.join(ROOT, ".claude", "commands", "deepsearch.md")
+    if not os.path.exists(prompt):
+        return False, "il prompt dell'orchestratore non e' al suo posto"
+    testo = open(prompt, encoding="utf-8").read()
+    sys.path.insert(0, os.path.join(ROOT, "tools"))
+    import reconcile_run as rr                                        # noqa: PLC0415
+    manca = []
+    # la cartella e la forma del pack, prese dalle costanti dei lettori
+    if f"{rr.CARTELLA_EVIDENZA}/P-<id>-<canale>.json" not in testo:
+        manca.append(f"la forma del pack `{rr.CARTELLA_EVIDENZA}/P-<id>-<canale>.json`")
+    # le due forme che NON sono evidenza, entrambe nominate
+    if "mandato-<canale>.json" not in testo:
+        manca.append("il mandato annidato")
+    if "_giro" not in testo:
+        manca.append("la diagnostica `_giro*`")
+    # il fail-closed, nei termini in cui i due lettori lo applicano
+    if "pains_to_evidence > 0" not in testo:
+        manca.append("la condizione `pains_to_evidence > 0`")
+    if "pains_to_evidence == 0" not in testo:
+        manca.append("il caso legittimo `pains_to_evidence == 0`")
+    if manca:
+        return False, "il prompt non dichiara: " + "; ".join(manca)
+    # e il comportamento: la regola scritta e' quella che il lettore applica
+    base = tempfile.mkdtemp()
+    try:
+        run_dir = albero_b1(base, {"pains_to_evidence": 1}, mandati=[("P-003", "community")])
+        if rr.pain_con_pack(run_dir):
+            return False, "il lettore conta come pack un mandato annidato: prosa e codice divergono"
+        run_dir2 = albero_b1(os.path.join(base, "2"), {"pains_to_evidence": 1},
+                             pack=["P-003-community.json"])
+        if rr.pain_con_pack(run_dir2) != {"P-003"}:
+            return False, "il lettore non riconosce il pack che la prosa prescrive"
+        return True, "prompt e lettori dichiarano la stessa regola, e il lettore la applica"
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 CASI = [
     ("A", "IC-3 conta i soli oggetti Claim", caso_a),
     ("B", "la guardia grave resta larga e vede anche i non-Claim", caso_b),
@@ -1009,6 +1304,13 @@ CASI = [
     ("X", "IC-5: il dettaglio segue l'ordine di documento", caso_x),
     ("Y", "IC-5: SOLO_FP5 non precede la promuovibilita' e guarda le T5 lette", caso_y),
     ("Z", "IC-5: la nota dichiara il codice MINIMO", caso_z),
+    ("AA", "B-1: stats positive e soli mandati/diagnostica -> post-condizione grave", caso_aa),
+    ("AB", "B-1: il pack canonico a un livello e' visto", caso_ab),
+    ("AC", "B-1: `mandato-*` e `_giro*` non contano come evidenza", caso_ac),
+    ("AD", "B-1: stats a zero senza pack -> l'assenza e' corretta", caso_ad),
+    ("AE", "B-1: la post-condizione e' grave e pesa esattamente uno", caso_ae),
+    ("AF", "B-1: la regola del prompt e il comportamento dei lettori coincidono", caso_af),
+    ("AG", "B-1: statistiche non-dizionario -> uscita 2 pulita, nessun traceback", caso_ag),
 ]
 
 

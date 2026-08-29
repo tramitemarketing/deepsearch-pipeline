@@ -429,6 +429,31 @@ Un sottoinsieme di questi file non e' mai un run valido: il run e' valido solo q
 manifesto esiste e copre tutti gli artefatti. Il replay dei cinque canali del contratto
 consegnato richiede un'autorizzazione separata e NON fa parte di questa wave.
 
+**DOVE VA L'EVIDENCE-PACK, e dove non va.** Sotto `02-evidence/` convivono tre forme, e una sola
+e' evidenza consumata da chi chiude e riconcilia il run:
+
+| forma | percorso | chi la scrive | letta alla chiusura |
+|---|---|---|---|
+| **evidence-pack** | `runs/<run_id>/02-evidence/P-<id>-<canale>.json` | l'istanza di `evidence-researcher` (`ds_call --out`) | **SI** |
+| mandato | `runs/<run_id>/02-evidence/<pain>/mandato-<canale>.json` | `contract_compile --consegna` | no |
+| diagnostica di giro | `runs/<run_id>/02-evidence/_giro*/…` | l'orchestratore, per ispezione | no |
+
+**Il pack sta a UN livello e porta il pain nel nome.** `run_close.py` e `reconcile_run.py`
+leggono `02-evidence/*.json` e riconoscono un pack dal `P-<id>` nel nome del file: un pack
+scritto dentro una sottocartella **non esiste** per loro. La sottodirectory del pain e' la sede
+dei mandati, e le cartelle `_giro*` sono diagnostica non consumata: nessuna delle due conta come
+evidenza, e nessuna delle due va usata per depositare un pack.
+
+Il glob a un livello e' la **regola**, non una svista: raccogliere ricorsivamente farebbe contare
+i mandati e la diagnostica, cioe' dichiarerebbe evidenza dove c'e' soltanto l'istruzione di
+andarla a cercare.
+
+**Fail-closed.** Se `00-run-stats.json` dichiara `pains_to_evidence > 0` e sotto `02-evidence/`
+non esiste alcun pack consumabile, il run **non chiude validamente**: `run_close.py` registra una
+post-condizione grave e `reconcile_run.py` esce `2` prima di qualunque consolidamento, sidecar o
+telemetria. Con `pains_to_evidence == 0` l'assenza di pack e' corretta e non produce alcun
+rilievo.
+
 Rispetta `config.parallelism.max_concurrent_subagents` (8): elabora i pain a lotti, ma **non
 aspettare che tutti i pain finiscano la wave 2 prima di far partire la wave 3 su quelli gia'
 pronti**. Un pain che ha completato le evidenze passa subito al gate successivo. Il collo di

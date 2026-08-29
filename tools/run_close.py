@@ -55,6 +55,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # verde — ogni lettore troverebbe il file che si aspetta, in posti diversi.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from reconcile_run import radice_stato          # noqa: E402  (dopo sys.path, per forza)
+# Stessa ragione, secondo oggetto: che cosa sia un evidence-pack CONSUMABILE si decide in un solo
+# posto. Riscrivere qui il glob a un livello e la regex del pain darebbe due risposte destinate a
+# separarsi, e i due lettori del run direbbero cose diverse sullo stesso disco.
+from reconcile_run import CARTELLA_EVIDENZA, pain_con_pack, pains_dichiarati   # noqa: E402
 
 MANIFEST_STATO = "state-import-manifest.json"
 
@@ -342,6 +346,40 @@ def chiudi(run_dir, fase="finale"):
               "00-run-stats.json assente o illeggibile: nessun numero da confrontare")
     else:
         check("riconciliazione impossibile", False, "ledger assenti o corrotti")
+
+    # IL CANCELLO DI EVIDENZA — post-condizione GRAVE, e sta QUI e non piu' in basso.
+    #
+    # La sua sede naturale sembrerebbe il confronto col funnel, accanto alle altre cartelle. Non
+    # lo e': quel confronto vive dentro `if artefatti_json:`, e `artefatti_json` si popola dal
+    # glob `*/*.json`. Un run che dichiara evidenza e NON ne ha e' precisamente il run in cui
+    # quel glob non trova niente — quindi il controllo posto li' dentro non sarebbe mai stato
+    # eseguito proprio nel caso per cui esiste. Misurato: rosso che non si accendeva.
+    #
+    # `None` non e' zero. Se `00-run-stats.json` non dichiara `pains_to_evidence`, non c'e' una
+    # promessa da verificare e non si finge che ce ne sia una; se dichiara zero, l'assenza di
+    # pack e' il disco che dice la verita'.
+    #
+    # LA DICHIARAZIONE SI LEGGE DA `pains_dichiarati`, E NON QUI. La prima stesura ripeteva il
+    # predicato in linea — `d.get(...)` piu' due `isinstance` — e quella copia non si difendeva:
+    # con un `00-run-stats.json` che contiene JSON valido ma non un dizionario, `d.get` solleva
+    # `AttributeError`. Misurato: da `exit 2` pulito a `exit 1` con traceback, cioe' un run con
+    # statistiche corrotte declassato da NON VALIDO a DEGRADATO, proprio nella direzione che
+    # questo cancello dichiara di rinforzare. I due lettori del run divergevano sullo stesso
+    # disco, che e' la classe di difetto che questa slice esiste per chiudere.
+    dichiarati = pains_dichiarati(run_dir)
+    if dichiarati is not None and dichiarati > 0:
+        con_pack = pain_con_pack(run_dir)
+        # Il `dett` si stampa ANCHE quando il check passa, quindi dev'essere vero nei due rami:
+        # una riga `ok` seguita da «ma nessun pack» e' una frase falsa nel report di chiusura di
+        # ogni run buono. Una riga sola, come il resto della tabella pretende.
+        if con_pack:
+            dett = (f"stats.pains_to_evidence={dichiarati}, pain con pack consumabile sul "
+                    f"disco: {', '.join(sorted(con_pack))}")
+        else:
+            dett = (f"stats.pains_to_evidence={dichiarati} ma nessun "
+                    f"{CARTELLA_EVIDENZA}/P-<id>-<canale>.json: i mandati annidati e le "
+                    "cartelle `_giro*` non sono evidenza consumata")
+        check("evidence-pack consumabile per ogni pain dichiarato", bool(con_pack), dett)
 
     # L'intestazione del report si riconcilia SEMPRE, anche quando le statistiche tipizzate ci
     # sono. §11 lo promette, e fino alla v2.8 il ramo elif la saltava ogni volta che
@@ -648,9 +686,14 @@ def chiudi(run_dir, fase="finale"):
         for campo, cart in cartelle.items():
             if d is None or d.get(campo) is None:
                 continue
-            pain_su_disco = {re.search(r"P-[0-9]{3}", os.path.basename(x)).group(0)
-                             for x in glob.glob(os.path.join(run_dir, cart, "*.json"))
-                             if re.search(r"P-[0-9]{3}", os.path.basename(x))}
+            pain_su_disco = (pain_con_pack(run_dir) if cart == CARTELLA_EVIDENZA else
+                             {re.search(r"P-[0-9]{3}", os.path.basename(x)).group(0)
+                              for x in glob.glob(os.path.join(run_dir, cart, "*.json"))
+                              if re.search(r"P-[0-9]{3}", os.path.basename(x))})
+            # Per `02-evidence/` il conteggio passa dalla stessa regola del cancello: i mandati
+            # annidati e le cartelle `_giro*` non sono evidenza, e non devono gonfiare il numero.
+            # `03-competitor/` e `07-venture/` conservano il comportamento di prima, `continue`
+            # compreso: li' non esiste una forma consumabile distinta, e nessun caso cambia.
             if not pain_su_disco:
                 continue
             check(f"stats.{campo} == pain in {cart}/", d[campo] == len(pain_su_disco),
