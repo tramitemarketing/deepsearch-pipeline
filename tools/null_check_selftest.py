@@ -419,8 +419,71 @@ def i_b():
     assert "payload/spend_evidence[]/amount" in _percorsi(el), _percorsi(el)
 
 
-@prova("I-c", "profondita' 1500, dentro la fascia: un VERDETTO, non un'eccezione")
+# ------------------------------------------------------------------ il confine del parser
+#
+# `3500` era un numero fisso, e un numero fisso descrive UNA macchina. Su Windows 3.13.13
+# `json.loads` rinuncia oltre 2998 e `3500` cadeva davvero oltre il confine; su Ubuntu 3.12.3
+# rinuncia oltre 9997, e lo stesso `3500` sta comodamente DENTRO la fascia: `I-d` chiedeva un
+# guasto a una profondita' che il parser legge senza sforzo, e diventava rossa per aver creduto
+# a una costante invece che a una misura.
+#
+# IL CONFINE SI MISURA, NON SI CABLA. E si misura sullo stesso oracolo che lo strumento usa —
+# `json.loads` sulla stessa stringa che `_profondo` genera — perche' un confine misurato con un
+# altro metro sarebbe una seconda fonte, cioe' un secondo numero da tenere allineato a mano.
+#
+# Crescita esponenziale finche' il parser cede, poi ricerca binaria sull'ultimo intervallo: si
+# paga il logaritmo invece della scansione, e si ottengono DUE numeri, non uno — l'ultimo livello
+# accettato e il primo rifiutato. Sono gli estremi della stessa frontiera, e servono a due prove
+# diverse: `I-c` vive sotto l'ultimo accettato, `I-d` esattamente sul primo rifiutato. Prendere il
+# primo rifiutato e non «un po' piu' in la'» e' cio' che rende `I-d` STRETTA: un margine
+# arbitrario resterebbe verde anche se il confine si spostasse di mille livelli.
+
+_CONFINE = {"misura": None}
+
+
+def misura_confine_parser():
+    """(ultimo_accettato, primo_rifiutato) di `json.loads` sulla forma di `_profondo`.
+
+    Misurata NELL'ESECUZIONE CORRENTE. Non cattura `Exception`: soltanto `RecursionError`, che e'
+    il modo in cui il parser dichiara di aver rinunciato. Ogni altra eccezione sale, e chi chiama
+    diventa rosso — un confine che non si e' potuto misurare non e' un confine largo.
+    """
+    def accetta(n):
+        try:
+            json.loads(_profondo(n))
+            return True
+        except RecursionError:
+            return False
+
+    n = 1
+    while accetta(n):
+        n *= 2
+        assert n <= 1 << 20, "nessun rifiuto entro 2^20 livelli: il parser non ha piu' un confine"
+    basso, alto = n // 2, n                     # accettato, rifiutato — l'invariante della ricerca
+    while alto - basso > 1:
+        mezzo = (basso + alto) // 2
+        if accetta(mezzo):
+            basso = mezzo
+        else:
+            alto = mezzo
+    assert alto == basso + 1, f"la ricerca non ha chiuso la fascia: {basso}, {alto}"
+    return basso, alto
+
+
+def confine_parser():
+    """UNA misura per invocazione, riusata dalle prove. Nessuna cache fra invocazioni."""
+    if _CONFINE["misura"] is None:
+        _CONFINE["misura"] = misura_confine_parser()
+    return _CONFINE["misura"]
+
+
+@prova("I-c", "profondita' 1500, dentro la fascia MISURATA: un VERDETTO, non un'eccezione")
 def i_c():
+    accettato, _ = confine_parser()
+    # La premessa di `I-c`, resa esplicita: `1500` e' un livello che il parser di QUESTA macchina
+    # legge. Senza questa clausola, su una macchina dal confine piu' basso `I-c` cadrebbe dicendo
+    # «la camminata cede», che sarebbe una diagnosi sbagliata di un ambiente diverso.
+    assert 1500 <= accettato, f"1500 non e' dentro la fascia: ultimo accettato {accettato}"
     codice, uscita, err = _da_riga(_profondo(1500), contratto())
     assert "RecursionError" not in err, "la camminata cede ancora:\n" + err[-400:]
     assert codice == 1, f"uscita {codice}, atteso 1 (un null illecito trovato)\n{err[-300:]}"
@@ -428,10 +491,12 @@ def i_c():
     assert uscita.count("/a") >= 1400, "il percorso completo non e' riportato"
 
 
-@prova("I-d", "profondita' 3500, oltre il parser: GUASTO nominato, exit 2, nessun traceback")
+@prova("I-d", "il PRIMO livello rifiutato dal parser: GUASTO nominato, exit 2, nessun traceback")
 def i_d():
-    codice, uscita, err = _da_riga(_profondo(3500), contratto())
-    assert codice == 2, f"uscita {codice}, atteso 2: non aver potuto leggere e' un guasto"
+    accettato, rifiutato = confine_parser()
+    codice, uscita, err = _da_riga(_profondo(rifiutato), contratto())
+    assert codice == 2, (f"uscita {codice}, atteso 2: non aver potuto leggere e' un guasto "
+                         f"(confine misurato: {accettato} accettato, {rifiutato} rifiutato)")
     assert "Traceback" not in err, "il guasto e' uscito come traceback:\n" + err[-400:]
     assert "profondita" in err.lower(), f"la diagnostica non nomina la causa: {err!r}"
 
@@ -513,7 +578,17 @@ def i_h():
 
 
 def main():
-    print(f"null_check_selftest — {len(ESITI)} prove\n")
+    # Il confine misurato si DICHIARA, anche quando tutto e' verde: un numero che governa due
+    # prove e non compare da nessuna parte non e' una misura, e' un ricordo. Qui si annuncia
+    # soltanto; non si giudica. Se la misura non riesce, non si inventa un valore e non si muore
+    # con un traceback: la riga resta senza cifre e il rosso lo danno `I-c` e `I-d`, che sono le
+    # prove che su quel numero poggiano davvero.
+    try:
+        accettato, rifiutato = confine_parser()
+        fascia = f"parser: {accettato} accettato, {rifiutato} rifiutato (misurato)"
+    except Exception as e:                                                # noqa: BLE001
+        fascia = f"parser: NON MISURATO — {type(e).__name__}: {e}"
+    print(f"null_check_selftest — {len(ESITI)} prove — {fascia}\n")
     falliti = []
     for nome, desc, f in ESITI:
         try:

@@ -388,6 +388,182 @@ def check(nome, condizione, dettaglio=""):
 
 
 # ==========================================================================
+# Il corpus schema: una capability, non una piattaforma
+#
+# Quasi tutta questa suite valida istanze reali contro gli schemi reali. Quel
+# lavoro ha una dipendenza opzionale — `jsonschema` piu' `referencing` — e
+# `ds_validate` la tratta come deve: quando manca non indovina, esce
+# `VALIDATOR_ERROR / DEPENDENCY_MISSING` e non valida nulla. E' il
+# comportamento GIUSTO dello strumento, ed era il banco a non saperlo leggere:
+# su una radice senza quel backend CENTOTTANTA controlli su 453 registrati
+# diventavano rossi, e due sezioni morivano con un `IndexError` — perche'
+# chiedevano il primo elemento di un elenco di errori che non poteva esistere.
+#
+# La cifra e' DERIVABILE, e la derivazione e' questa: si riporta il file alla
+# baseline, si esegue la sequenza di `main()` una sezione per volta contando le
+# rosse attribuite a ciascuna, e si somma. Ripartizione misurata su Ubuntu
+# 3.12.3 senza `referencing`:
+#
+#   fixture 113 · 7_5 4 · 7_6 2 · 7_7 6 · 7_8 3 · 7_9_7_10 1 · a1 5 (interrotta
+#   dall'`IndexError`) · a4 3 · a5 6 · p0_3_p0_4 9 · r21_criteri 12 (interrotta
+#   dall'`IndexError`) · r21_punti 13 · 7_12 2 · 7_13 1
+#
+# Zero rosse in 7_1, 7_2, 7_3, a2, concorrenza, 7_11, 7_14. Somma: CENTOTTANTA.
+#
+# La rossa di `sezione_7_13` — «rifiuto di contenimento tramite il risolutore
+# iniettato», che senza backend riceve `DEPENDENCY_MISSING` invece di
+# `SCHEMA_UNREADABLE` — va contata: una prima stesura diceva centosettantanove
+# perche' l'aveva omessa, avendo censito le sezioni con una sonda che `7_13` non
+# eseguiva. Il numero giusto e' quello che include tutte e ventuno le sezioni.
+#
+# LA CAPABILITY SI SONDA, NON SI DEDUCE. Non da `os.name`, non dalla versione
+# di Python, non dalla semplice importabilita' di un modulo: si misura
+# eseguendo una validazione VERA di un'istanza VERA attraverso il punto
+# d'ingresso reale, e leggendo il verdetto che ne esce. Una radice che ha
+# `referencing` importabile ma un validatore che non gira e' indistinguibile
+# dalla prima per chi guarda gli import, e perfettamente distinguibile per chi
+# guarda l'esito.
+#
+# E il corpus e' UN BLOCCO ATOMICO. Quando la capability manca, le sezioni che
+# lo esercitano non si eseguono: nessuna viene sminuzzata per salvarne i
+# controlli che «funzionerebbero lo stesso». Salvarli significherebbe scegliere
+# a mano quali asserzioni sopravvivono, cioe' fabbricare verdi scegliendo le
+# domande facili. O il corpus si esercita per intero, o si dichiara non
+# eseguito per intero — e il fail-closed `DEPENDENCY_MISSING`, che non ha
+# bisogno del corpus per essere dimostrato, resta sorvegliato in entrambi i
+# mondi.
+# ==========================================================================
+
+#: Le sezioni che il corpus schema rende eseguibili. L'appartenenza e' MISURATA:
+#: ognuna di queste, eseguita senza il backend, produce almeno un fallimento o
+#: un'eccezione; nessuna delle sezioni fuori elenco ne produce.
+#:
+#: LA PROTEZIONE E' PARZIALE, e va detto per quello che e'. Ci sono DUE registri —
+#: questa costante e i nomi letterali del ramo che salta le sezioni in `main` — e la
+#: guardia del blocco confronta l'uno con l'altro. Ne segue, misurato:
+#:
+#:   · togliere un nome, o aggiungerne uno in UN SOLO registro -> ROSSO nominato
+#:     («si saltano ESATTAMENTE le sue sezioni, tutte e nessuna di piu'»), exit 1;
+#:   · aggiungerne uno COERENTEMENTE IN ENTRAMBI i registri -> nessuna rossa, exit 0,
+#:     e la sezione sparisce dai controlli eseguiti. Misurato su `sezione_a2`, radice
+#:     senza backend: da 118 a 91 controlli totali, VENTISETTE in meno, zero falliti.
+#:
+#: Cioe': la guardia coglie l'incoerenza fra i due registri, NON la tenuta dell'insieme.
+#: Che l'insieme sia stretto — che nessuna sezione dichiarata dipendente giri invece
+#: benissimo — non e' sorvegliato da alcun controllo, ne' qui ne' sulla piattaforma con
+#: capability, dove l'elenco non viene nemmeno consultato. E' stabilito per MISURA
+#: esterna, eseguendo ogni sezione senza backend e osservando quali cadono, e va
+#: ristabilito allo stesso modo ogni volta che l'elenco cambia.
+SEZIONI_DEL_CORPUS = (
+    "sezione_fixture",
+    "sezione_7_5 (oltre il fail-closed)",
+    "sezione_7_6",
+    "sezione_7_7",
+    "sezione_7_8",
+    "sezione_7_9_7_10",
+    "sezione_a1",
+    "sezione_a4",
+    "sezione_a5",
+    "sezione_p0_3_p0_4",
+    "sezione_r21_criteri",
+    "sezione_r21_punti",
+    "sezione_7_12",
+    "sezione_7_13",
+)
+
+MOTIVO_CORPUS = "corpus schema non eseguibile: dipendenza di validazione assente"
+
+CORPUS_ESEGUIBILE = "CORPUS_ESEGUIBILE"
+CORPUS_NON_ESEGUIBILE = "CORPUS_NON_ESEGUIBILE"
+TERZO_STATO = "TERZO_STATO"
+
+
+def classifica_sonda_corpus(r):
+    """I DUE stati ammessi, per intero. Ogni altra combinazione e' `TERZO_STATO`.
+
+    Uno stato ammesso e' una CONGIUNZIONE. Un `FULL_PASS` senza le due versioni
+    non dimostra che il backend abbia lavorato; un `VALIDATOR_ERROR` con un
+    `reason_code` diverso da `DEPENDENCY_MISSING` non e' un ambiente incompleto,
+    e' un guasto — e con le versioni valorizzate sarebbe la prova che il backend
+    c'era. Accettare la congiunzione parziale dichiarerebbe indisponibile una
+    capability che invece funziona, che e' il modo piu' silenzioso di non
+    eseguire una suite.
+    """
+    if r is None:
+        return TERZO_STATO
+    if (r.full_outcome is FullOutcome.FULL_PASS
+            and r.reason_code is None
+            and r.validator_version is not None
+            and r.referencing_version is not None):
+        return CORPUS_ESEGUIBILE
+    if (r.full_outcome is FullOutcome.VALIDATOR_ERROR
+            and r.reason_code is ReasonCode.DEPENDENCY_MISSING
+            and r.validator_version is None
+            and r.referencing_version is None):
+        return CORPUS_NON_ESEGUIBILE
+    return TERZO_STATO
+
+
+def sonda_corpus():
+    """(stato, risultato) dal punto d'ingresso REALE, con gli adattatori reali.
+
+    NON cattura: puo' sollevare. Chi cattura e' `main`, e in nessun altro posto.
+    La ragione: un'eccezione che salga da qui non e' un ambiente incompleto — e'
+    un guasto, e convertirla in «corpus assente» sarebbe fabbricare un
+    provisioning che nessuno ha misurato.
+
+    Nessuna fixture nuova: l'istanza valida e gli schemi sono quelli che questa
+    suite gia' porta, e l'importer e' quello di produzione — sondare con un
+    importer iniettato misurerebbe l'iniezione, non la macchina.
+    """
+    esito = V._esegui_shadow_core(
+        carica("valid/pain.ok.json"), contesto(),
+        config=V.ConfigTest(attivo=True, radice_output=None),
+        adattatori=adattatori())
+    r = esito.validation_result
+    return classifica_sonda_corpus(r), r
+
+
+# LIMITE REGISTRATO — non esiste, in questo file, un oracle che sorvegli il ripristino dei seam.
+# Qui ne esisteva uno che confrontava l'identita' di `ds_validate._importa_predefinito`,
+# `ds_validate.Pubblicatore` e `ds_validate.Orologio` prima e dopo la corsa. Misurato che non
+# poteva cadere: questa suite non assegna MAI ad alcun attributo di `V` — inietta per PARAMETRO,
+# tramite `adattatori(importer=…, publisher=…, clock=…)`, che e' una scelta di disegno e non un
+# caso. Un oracle il cui bersaglio non esiste e' un verde fabbricato: contava come controllo
+# superato senza poter misurare nulla, ed e' stato tolto invece che riformulato.
+#
+# E' UN LIMITE, NON UN VUOTO: il file sostituisce attributi di modulo, solo non di `V`. Censiti
+# per AST, a qualunque profondita' di catena: cinque superfici di `os` (`listdir`, `lstat`,
+# `scandir`, `stat`, `path.isfile`), ripristinate nel loro `finally`, e cinque di `socket`
+# (`create_connection`, `socket.bind`, `socket.connect`, `socket.connect_ex`, `socket.sendto`),
+# che la guardia di rete sostituisce PER TUTTA la corsa e deliberatamente non ripristina.
+# Nessuna delle dieci e' sorvegliata da un confronto d'identita'. Chi volesse sorvegliarle
+# dovrebbe distinguere le prime — che un `finally` deve rendere — dalle seconde, che per
+# disegno non tornano mai indietro; qui non e' stato fatto, ed e' questo il limite.
+#
+# Se un giorno una sezione sostituisse un attributo di `V`, questo controllo andrebbe riportato
+# puntandolo su QUELL'attributo — come fanno `pack_repair_selftest` su `pack_repair.ripara` e
+# `replay_report_selftest` su `replay_validate.valida_schema`, dove il bersaglio esiste e la
+# rimozione del ripristino produce un rosso misurato.
+
+
+def non_eseguito_per_corpus(nome):
+    """Dichiara, conta e stampa. Mai un vuoto, mai un verde."""
+    NON_ESEGUITI.append((nome, MOTIVO_CORPUS))
+
+
+def criterio_fuori_corpus(nome):
+    """Un criterio differito che il corpus assente rende non valutabile.
+
+    Distinto da `criterio_non_applicabile`, che e' la guardia di PIATTAFORMA di
+    `DEC-14` e vale per `T8b` e per nient'altro. Qui la ragione non e' il sistema
+    operativo ma una capability misurata, e l'esito finisce fra i NON ESEGUITI —
+    non fra i `NOT_APPLICABLE_WINDOWS`, che direbbero una cosa falsa.
+    """
+    CRITERI_ESITI[nome] = "not_applicable"
+
+
+# ==========================================================================
 # 7.1 — superfici di esecuzione e chiusura della produzione
 # ==========================================================================
 
@@ -802,7 +978,13 @@ def _codice_scrittura_produzione():
     return V.esegui_shadow_produzione({}, contesto()).write_receipt.write_reason_code
 
 
-def sezione_7_5(tmp, codici_visti):
+def sezione_7_5(tmp, codici_visti, corpus_eseguibile=True):
+    # IL FAIL-CLOSED VIENE PRIMA, E NON DIPENDE DAL CORPUS. L'importer iniettato
+    # fallisce per costruzione: la prova che `ds_validate` si chiude invece di
+    # indovinare vale identica sulle due piattaforme, ed e' esattamente la prova
+    # che una radice senza il backend ha piu' bisogno di vedere eseguita. Sta in
+    # cima perche' il resto della sezione, che il corpus lo esercita davvero, non
+    # deve poterla portare via con se'.
     imp = ImporterStrumentato(fallisce=True)
     e = V._esegui_shadow_core({}, contesto(),
                               config=V.ConfigTest(attivo=True, radice_output=None),
@@ -813,6 +995,10 @@ def sezione_7_5(tmp, codici_visti):
           and r.reason_code is ReasonCode.DEPENDENCY_MISSING
           and r.validator_version is None and r.referencing_version is None)
     codici_visti.add(r.reason_code)
+
+    if not corpus_eseguibile:
+        non_eseguito_per_corpus("sezione_7_5 (oltre il fail-closed)")
+        return
 
     e = V._esegui_shadow_core(carica("valid/pain.ok.json"), contesto(),
                               config=V.ConfigTest(attivo=True, radice_output=None),
@@ -3172,7 +3358,7 @@ def sezione_r21_criteri(tmp):
     _criterio_T18(tmp)
 
 
-def sezione_contabilita_criteri():
+def sezione_contabilita_criteri(corpus_eseguibile=True):
     """L'asserzione META di `DEC-14`: i tre contatori SOMMANO ai registrati.
 
     Senza questa riga `DEC-14` sarebbe una convenzione di stampa; con essa e' un
@@ -3191,10 +3377,19 @@ def sezione_contabilita_criteri():
     check("R2.1-6 DEC-14: passed + failed + not_applicable == registrati",
           sum(conteggi.values()) == len(registrati),
           str(conteggi) + " != " + str(len(registrati)))
-    check("R2.1-6 DEC-14: la guardia di piattaforma vale per T8b e per nient'altro",
-          sorted(n for n, v in CRITERI_ESITI.items() if v == "not_applicable")
-          == (["T8b"] if os.name == "nt" else []),
-          str(sorted(n for n, v in CRITERI_ESITI.items() if v == "not_applicable")))
+    na = sorted(n for n, v in CRITERI_ESITI.items() if v == "not_applicable")
+    if corpus_eseguibile:
+        check("R2.1-6 DEC-14: la guardia di piattaforma vale per T8b e per nient'altro",
+              na == (["T8b"] if os.name == "nt" else []), str(na))
+    else:
+        # Il blocco e' ATOMICO anche qui. Senza corpus i ventiquattro criteri non
+        # sono stati valutati, e devono risultare non applicabili TUTTI: un
+        # sottoinsieme significherebbe che qualcuno e' stato valutato lo stesso,
+        # o che qualcuno e' caduto in silenzio senza esito. La guardia di
+        # piattaforma non si sovrappone: `T8b` e' dentro i ventiquattro.
+        check("R2.1-6 DEC-14: senza corpus i criteri sono non applicabili IN BLOCCO, "
+              "tutti e nessuno di meno",
+              na == sorted(CRITERI_REGISTRATI), str(na))
     return conteggi
 
 
@@ -3660,35 +3855,115 @@ def sezione_r21_punti(tmp):
 
 def main() -> int:
     installa_guardia_socket()
+
+    # UNA invocazione, UNO stato del corpus, UNA valutazione decisionale. QUI, E
+    # SOLTANTO QUI, si cattura cio' che la sonda ha lasciato salire: non esiste un
+    # `try` attorno alle sezioni, perche' una rete larga trasformerebbe un guasto
+    # in un ambiente incompleto e la suite direbbe «non applicabile» dove invece
+    # qualcosa si e' rotto.
+    try:
+        stato, sonda = sonda_corpus()
+    except BaseException as exc:                                     # noqa: BLE001
+        stato, sonda = TERZO_STATO, None
+        diagnostica = type(exc).__name__ + ": " + str(exc)
+    else:
+        diagnostica = None
+
+    sys.stdout.write("corpus schema: " + stato + "\n")
+    if stato == TERZO_STATO:
+        # Ci si ferma PRIMA delle sezioni: nessuna viene avviata, e non si
+        # dichiara non eseguibile niente, perche' non si e' accertato niente. Un
+        # terzo stato non e' un ambiente incompleto: e' un guasto, e si presenta
+        # nominato invece che come traceback.
+        sys.stdout.write(
+            "FALLITO  sonda del corpus: terzo stato  ["
+            + (diagnostica or "la sonda non ha dato uno dei due stati ammessi")
+            + "]\nnessuna sezione avviata\n")
+        return 1
+
+    corpus = stato == CORPUS_ESEGUIBILE
+    if not corpus:
+        # UNA riga sola, e ha un osservabile MISURATO: un classificatore che assorbe un
+        # terzo stato dentro «corpus assente» la fa cadere. Non e' ridondanza con il
+        # `7.5 DEPENDENCY_MISSING via importer iniettato`, che dimostra il fail-closed con
+        # un'iniezione: qui il fail-closed si legge sull'AMBIENTE REALE, ed e' proprio il
+        # verso che l'iniezione non puo' testimoniare.
+        #
+        # Il verso opposto — «corpus presente» — NON ha una riga corrispondente, e non ne ha
+        # una perche' non ha un osservabile: misurato che un classificatore il quale dichiari
+        # eseguibile cio' che non lo e' fa morire la corsa con un'eccezione PRIMA del
+        # riepilogo, e nessun `check` arriva mai a essere stampato. Il segnale resta l'exit
+        # diverso da zero, senza rossa nominata. Il limite e' registrato e non e' colmato da
+        # un'asserzione che ripeta il predicato del ramo: quella sarebbe un verde fabbricato.
+        check("corpus assente: fail-closed DEPENDENCY_MISSING dall'ambiente reale, "
+              "nessuna versione dichiarata",
+              sonda.full_outcome is FullOutcome.VALIDATOR_ERROR
+              and sonda.reason_code is ReasonCode.DEPENDENCY_MISSING
+              and sonda.validator_version is None
+              and sonda.referencing_version is None)
+
     testi = []
     with tempfile.TemporaryDirectory(prefix="ds-shadow-") as tmp:
         sezione_7_1()
         sezione_7_2(tmp)
         sezione_7_3()
-        codici = sezione_fixture(tmp)
-        sezione_7_5(tmp, codici)
-        sezione_7_6()
-        sezione_7_7(tmp)
-        sezione_7_8(tmp)
-        sezione_7_9_7_10(tmp)
-        sezione_a1(tmp)
+        if corpus:
+            codici = sezione_fixture(tmp)
+        else:
+            codici = set()
+            non_eseguito_per_corpus("sezione_fixture")
+        sezione_7_5(tmp, codici, corpus)
+        if corpus:
+            sezione_7_6()
+            sezione_7_7(tmp)
+            sezione_7_8(tmp)
+            sezione_7_9_7_10(tmp)
+            sezione_a1(tmp)
+        else:
+            for nome in ("sezione_7_6", "sezione_7_7", "sezione_7_8",
+                         "sezione_7_9_7_10", "sezione_a1"):
+                non_eseguito_per_corpus(nome)
         sezione_a2(tmp)
-        sezione_a4(tmp)
-        sezione_a5(tmp)
-        sezione_p0_3_p0_4(tmp)
-        sezione_r21_criteri(tmp)
-        sezione_r21_punti(tmp)
+        if corpus:
+            sezione_a4(tmp)
+            sezione_a5(tmp)
+            sezione_p0_3_p0_4(tmp)
+            sezione_r21_criteri(tmp)
+            sezione_r21_punti(tmp)
+        else:
+            for nome in ("sezione_a4", "sezione_a5", "sezione_p0_3_p0_4",
+                         "sezione_r21_criteri", "sezione_r21_punti"):
+                non_eseguito_per_corpus(nome)
+            for nome in CRITERI_REGISTRATI:
+                criterio_fuori_corpus(nome)
         sezione_concorrenza(tmp)
         uscita_aggregatore = sezione_7_11(tmp)
         testi.append(uscita_aggregatore)
-        sezione_7_12()
+        if corpus:
+            sezione_7_12()
+        else:
+            non_eseguito_per_corpus("sezione_7_12")
         sezione_7_14()
-        sezione_7_13(tmp, testi)
+        # `7.13` scrive un record VERO e poi lo perquisisce: senza corpus il record
+        # nasce da un `VALIDATOR_ERROR`, e il rifiuto di contenimento che la sezione
+        # pretende non puo' nemmeno essere raggiunto — la dipendenza si dichiara
+        # prima della lettura degli schemi. E' corpus, e va nel blocco con gli altri.
+        if corpus:
+            sezione_7_13(tmp, testi)
+        else:
+            non_eseguito_per_corpus("sezione_7_13")
         rimosso = tmp
     digest = sezione_7_15()
     check("7.15 la TemporaryDirectory e' rimossa dopo la corsa", not os.path.exists(rimosso))
-    conteggi = sezione_contabilita_criteri()
+    conteggi = sezione_contabilita_criteri(corpus)
 
+    # Le due guardie del blocco, entrambe misurate su questa corsa.
+    saltate = sorted(n for n, r in NON_ESEGUITI if r == MOTIVO_CORPUS)
+    check("il corpus e' un blocco: con capability presente non si salta nulla per esso",
+          not (corpus and saltate), str(saltate))
+    check("il corpus e' un blocco: con capability assente si saltano ESATTAMENTE le sue sezioni, "
+          "tutte e nessuna di piu'",
+          corpus or saltate == sorted(SEZIONI_DEL_CORPUS), str(saltate))
     falliti = [(n, d) for n, ok, d in RISULTATI if not ok]
     for n, d in falliti:
         sys.stdout.write("FALLITO  " + n + ("  [" + d + "]" if d else "") + "\n")

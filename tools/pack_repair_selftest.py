@@ -34,6 +34,7 @@ ROOT = os.path.dirname(QUI)
 sys.path.insert(0, QUI)
 
 import pack_repair as pr                                                  # noqa: E402
+import replay_validate as _rv                                              # noqa: E402
 
 ESITI = []
 _CONTRATTO = None
@@ -656,23 +657,208 @@ def pr_5():
         assert a == b, "il percorso dipende dal contratto: non dovrebbe"
 
 
+# ------------------------------------------------------------------ il provisioning
+#
+# Questo banco gira in due mondi e ne fingeva uno solo. `replay_validate` dichiara che senza
+# `referencing` la validazione di schema non e' disponibile, e in quel caso rifiuta di dire
+# `VALIDO`: ogni pack altrimenti valido diventa conservativamente `NON VALIDO`. Le prove qui
+# elencate asseriscono un verdetto positivo, o un esito che ne dipende, e su una radice priva di
+# quel backend diventavano rosse senza che nulla dicesse che l'ambiente e' incompleto invece che
+# l'artefatto sbagliato.
+#
+# LA CAPABILITY SI RILEVA, NON SI INDOVINA. Non da `os.name`, non dalla distribuzione, non dalla
+# versione di Python, non dalla semplice importabilita' di un modulo: si misura interrogando il
+# VERO confine di `replay_validate` con un pack valido. Un ambiente che ha `referencing`
+# importabile ma un validatore che non gira e' indistinguibile dal primo per chi guarda gli
+# import, e perfettamente distinguibile per chi guarda il confine.
+
+#: L'insieme e' MISURATO: senza il backend, queste dieci cadono e nessun'altra. Ma LA
+#: PROTEZIONE E' PARZIALE, e va detto per quello che e': un nome TOLTO da qui fa girare la
+#: prova e produce una rossa; un nome AGGIUNTO che in realta' girerebbe benissimo viene
+#: dichiarato non applicabile e nessun controllo se ne accorge — misurato, exit 0 su
+#: entrambe le piattaforme. La tenuta dell'insieme e' stabilita per misura ESTERNA
+#: (svuotarlo e osservare quali prove cadono davvero), non da una guardia interna.
+DIPENDENTI_DALLO_SCHEMA = ('P1', 'P2', 'P3', 'P4', 'P5', 'P7', 'P8', 'P11', 'P13', 'P14')
+MOTIVO_NA = "provisioning schema indisponibile"
+ETICHETTA_NA = "[n/a]"
+ETICHETTA_VERDE = "[verde]"
+ETICHETTA_ROSSA = "[ROSSO]"
+
+#: Il ruolo d'appello, scritto a mano e INDIPENDENTE da `ESITI`. Serve perche' un registro
+#: che si conta da solo non puo' accorgersi di essere dimagrito: se una prova perde il
+#: decoratore, `ESITI` si accorcia e ogni conteggio derivato da `ESITI` torna. Confrontare
+#: `ESITI` con una lista letterale e' l'unico modo perche' la sparizione produca un rosso —
+#: ed e' anche il motivo per cui questa lista va aggiornata a mano quando una prova nasce o
+#: muore: l'attrito e' voluto.
+PROVE_ATTESE = (
+    'P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'P8', 'P9', 'P10', 'P11', 'P12', 'P13', 'P14',
+    'P15', 'P16', 'P17', 'P18', 'P19', 'P20', 'P21', 'P22',
+    'PR-1', 'PR-2', 'PR-3', 'PR-4', 'PR-5',
+)
+
+
+def classifica_sonda(codice, rapporto):
+    """I DUE stati ammessi, per intero. Ogni altra combinazione e' `TERZO_STATO`.
+
+    Uno stato ammesso e' una CONGIUNZIONE: un `NON VALIDO` con errori di schema diversi da zero
+    non e' provisioning assente, e' un pack sbagliato; un null-check `RIFIUTATO` non e' ne' l'uno
+    ne' l'altro. Accettare la congiunzione parziale dichiarerebbe indisponibile una capability
+    che invece funziona.
+    """
+    if not isinstance(rapporto, dict):
+        return "TERZO_STATO"
+    nc = rapporto.get("null_check") or {}
+    sc = rapporto.get("schema") or {}
+    if (codice == 0 and rapporto.get("verdetto") == "VALIDO"
+            and nc.get("esito") == "AMMESSO" and sc.get("disponibile") is True
+            and sc.get("n_errori") == 0):
+        return "SCHEMA_DISPONIBILE"
+    if (codice == 1 and rapporto.get("verdetto") == "NON VALIDO"
+            and nc.get("esito") == "AMMESSO" and sc.get("disponibile") is False
+            and sc.get("n_errori") == 0
+            and (sc.get("motivo_indisponibilita") or "").strip()):
+        return "SCHEMA_INDISPONIBILE"
+    return "TERZO_STATO"
+
+
+def sonda_capability():
+    """Il confine vero di `replay_validate`, su un pack VALIDO. NON cattura: puo' sollevare.
+
+    Chi cattura e' il gate, e in nessun altro posto. La ragione: `replay_validate.main` propaga
+    al chiamante un'eccezione non-`Guasto` che venga da `valida_schema`, e quell'eccezione non e'
+    un ambiente incompleto — e' un guasto. Convertirla in «schema indisponibile» sarebbe
+    fabbricare provisioning assente.
+
+    Nessuna fixture nuova: il contratto e il pack valido sono quelli che questo banco gia' porta.
+    """
+    d = tempfile.mkdtemp(prefix="sonda-capability-")
+    try:
+        con = os.path.join(d, "contratto.txt")
+        with open(con, "w", encoding="utf-8", newline="\n") as f:
+            f.write(contratto())
+        raw = os.path.join(d, "sonda.raw.txt")
+        with open(raw, "w", encoding="utf-8", newline="\n") as f:
+            f.write(raw_da(pack_valido()))
+        uscita = io.StringIO()
+        with contextlib.redirect_stdout(uscita), contextlib.redirect_stderr(io.StringIO()):
+            codice = _rv.main(["--raw", raw, "--contratto", con])
+        testo = uscita.getvalue().strip()
+        return classifica_sonda(codice, json.loads(testo) if testo else None)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def oracle_ripristino():
+    """L'ORACLE del ripristino: identita' del seam che questo banco sostituisce DAVVERO.
+
+    Il seam e' `pack_repair.ripara`, e lo sostituisce `P10` per contare i passaggi di
+    riparazione. Sorvegliare qualcos'altro — per esempio un attributo di
+    `replay_validate`, che questo file importa ma non tocca mai — darebbe un controllo che non
+    puo' fallire: un oracle senza bersaglio e' un verde fabbricato, e conta come tale.
+
+    Non chiama la sonda e non la influenza: legge soltanto un'identita' di attributo sul
+    riferimento al modulo GIA' IMPORTATO.
+    """
+    return {"pack_repair.ripara": pr.ripara}
+
+
 def main():
-    print(f"pack_repair_selftest — {len(ESITI)} prove\n")
-    falliti = []
+    """UNA invocazione, UNA sonda, UNA valutazione decisionale.
+
+    QUI, E SOLTANTO QUI, si cattura l'eccezione che la sonda ha lasciato salire. Non esiste un
+    `try` attorno a `main()`: una rete esterna farebbe morire il processo senza riepilogo, e
+    l'osservatore del terzo stato — che pretende una riga rossa NOMINATA — sparirebbe.
+    """
+    try:
+        stato = sonda_capability()
+    except BaseException as e:                                            # noqa: BLE001
+        stato, diagnostica = "TERZO_STATO", f"{type(e).__name__}: {e}"
+    else:
+        diagnostica = None
+
+    istantanea = oracle_ripristino()
+    return _corpo(stato, diagnostica, istantanea)
+
+
+def _corpo(stato, diagnostica, istantanea):
+    print(f"pack_repair_selftest — {len(ESITI)} prove — provisioning: {stato}\n")
+
+    if stato == "TERZO_STATO":
+        # Il gate si arresta PRIMA delle prove: nessuna viene avviata, e non si dichiara non
+        # applicabile nulla, perche' non si e' accertato nulla. Un terzo stato non e' un ambiente
+        # incompleto: e' un guasto, e si presenta nominato invece che come traceback.
+        print(f"  {ETICHETTA_ROSSA} provisioning  TERZO_STATO — "
+              f"{diagnostica or 'la sonda non ha prodotto uno stato ammesso'}")
+        print("\n  gate di provisioning: ROSSO")
+        print("  nessuna prova avviata")
+        return 1
+
+    non_applicabili = (set(DIPENDENTI_DALLO_SCHEMA)
+                       if stato == "SCHEMA_INDISPONIBILE" else set())
+    # `verdi` e' un ELENCO DI NOMI, non un contatore. La differenza non e' di stile: i tre
+    # registri — verdi, falliti, saltate — sono la sola prova che una prova abbia ricevuto
+    # un esito, e un contatore non sa dire QUALE nome ha contato.
+    falliti, verdi, saltate = [], [], []
     for nome, desc, f in ESITI:
+        if nome in non_applicabili:
+            # non si esegue fingendo aspettative diverse: o intera, o per niente
+            saltate.append(nome)
+            print(f"  {ETICHETTA_NA} {nome:<4} {desc} — {MOTIVO_NA}")
+            continue
         try:
             f()
-            print(f"  [verde] {nome:<4} {desc}")
+            verdi.append(nome)
+            print(f"  {ETICHETTA_VERDE} {nome:<4} {desc}")
         except Exception as e:                                            # noqa: BLE001
             falliti.append((nome, e))
-            print(f"  [ROSSO] {nome:<4} {desc}\n          {type(e).__name__}: {e}")
-    print()
-    if falliti:
-        print(f"  {len(ESITI) - len(falliti)}/{len(ESITI)} verdi — ROSSE: "
-              + ", ".join(n for n, _ in falliti))
-        return 1
-    print(f"  {len(ESITI)}/{len(ESITI)} verdi")
-    return 0
+            print(f"  {ETICHETTA_ROSSA} {nome:<4} {desc}\n          {type(e).__name__}: {e}")
+
+    guasti = []
+    if stato == "SCHEMA_DISPONIBILE" and saltate:
+        guasti.append(f"non applicabili con capability presente: {sorted(saltate)}")
+    # LE DUE CLAUSOLE DEL RUOLO D'APPELLO. Sorvegliano questo, e nient'altro:
+    #
+    #   (a) i nomi REGISTRATI in `ESITI` sono esattamente quelli ATTESI — se una prova perde
+    #       il decoratore, o ne compare una di troppo, o un nome e' ripetuto, cade qui;
+    #   (b) ogni nome atteso ha ricevuto UNO DEI TRE ESITI — verde, rossa, o non applicabile.
+    #       I tre registri sono l'unica testimonianza dell'esito, quindi un nome che non
+    #       compare in nessuno dei tre non e' stato deciso: e' stato saltato, comunque lo si
+    #       sia saltato, e in qualunque punto del ciclo sia stato inserito il salto.
+    #
+    # E' (b) a cogliere lo skip silenzioso: prima, `saltate` veniva confrontata con
+    # `DIPENDENTI_DALLO_SCHEMA`, cioe' due derivati della STESSA costante, e un `continue`
+    # introdotto altrove nel ciclo passava indisturbato — misurato: exit 0 su entrambe le
+    # piattaforme, con la prova sparita da ogni riga.
+    registrate = [n for n, _d, _f in ESITI]
+    if sorted(registrate) != sorted(PROVE_ATTESE):
+        guasti.append(f"registrate e attese non coincidono: mancano "
+                      f"{sorted(set(PROVE_ATTESE) - set(registrate))}, in piu' "
+                      f"{sorted(set(registrate) - set(PROVE_ATTESE))}")
+    decise = set(verdi) | {n for n, _e in falliti} | set(saltate)
+    if decise != set(PROVE_ATTESE):
+        guasti.append(f"prove senza alcun esito: {sorted(set(PROVE_ATTESE) - decise)}")
+    # E la clausola sull'insieme dipendente, che sorveglia una proprieta' DIVERSA: che le
+    # prove dichiarate non applicabili siano esattamente quelle saltate. Coglie un nome
+    # dichiarato che non corrisponde ad alcuna prova, non uno skip introdotto altrove.
+    if stato == "SCHEMA_INDISPONIBILE" and sorted(saltate) != sorted(DIPENDENTI_DALLO_SCHEMA):
+        guasti.append("saltate e dichiarate non coincidono: "
+                      f"saltate={sorted(saltate)} dichiarate={sorted(DIPENDENTI_DALLO_SCHEMA)}")
+    finale = oracle_ripristino()
+    for chiave, atteso in istantanea.items():
+        if finale.get(chiave) is not atteso:
+            guasti.append(f"ripristino: `{chiave}` non e' stato ripristinato")
+
+    print(f"\n  gate di provisioning: {'verde' if not guasti else 'ROSSO'}")
+    for g in guasti:
+        print(f"    · {g}")
+    if saltate:
+        print(f"  NON APPLICABILI ({len(saltate)}): {', '.join(saltate)} — {MOTIVO_NA}")
+        print(f"  {len(verdi)}/{len(verdi) + len(falliti)} applicabili verdi"
+              + (f" — ROSSE: {', '.join(n for n, _e in falliti)}" if falliti else ""))
+    else:
+        print(f"  {len(verdi)}/{len(verdi) + len(falliti)} verdi"
+              + (f" — ROSSE: {', '.join(n for n, _e in falliti)}" if falliti else ""))
+    return 1 if (falliti or guasti) else 0
 
 
 if __name__ == "__main__":
