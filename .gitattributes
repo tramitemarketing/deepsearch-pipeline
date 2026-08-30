@@ -1,0 +1,56 @@
+# Terminatori di riga: LF nel repository e LF sul disco, su ogni piattaforma.
+#
+# La ragione e' un difetto accaduto, non una preferenza di stile.
+# `provenance_check.identico_al_blob` confronta i BYTE GREZZI del file su disco con
+# il blob del commit dichiarato — per scelta dichiarata e falsificata (P10):
+# confrontare il digest normalizzato col blob lascerebbe passare un checkout CRLF
+# manomesso. Un working tree materializzato CRLF rende quindi ogni file di testo
+# difforme dal proprio blob, e il controllo di provenienza del §0-pre-pre ferma il
+# run prima di qualunque scrittura. E' accaduto al secondo canary il 2026-08-30:
+# `.claude/agents/source-verifier.md`, 4926 byte su disco contro 4823 nel blob —
+# 103 CR di differenza e non un carattere di contenuto.
+#
+# Come i CR sono arrivati sul disco. Il clone del 2026-08-09 alle 14:52:34 ha
+# materializzato il working tree sotto `core.autocrlf=true`, che
+# `C:/Program Files/Git/etc/gitconfig` impone a livello di sistema e che un clone
+# appena fatto non contraddice: CRLF sul disco, blob LF nell'indice. Tre minuti e
+# trenta secondi dopo, alle 14:56:04, `.git/config` e' stato riscritto e oggi porta
+# l'override locale `core.autocrlf=false` con `core.eol=lf`. Quell'override governa
+# le conversioni successive e non riconverte nulla: i file gia' materializzati sono
+# rimasti CRLF.
+#
+# Perche' nessuno li ha visti. Non per una normalizzazione di Git: nella
+# configurazione vigente — `autocrlf=false`, `eol=lf`, nessun `.gitattributes` —
+# `git status` e `git diff` confrontano i byte grezzi, e i venticinque file
+# difformi li avrebbero mostrati se li avessero riletti. Non li hanno riletti. La
+# stat-cache dell'indice porta per ogni voce la dimensione e l'mtime osservati al
+# checkout, quelli combaciavano ancora con i file CRLF sul disco, e una voce
+# invariata per stat significa contenuto assunto invariato: il file non viene
+# riaperto ne' riesaminato. La baseline del run era quindi soddisfatta e cieca
+# insieme per una scorciatoia di prestazione, non per una conversione.
+#
+# `eol=lf` vincola il CHECKOUT e prevale su `core.autocrlf`, quindi la politica vive
+# qui — versionata, uguale per ogni clone — invece che in `.git/config`, un file che
+# nessun clone porta con se'.
+#
+# Il limite, dichiarato perche' non venga scambiato per una garanzia. Questo file
+# rende corretto il CHECKOUT: un clone o un checkout normale materializza LF anche
+# dove `core.autocrlf=true` e' in vigore. Non garantisce da solo la conformita' dei
+# BYTE sul disco. Un editor, uno strumento esterno, una sincronizzazione o una
+# successiva operazione di staging possono riscrivere un file con altri terminatori,
+# e questo file non lo impedisce ne' lo segnala; la stat-cache che ha reso cieca la
+# baseline del 2026-08-30 e' ancora li' e continuerebbe a tacere. La garanzia
+# decisiva resta il controllo RAW dei 30 componenti prima del consumo: e' quello, e
+# non `.gitattributes`, ad accertare i byte effettivi nell'istante in cui contano.
+* text=auto eol=lf
+
+# Le immagini restano i byte che sono: nessuna euristica di testo, nessuna
+# conversione di terminatori, nessun diff testuale.
+#
+# `-eol` e' esplicito e non ridondante nella sostanza: la macro `binary` disattiva
+# `text`, `diff` e `merge`, ma NON `eol`, che la riga precedente ha gia' impostato per
+# ogni percorso. Senza `-eol` un `git check-attr` su un PNG risponde `eol: lf` — oggi
+# inerte solo perche' `eol` non ha effetto quando `text` e' disattivo. Lasciarlo
+# significherebbe far dipendere il trattamento dei binari da quell'accoppiamento
+# implicito, invece che dirlo.
+*.png binary -eol
