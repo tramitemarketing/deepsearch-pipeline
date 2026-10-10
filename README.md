@@ -1,5 +1,10 @@
 # DEEPSEARCH v2 — pipeline multi-agent per opportunita' B2B bootstrap
 
+> **V3 e V4.** Il codice di questo repository e' la DeepSearch V3 (commit `0b7088a`), quella
+> analizzata nel white paper DeepSearch V3. La V4 e' solo una proposta di design, descritta nel
+> white paper DeepSearch V4: non e' implementata, non e' in questo repository e non e' mai stata
+> provata su un run.
+
 **Su Windows l'interprete si chiama `python`, non `python3`.** Prova nell'ordine `python`, poi
 `py -3`: il primo che risponde e' quello, e usalo per tutti gli strumenti di `tools/`. Non serve
 altro — non ci sono dipendenze da installare.
